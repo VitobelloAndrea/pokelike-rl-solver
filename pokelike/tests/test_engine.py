@@ -172,7 +172,7 @@ class LegalActionsTests(unittest.TestCase):
         self.assertNotIn("moon_stone", use_item)  # blocked: fainted target
         self.assertNotIn("eviolite", use_item)  # not a usable item at all
 
-    def test_equip_item_offered_for_any_bag_item(self):
+    def test_equip_item_offered_for_passive_bag_item(self):
         eng, state = _start()
         state.items = ["eviolite"]
         actions = engine.legal_actions(state)
@@ -303,6 +303,208 @@ class NuzlockePermadeathTests(unittest.TestCase):
         self.assertEqual(state.phase, engine.Phase.GAME_OVER)
         self.assertEqual(state.team, [])
 
+    def test_nuzlocke_loss_cannot_recover_even_with_rope(self):
+        # P0.6: runBattleScreen's eligibility check is `!isBoss &&
+        # !isEndlessMode && !nuzlockeMode` (bundle.deobfuscated.js:81399-
+        # 81402) -- Nuzlocke disqualifies the rope offer regardless of a
+        # wild (non-boss) encounter and a rope being present.
+        eng, state = _start(seed=6)
+        state.nuzlocke_mode = True
+        state.items = ["escape_rope"]
+        node = next(n for n in state.map.nodes.values() if n.accessible)
+        node.type = map_gen.BATTLE
+        result = _loss(state.team)
+        with patch.object(engine.battle_loop, "run_battle", return_value=result):
+            state = eng.step(engine.VisitNode(node_id=node.id))
+        self.assertEqual(state.phase, engine.Phase.GAME_OVER)
+        self.assertEqual(state.items, ["escape_rope"])  # never consumed
+
+
+class EscapeRopeRecoveryTests(unittest.TestCase):
+    """P0.6: `runBattleScreen`'s eligible-loss branch (bundle.deobfuscated.
+    js:81388-81429) -- traced per encounter call site's `isBoss` argument,
+    not inferred from "non-boss" prose. Eligible: `doBattleNode`/wild
+    (bundle.deobfuscated.js:77724, isBoss=false), `doTrainerNode`
+    (bundle.deobfuscated.js:80327, isBoss=false), `doLegendaryNode`
+    (bundle.deobfuscated.js:80439, isBoss=false). Ineligible: gym leader
+    (`doBossNode`, isBoss=true), Elite Four (`doElite4`, isBoss=true),
+    Silver (`doSilverNode`, isBoss=true), Magma/Aqua (`doAdminNode`,
+    isBoss=true) -- regardless of a rope in the bag.
+    """
+
+    def test_eligible_wild_loss_with_rope_enters_nonterminal_choice(self):
+        eng, state = _start(seed=20)
+        state.items = ["escape_rope"]
+        node = next(n for n in state.map.nodes.values() if n.accessible)
+        node.type = map_gen.BATTLE
+        result = _loss(state.team)
+        with patch.object(engine.battle_loop, "run_battle", return_value=result):
+            state = eng.step(engine.VisitNode(node_id=node.id))
+        self.assertEqual(state.phase, engine.Phase.ESCAPE_ROPE_CHOICE)
+        self.assertFalse(state.game_over)
+        actions = engine.legal_actions(state)
+        self.assertEqual(actions, {"select_option": {"indices": [0], "optional": True}})
+
+    def test_accepting_consumes_one_rope_and_sets_only_last_member_to_1hp(self):
+        eng, state = _start(seed=20)
+        state.team.append(_mon(4, level=5))
+        state.items = ["oran_berry", "escape_rope"]
+        node = next(n for n in state.map.nodes.values() if n.accessible)
+        node.type = map_gen.BATTLE
+        result = _loss(state.team)
+        with patch.object(engine.battle_loop, "run_battle", return_value=result):
+            state = eng.step(engine.VisitNode(node_id=node.id))
+        state = eng.step(engine.SelectOption(index=0))
+        self.assertEqual(state.items, ["oran_berry"])  # exactly the rope removed
+        self.assertEqual(state.team[0].current_hp, 0)
+        self.assertEqual(state.team[-1].current_hp, 1)  # only the FINAL member, per source
+        self.assertTrue(state.escaped_via_rope)
+
+    def test_accepting_wild_battle_advances_node_without_xp_or_evolution(self):
+        eng, state = _start(seed=20)
+        state.team[0] = _mon(4, level=15)  # Charmander, one level short of evolving at 16
+        state.items = ["escape_rope"]
+        node = next(n for n in state.map.nodes.values() if n.accessible)
+        node.type = map_gen.BATTLE
+        result = _loss(state.team)
+        with patch.object(engine.battle_loop, "run_battle", return_value=result):
+            state = eng.step(engine.VisitNode(node_id=node.id))
+        state = eng.step(engine.SelectOption(index=0))
+        self.assertEqual(state.phase, engine.Phase.ON_MAP)
+        self.assertTrue(node.visited)
+        self.assertEqual(state.team[0].level, 15)  # no XP from a recovered loss
+        self.assertEqual(state.team[0].species_id, 4)  # no evolution check ran either
+
+    def test_accepting_trainer_battle_advances_node(self):
+        eng, state = _start(seed=20)
+        state.items = ["escape_rope"]
+        node = next(n for n in state.map.nodes.values() if n.accessible)
+        node.type = map_gen.TRAINER
+        result = _loss(state.team)
+        with patch.object(engine.battle_loop, "run_battle", return_value=result):
+            state = eng.step(engine.VisitNode(node_id=node.id))
+        state = eng.step(engine.SelectOption(index=0))
+        self.assertEqual(state.phase, engine.Phase.ON_MAP)
+        self.assertTrue(node.visited)
+
+    def test_accepting_legendary_battle_still_offers_the_catch(self):
+        # Traced: doLegendaryNode's runBattleScreen call is isBoss=false
+        # (bundle.deobfuscated.js:80439), so its loss branch offers Escape
+        # Rope same as a wild battle; accepting re-enters the SAME success
+        # callback a win would (mark-caught/show-swap-screen), per source.
+        eng, state = _start(seed=20)
+        state.items = ["escape_rope"]
+        node = next(n for n in state.map.nodes.values() if n.accessible)
+        node.type = map_gen.LEGENDARY
+        node.extra["legendarySpeciesId"] = 144  # Articuno
+        result = _loss(state.team)
+        with patch.object(engine.battle_loop, "run_battle", return_value=result):
+            state = eng.step(engine.VisitNode(node_id=node.id))
+        self.assertEqual(state.phase, engine.Phase.ESCAPE_ROPE_CHOICE)
+        state = eng.step(engine.SelectOption(index=0))
+        # `offer_catch` ran (not GAME_OVER) -- team had room, so `_try_add_to_team`
+        # auto-adds the legendary and returns straight to ON_MAP, matching an
+        # actual win's same continuation (`test_legendary_node_uses_preassigned_
+        # species_and_autocatches` in TradeAndLegendaryAndShinyTests).
+        self.assertEqual(state.phase, engine.Phase.ON_MAP)
+        self.assertEqual(len(state.team), 2)
+        self.assertEqual(state.team[1].species_id, 144)
+
+    def test_declining_reaches_game_over_without_consuming_rope(self):
+        eng, state = _start(seed=20)
+        state.items = ["escape_rope"]
+        node = next(n for n in state.map.nodes.values() if n.accessible)
+        node.type = map_gen.BATTLE
+        result = _loss(state.team)
+        with patch.object(engine.battle_loop, "run_battle", return_value=result):
+            state = eng.step(engine.VisitNode(node_id=node.id))
+        state = eng.step(engine.SelectOption(index=None))
+        self.assertEqual(state.phase, engine.Phase.GAME_OVER)
+        self.assertTrue(state.game_over)
+        self.assertEqual(state.items, ["escape_rope"])
+        self.assertFalse(state.escaped_via_rope)
+
+    def test_no_rope_reaches_game_over_immediately(self):
+        eng, state = _start(seed=20)
+        state.items = []
+        node = next(n for n in state.map.nodes.values() if n.accessible)
+        node.type = map_gen.BATTLE
+        result = _loss(state.team)
+        with patch.object(engine.battle_loop, "run_battle", return_value=result):
+            state = eng.step(engine.VisitNode(node_id=node.id))
+        self.assertEqual(state.phase, engine.Phase.GAME_OVER)
+
+    def test_boss_loss_with_rope_cannot_recover(self):
+        eng, state = _start(seed=20)
+        state.items = ["escape_rope"]
+        boss = state.map.layers[-1][0]
+        boss.accessible = True
+        result = _loss(state.team)
+        with patch.object(engine.battle_loop, "run_battle", return_value=result):
+            state = eng.step(engine.VisitNode(node_id=boss.id))
+        self.assertEqual(state.phase, engine.Phase.GAME_OVER)
+        self.assertEqual(state.items, ["escape_rope"])
+
+    def test_elite_four_loss_with_rope_cannot_recover(self):
+        eng, state = _start(seed=20)
+        state.items = ["escape_rope"]
+        state.current_map = 8
+        boss = state.map.layers[-1][0]
+        boss.accessible = True
+        result = _loss(state.team)
+        with patch.object(engine.battle_loop, "run_battle", return_value=result):
+            state = eng.step(engine.VisitNode(node_id=boss.id))
+        self.assertEqual(state.phase, engine.Phase.GAME_OVER)
+        self.assertEqual(state.items, ["escape_rope"])
+
+    def test_silver_loss_with_rope_cannot_recover(self):
+        eng, state = _start(seed=20)
+        state.items = ["escape_rope"]
+        node = next(n for n in state.map.nodes.values() if n.accessible)
+        node.type = map_gen.SILVER
+        result = _loss(state.team)
+        with patch.object(engine.battle_loop, "run_battle", return_value=result):
+            state = eng.step(engine.VisitNode(node_id=node.id))
+        self.assertEqual(state.phase, engine.Phase.GAME_OVER)
+        self.assertEqual(state.items, ["escape_rope"])
+
+    def test_magma_admin_loss_with_rope_cannot_recover(self):
+        eng, state = _start(seed=20)
+        state.items = ["escape_rope"]
+        node = next(n for n in state.map.nodes.values() if n.accessible)
+        node.type = map_gen.MAGMA
+        result = _loss(state.team)
+        with patch.object(engine.battle_loop, "run_battle", return_value=result):
+            state = eng.step(engine.VisitNode(node_id=node.id))
+        self.assertEqual(state.phase, engine.Phase.GAME_OVER)
+        self.assertEqual(state.items, ["escape_rope"])
+
+    def test_multiple_ropes_consume_only_the_first_matching_entry(self):
+        eng, state = _start(seed=20)
+        state.items = ["leftovers", "escape_rope", "escape_rope"]
+        node = next(n for n in state.map.nodes.values() if n.accessible)
+        node.type = map_gen.BATTLE
+        result = _loss(state.team)
+        with patch.object(engine.battle_loop, "run_battle", return_value=result):
+            state = eng.step(engine.VisitNode(node_id=node.id))
+        state = eng.step(engine.SelectOption(index=0))
+        self.assertEqual(state.items, ["leftovers", "escape_rope"])  # index 1 removed, not index 2
+
+    def test_state_serialization_describes_pending_escape_rope_choice(self):
+        from pokelike.webui import state_json
+
+        eng, state = _start(seed=20)
+        state.items = ["escape_rope"]
+        node = next(n for n in state.map.nodes.values() if n.accessible)
+        node.type = map_gen.BATTLE
+        result = _loss(state.team)
+        with patch.object(engine.battle_loop, "run_battle", return_value=result):
+            state = eng.step(engine.VisitNode(node_id=node.id))
+        payload = state_json.encode_state(state)
+        self.assertEqual(payload["phase"], "escape_rope_choice")
+        self.assertEqual(payload["pending"]["phase"], "escape_rope_choice")
+        self.assertTrue(payload["pending"]["optional"])
+
 
 class CatchAndSwapTests(unittest.TestCase):
     def test_catch_node_presents_choices_and_adds_to_team(self):
@@ -400,6 +602,82 @@ class QuestionNodeTests(unittest.TestCase):
             first = engine._resolve_question(state, node)
         with patch.object(engine.rng, "rng", return_value=0.90):
             second = engine._resolve_question(state, node)
+        self.assertEqual(first, second)
+
+
+class QuestionNodeShinyBonusTests(unittest.TestCase):
+    """P0.4: resolveQuestionMark's additive shiny-node bonus
+    (bundle.deobfuscated.js:77397-77430) -- +0.07 for `hasShinyCharm()`
+    (`state.shiny_charm`) and +0.07 for an enabled `shiny_rate` passive,
+    added together (not the multiplicative doubling `_shiny_chance` uses)."""
+
+    def _probe(self, state, roll):
+        node = map_gen.MapNode(
+            id=f"probe_{roll}_{id(state)}", type=map_gen.QUESTION, layer=0, col=0, accessible=True,
+        )
+        state.map.nodes[node.id] = node
+        with patch.object(engine.rng, "rng", return_value=roll):
+            return engine._resolve_question(state, node)
+
+    def test_no_bonus_upper_bound_is_072(self):
+        eng, state = _start(seed=9)
+        self.assertEqual(self._probe(state, 0.71999), "shiny")
+        self.assertEqual(self._probe(state, 0.72), "mega")
+
+    def test_shiny_charm_only_shifts_cutoff_to_079(self):
+        eng = engine.Engine()
+        state = eng.reset(seed=9, shiny_charm=True)
+        starter_id = state.pending.options[0]["species_id"]
+        state = eng.step(engine.ChooseStarter(species_id=starter_id))
+        self.assertEqual(self._probe(state, 0.75), "shiny")
+        self.assertEqual(self._probe(state, 0.78999), "shiny")
+        self.assertEqual(self._probe(state, 0.79), "mega")
+
+    def test_shiny_rate_passive_only_shifts_cutoff_to_079(self):
+        eng = engine.Engine()
+        state = eng.reset(seed=9, passives=[battle.Trait("shiny_rate")])
+        starter_id = state.pending.options[0]["species_id"]
+        state = eng.step(engine.ChooseStarter(species_id=starter_id))
+        self.assertEqual(self._probe(state, 0.75), "shiny")
+        self.assertEqual(self._probe(state, 0.78999), "shiny")
+        self.assertEqual(self._probe(state, 0.79), "mega")
+
+    def test_shiny_rate_passive_disabled_gives_no_bonus(self):
+        eng = engine.Engine()
+        state = eng.reset(seed=9, passives=[battle.Trait("shiny_rate", enabled=False)])
+        starter_id = state.pending.options[0]["species_id"]
+        state = eng.step(engine.ChooseStarter(species_id=starter_id))
+        self.assertEqual(self._probe(state, 0.75), "mega")
+
+    def test_both_bonuses_stack_additively_to_086(self):
+        eng = engine.Engine()
+        state = eng.reset(seed=9, shiny_charm=True, passives=[battle.Trait("shiny_rate")])
+        starter_id = state.pending.options[0]["species_id"]
+        state = eng.step(engine.ChooseStarter(species_id=starter_id))
+        self.assertEqual(self._probe(state, 0.85999), "shiny")
+        self.assertEqual(self._probe(state, 0.86), "mega")
+
+    def test_roll_075_reproduction_with_shiny_charm(self):
+        # Concrete repro: pre-fix Python resolved this as "mega" because
+        # hasShinyCharm() was never threaded into the cutoff at all.
+        eng = engine.Engine()
+        state = eng.reset(seed=9, shiny_charm=True)
+        starter_id = state.pending.options[0]["species_id"]
+        state = eng.step(engine.ChooseStarter(species_id=starter_id))
+        self.assertEqual(self._probe(state, 0.75), "shiny")
+
+    def test_cached_resolution_consumes_no_further_rng_draw(self):
+        eng = engine.Engine()
+        state = eng.reset(seed=9, shiny_charm=True)
+        starter_id = state.pending.options[0]["species_id"]
+        state = eng.step(engine.ChooseStarter(species_id=starter_id))
+        node = next(n for n in state.map.nodes.values() if n.accessible)
+        node.type = map_gen.QUESTION
+        with patch.object(engine.rng, "rng", return_value=0.75) as mock_rng:
+            first = engine._resolve_question(state, node)
+            self.assertEqual(mock_rng.call_count, 1)
+            second = engine._resolve_question(state, node)
+            self.assertEqual(mock_rng.call_count, 1)
         self.assertEqual(first, second)
 
 
@@ -735,6 +1013,84 @@ class MoveTutorAndItemTests(unittest.TestCase):
         state.question_cache[node.id] = "mega"
         state = eng.step(engine.VisitNode(node_id=node.id))
         self.assertIn(state.phase, (engine.Phase.ITEM_CHOICE, engine.Phase.ON_MAP))
+
+
+class EquipItemLegalityTests(unittest.TestCase):
+    """P0.5: the source's team-bar click handler
+    (bundle.deobfuscated.js:64943-64950) routes `item.usable` items only to
+    `applyUsableItemTo`/`UseItem`, never `equipItemFromBag`/`EquipItem` --
+    the low-level helper itself has no such check, but the public action
+    surface must preserve the dispatch distinction."""
+
+    def test_mixed_bag_exposes_only_passive_equip_indices(self):
+        eng, state = _start(seed=20)
+        state.items = ["rare_candy", "eviolite", "moon_stone", "leftovers", "tm_normal"]
+        actions = engine.legal_actions(state)
+        self.assertEqual(actions["equip_item"]["bag_indices"], [1, 3])
+
+    def test_usable_items_remain_exposed_through_use_item(self):
+        eng, state = _start(seed=20)
+        state.items = ["rare_candy", "eviolite"]
+        actions = engine.legal_actions(state)
+        self.assertIn("rare_candy", {e["item_id"] for e in actions["use_item"]})
+
+    def test_direct_rare_candy_equip_attempt_is_rejected(self):
+        eng, state = _start(seed=20)
+        state.items = ["rare_candy"]
+        with self.assertRaises(ValueError):
+            eng.step(engine.EquipItem(bag_index=0, team_index=0))
+
+    def test_direct_sacred_ash_equip_attempt_is_rejected(self):
+        eng, state = _start(seed=20)
+        state.items = ["sacred_ash"]
+        with self.assertRaises(ValueError):
+            eng.step(engine.EquipItem(bag_index=0, team_index=0))
+
+    def test_direct_moon_stone_equip_attempt_is_rejected(self):
+        eng, state = _start(seed=20)
+        state.items = ["moon_stone"]
+        with self.assertRaises(ValueError):
+            eng.step(engine.EquipItem(bag_index=0, team_index=0))
+
+    def test_direct_tm_equip_attempt_is_rejected(self):
+        eng, state = _start(seed=20)
+        state.items = ["tm_normal"]
+        with self.assertRaises(ValueError):
+            eng.step(engine.EquipItem(bag_index=0, team_index=0))
+
+    def test_rejected_equip_leaves_bag_and_held_item_unchanged(self):
+        eng, state = _start(seed=20)
+        state.team[0].held_item = battle.HeldItem(id="leftovers")
+        state.items = ["moon_stone", "eviolite"]
+        with self.assertRaises(ValueError):
+            eng.step(engine.EquipItem(bag_index=0, team_index=0))
+        self.assertEqual(state.items, ["moon_stone", "eviolite"])
+        self.assertEqual(state.team[0].held_item.id, "leftovers")
+
+    def test_unknown_item_id_is_rejected_not_silently_equipped(self):
+        eng, state = _start(seed=20)
+        state.items = ["totally_bogus_item"]
+        with self.assertRaises(ValueError):
+            eng.step(engine.EquipItem(bag_index=0, team_index=0))
+        self.assertEqual(state.items, ["totally_bogus_item"])
+        self.assertIsNone(state.team[0].held_item)
+
+    def test_ordinary_held_item_equip_and_swap_still_works(self):
+        eng, state = _start(seed=20)
+        state.team[0].held_item = battle.HeldItem(id="leftovers")
+        state.items = ["eviolite"]
+        state = eng.step(engine.EquipItem(bag_index=0, team_index=0))
+        self.assertEqual(state.team[0].held_item.id, "eviolite")
+        self.assertEqual(state.items, ["leftovers"])  # old held item pushed back to bag
+
+    def test_api_action_path_inherits_engine_rejection(self):
+        from pokelike.webui import state_json
+
+        eng, state = _start(seed=20)
+        state.items = ["rare_candy"]
+        action = state_json.decode_action({"type": "EquipItem", "bag_index": 0, "team_index": 0})
+        with self.assertRaises(ValueError):
+            eng.step(action)
 
 
 class TradeAndLegendaryAndShinyTests(unittest.TestCase):

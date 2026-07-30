@@ -123,6 +123,10 @@ _STARTER_LEVEL = 5
 # `some(id === "shiny_rate" && enabled !== true)` opt-out check.
 _SHINY_RATE_TRAIT_ID = "shiny_rate"
 
+# CODEX.md P0.6: bag item id `runBattleScreen`'s eligible-loss branch
+# searches for (bundle.deobfuscated.js:81400-81402).
+_ESCAPE_ROPE_ITEM_ID = "escape_rope"
+
 # `doCatchNode`'s Gen1-Nuzlocke, map-0-only restricted candidate set
 # (bundle.deobfuscated.js:78538-78541) -- CODEX.md issue 10.
 _GEN1_NUZLOCKE_MAP0_RESTRICTED = frozenset(
@@ -157,6 +161,7 @@ class Phase(str, Enum):
     ITEM_CHOICE = "item_choice"
     ITEM_EQUIP_CHOICE = "item_equip_choice"
     TRADE_CHOICE = "trade_choice"
+    ESCAPE_ROPE_CHOICE = "escape_rope_choice"
     NEXT_MAP_READY = "next_map_ready"
     GAME_OVER = "game_over"
     VICTORY = "victory"
@@ -247,13 +252,21 @@ class UseItem:
 
 @dataclass(frozen=True)
 class EquipItem:
-    """Valid only when `RunState.phase == Phase.ON_MAP`. Port of
-    `equipItemFromBag` (CODEX.md issues 9/16): moves
+    """Valid only when `RunState.phase == Phase.ON_MAP`. Port of the source's
+    public equip surface, not just the low-level `equipItemFromBag` helper in
+    isolation (CODEX.md issues 9/16, P0.5). `equipItemFromBag` itself
+    (bundle.deobfuscated.js:79652-79671) applies no item-type check -- but
+    its only caller, the team-bar click handler
+    (bundle.deobfuscated.js:64943-64950), routes `item.usable` items to
+    `applyUsableItemTo` instead and never calls `equipItemFromBag` for them:
+    `if (it.usable) { ... applyUsableItemTo ... } else equipItemFromBag(...)`.
+    So a usable item can never actually reach `equipItemFromBag` in the real
+    game. This action models that reachable public surface: moves
     `RunState.items[bag_index]` onto `RunState.team[team_index].held_item`,
-    pushing whatever was already held back into the bag. The source applies
-    no type restriction here (any bag item, usable or passive, can be
-    "equipped"), replicated as-is per CLAUDE.md's "preserve unusual source
-    behavior" convention.
+    pushing whatever was already held back into the bag, but only for a
+    recognized non-usable (passive/held) item id -- a usable item id, or an
+    unrecognized item id, raises `ValueError` before any bag/held-item
+    mutation.
     """
 
     bag_index: int
@@ -302,6 +315,7 @@ class RunState:
     used_tm: bool = False
     used_ball_catch: bool = False
     got_via_question: bool = False
+    escaped_via_rope: bool = False  # `state._escapedViaRope` (bundle.deobfuscated.js:81412), CODEX.md P0.6
 
     question_cache: dict = field(default_factory=dict)  # node id -> resolved type string
 
@@ -341,19 +355,24 @@ def legal_actions(state: RunState) -> dict:
 
     - `{"choose_starter": {"species_ids": [...]}}` -- `Phase.CHOOSE_STARTER`.
     - `{"select_option": {"indices": [...], "optional": bool}}` -- any
-      `PendingChoice` phase (catch/swap/evolution/move-tutor/item/trade).
-      `indices` is `range(len(pending.options))`; `None` is also legal
-      (skip/decline) iff `optional` is True.
+      `PendingChoice` phase (catch/swap/evolution/move-tutor/item/trade/
+      escape-rope). `indices` is `range(len(pending.options))`; `None` is
+      also legal (skip/decline) iff `optional` is True -- for
+      `Phase.ESCAPE_ROPE_CHOICE` (CODEX.md P0.6) this is always True:
+      `index=0` accepts (consumes the rope), `None` declines (immediate
+      `GAME_OVER`), matching the source's two `btn-continue-battle` click
+      handlers.
     - `{"advance_map": True}` -- `Phase.NEXT_MAP_READY`.
     - On `Phase.ON_MAP`: `"visit_node"` (accessible node ids), and, if
       applicable, `"reorder_team"` (current team size, so a caller knows
       what permutation length is legal), `"use_item"` (one entry per bag
       item that's usable AND has at least one eligible target, each with
       its own `target_indices` from `_usable_item_can_target`), and
-      `"equip_item"` (every bag index / team index pair is legal -- the
-      source itself applies no item-type restriction here, CODEX.md issue
-      16, replicated as-is rather than adding a restriction the engine
-      doesn't have).
+      `"equip_item"` (bag indices restricted to recognized non-usable
+      items only, paired with every team index -- CODEX.md P0.5: the
+      source's team-bar click handler never routes a usable item to
+      `equipItemFromBag`, see `EquipItem`'s docstring, so usable-item bag
+      indices are excluded here the same way).
     - `{}` on `Phase.GAME_OVER`/`Phase.VICTORY` (or a `None` map) -- no
       legal actions, the run has ended.
     """
@@ -384,11 +403,14 @@ def legal_actions(state: RunState) -> dict:
                 use_item.append({"item_index": item_idx, "item_id": item_id, "target_indices": targets})
         if use_item:
             result["use_item"] = use_item
-        if state.items and state.team:
-            result["equip_item"] = {
-                "bag_indices": list(range(len(state.items))),
-                "team_indices": list(range(len(state.team))),
-            }
+        if state.team:
+            passive_ids = _passive_item_ids()
+            equip_bag_indices = [i for i, item_id in enumerate(state.items) if item_id in passive_ids]
+            if equip_bag_indices:
+                result["equip_item"] = {
+                    "bag_indices": equip_bag_indices,
+                    "team_indices": list(range(len(state.team))),
+                }
         return result
     return {}
 
@@ -900,15 +922,40 @@ def _after_battle(
     *,
     all_team_xp: bool = False,
     no_permadeath: bool = False,
+    rope_eligible: bool = False,
+    rope_continuation: Optional[list] = None,
 ) -> bool:
     """Port of the sequence `runBattleScreen` runs immediately after a
     battle resolves, MINUS the evolution check (a separate resumable step,
     see `_run_todo`): apply level gain, then (Nuzlocke) cull fainted team
     members, then decide whether the run continues
     (docs/logic-notes-runlifecycle.md sections 5-6). Returns False if the
-    run just ended (loss, or a Nuzlocke total wipe) -- callers must stop
-    processing immediately when this returns False, `state.phase` is
-    already `GAME_OVER`.
+    run just ended (loss, or a Nuzlocke total wipe) OR an eligible loss
+    raised `Phase.ESCAPE_ROPE_CHOICE` instead -- callers must stop
+    processing immediately when this returns False; `state.phase` is
+    already set to whichever of the two applies.
+
+    `rope_eligible`/`rope_continuation` model `runBattleScreen`'s loss
+    branch (bundle.deobfuscated.js:81388-81429), CODEX.md P0.6: on a loss,
+    the source finds `state["items"].findIndex(id === "escape_rope")` ONLY
+    when its own second `isBoss` argument is falsy AND `!isEndlessMode`
+    AND `!nuzlockeMode` -- traced per call site (not inferred from "non-
+    boss" prose):
+    `doBattleNode`/wild (bundle.deobfuscated.js:77724, isBoss=false),
+    `doTrainerNode`/regular trainer (bundle.deobfuscated.js:80327,
+    isBoss=false), and, confirmed by direct read despite reading as
+    unusual, `doLegendaryNode` (bundle.deobfuscated.js:80439, isBoss=false)
+    ARE eligible; `doBossNode`/gym leader (bundle.deobfuscated.js:77780,
+    77829), `doElite4`/`doGen2Elite4` (bundle.deobfuscated.js:77871,
+    78379), `doSilverNode` (bundle.deobfuscated.js:77936), and
+    `doAdminNode`/Magma-Aqua (bundle.deobfuscated.js:77983) all pass
+    isBoss=true and so are NOT eligible regardless of a rope in the bag.
+    `rope_continuation` is the exact `state._todo` list the source's own
+    win-side success callback (`iu`) would install for this same call site
+    -- e.g. `[{"kind": "advance", ...}]` for a wild/trainer win, minus the
+    `evolve` step, since accepting the rope re-enters that SAME success
+    callback without ever running any of the win-branch code (level gain,
+    Nuzlocke fainted-cull, evolution check) that precedes it in the source.
     """
     _log(
         state,
@@ -926,6 +973,18 @@ def _after_battle(
             if mon.current_hp <= 0 and mon.held_item is not None:
                 state.items.append(mon.held_item.id)
         state.team = [m for m in state.team if m.current_hp > 0]
+    if not result.player_won and rope_eligible and not state.nuzlocke_mode:
+        rope_index = next((i for i, item_id in enumerate(state.items) if item_id == _ESCAPE_ROPE_ITEM_ID), None)
+        if rope_index is not None:
+            state.pending = PendingChoice(
+                phase=Phase.ESCAPE_ROPE_CHOICE,
+                options=[{"action": "use_escape_rope", "item_index": rope_index}],
+                optional=True,
+                extra={"rope_index": rope_index, "continuation": list(rope_continuation or [])},
+            )
+            state.phase = Phase.ESCAPE_ROPE_CHOICE
+            _log(state, "escape_rope_offered", rope_index=rope_index)
+            return False
     if not state.team or not result.player_won:
         state.phase = Phase.GAME_OVER
         state.game_over = True
@@ -1109,6 +1168,21 @@ def _evolve_step(state: RunState, step: dict) -> bool:
 # ---------------------------------------------------------------------------
 
 
+def _usable_item_ids() -> frozenset[str]:
+    """Bag item ids from `data.get_usable_items()` -- items the source's
+    team-bar dispatch (bundle.deobfuscated.js:64943-64950) routes to
+    `applyUsableItemTo`/`UseItem`, never `equipItemFromBag`/`EquipItem`
+    (CODEX.md P0.5)."""
+    return frozenset(item.id for item in data.get_usable_items())
+
+
+def _passive_item_ids() -> frozenset[str]:
+    """Bag item ids from `data.get_passive_items()` -- the only ids the
+    source's dispatch ever routes to `equipItemFromBag`/`EquipItem`
+    (CODEX.md P0.5)."""
+    return frozenset(item.id for item in data.get_passive_items())
+
+
 def _usable_item_can_target(item_id: str, mon: Combatant) -> bool:
     """Port of `usableItemCanTarget` (bundle.deobfuscated.js:79571-79583)."""
     if item_id == "sacred_ash":
@@ -1190,12 +1264,26 @@ def _apply_use_item(state: RunState, action: UseItem) -> None:
 
 
 def _apply_equip_item(state: RunState, action: EquipItem) -> None:
-    """Port of `equipItemFromBag` (bundle.deobfuscated.js:79652-79671)."""
+    """Port of `equipItemFromBag` (bundle.deobfuscated.js:79652-79671), gated
+    by the same item-type distinction the source's team-bar click handler
+    applies before ever calling it (bundle.deobfuscated.js:64943-64950, see
+    `EquipItem`'s docstring) -- CODEX.md P0.5. Validation happens before any
+    mutation, so a rejected attempt leaves bag order and the target's
+    current held item unchanged.
+    """
     if not (0 <= action.bag_index < len(state.items)):
         raise ValueError(f"no such bag item index: {action.bag_index}")
     if not (0 <= action.team_index < len(state.team)):
         raise ValueError(f"no such team index: {action.team_index}")
-    item_id = state.items.pop(action.bag_index)
+    item_id = state.items[action.bag_index]
+    if item_id in _usable_item_ids():
+        raise ValueError(
+            f"{item_id} is a usable item -- it is never routed to equipItemFromBag "
+            f"in the source (bundle.deobfuscated.js:64943-64950); use UseItem instead"
+        )
+    if item_id not in _passive_item_ids():
+        raise ValueError(f"unrecognized item id, cannot equip: {item_id}")
+    state.items.pop(action.bag_index)
     mon = state.team[action.team_index]
     old_item = mon.held_item
     if old_item is not None:
@@ -1321,7 +1409,13 @@ def _resolve_question(state: RunState, node: MapNode) -> str:
     if cached is not None:
         return cached
     roll = rng.rng()
-    shiny_bonus = 0.07 if battle.has_passive(state.passives, "shiny_rate") else 0.0  # hasShinyCharm() not modeled
+    # bundle.deobfuscated.js:77399-77406: additive +0.07 per condition, not the
+    # multiplicative doubling `roll_shiny`/`_shiny_chance` use -- `hasShinyCharm()`
+    # (state.shiny_charm) and an enabled `shiny_rate` passive each contribute
+    # independently, so both present at once is +0.14, not +0.07.
+    shiny_bonus = (0.07 if state.shiny_charm else 0.0) + (
+        0.07 if battle.has_passive(state.passives, _SHINY_RATE_TRAIT_ID) else 0.0
+    )
     if roll < 0.22:
         resolved = map_gen.BATTLE
     elif roll < 0.42:
@@ -1374,7 +1468,16 @@ def _visit_battle(state: RunState, node: MapNode) -> None:
     move_tier = map_gen.get_move_tier_for_map(state.current_map)
     enemy = [_make_wild_combatant(species_id, level, move_tier=move_tier, gen2_mode=state.gen2_mode, gen4_mode=state.gen4_mode)]
     result = _run_battle(state, enemy)
-    if not _after_battle(state, result, level_gain=1):
+    # CODEX.md P0.6: `doBattleNode`'s own `runBattleScreen` call passes
+    # isBoss=false (bundle.deobfuscated.js:77724-77732) -- Escape Rope
+    # recovery is eligible on a loss here.
+    if not _after_battle(
+        state,
+        result,
+        level_gain=1,
+        rope_eligible=True,
+        rope_continuation=[{"kind": "advance", "node_id": node.id}],
+    ):
         return
     state._todo = [{"kind": "evolve", "idx": 0}, {"kind": "advance", "node_id": node.id}]
     _run_todo(state)
@@ -1407,7 +1510,16 @@ def _visit_trainer(state: RunState, node: MapNode) -> None:
         for i in range(team_size)
     ]
     result = _run_battle(state, enemy)
-    if not _after_battle(state, result, level_gain=2):
+    # CODEX.md P0.6: `doTrainerNode`'s own `runBattleScreen` call passes
+    # isBoss=false (bundle.deobfuscated.js:80327-80336) -- distinct from
+    # the gym-leader/boss node's own call, which passes isBoss=true.
+    if not _after_battle(
+        state,
+        result,
+        level_gain=2,
+        rope_eligible=True,
+        rope_continuation=[{"kind": "advance", "node_id": node.id}],
+    ):
         return
     state._todo = [{"kind": "evolve", "idx": 0}, {"kind": "advance", "node_id": node.id}]
     _run_todo(state)
@@ -1686,7 +1798,17 @@ def _visit_legendary(state: RunState, node: MapNode) -> None:
     `showSwapScreen` call from the win callback -- there is no separate
     catch-rate roll. Shiny chance uses `roll_shiny` (`legendaryShinyChanceFlat`
     plus its own inline roll at the doLegendaryNode call site are the same
-    formula/RNG draw as `rollShiny`, CODEX.md issue 5)."""
+    formula/RNG draw as `rollShiny`, CODEX.md issue 5).
+
+    CODEX.md P0.6: `doLegendaryNode`'s own `runBattleScreen` call passes
+    isBoss=false (bundle.deobfuscated.js:80439-80446) -- confirmed by direct
+    read despite reading as an unusual case for a boss-tier fight -- so an
+    eligible loss here offers Escape Rope recovery same as a wild/trainer
+    battle. Accepting re-enters the same success callback a win would have
+    (`offer_catch`), which is the source's actual behavior: the win
+    callback here is "mark caught, show the swap screen", called
+    regardless of which path (win or accepted rope) reached it.
+    """
     species_id = node.extra.get("legendarySpeciesId")
     if species_id is None:
         _advance(state, node.id)
@@ -1697,7 +1819,13 @@ def _visit_legendary(state: RunState, node: MapNode) -> None:
     caught = _make_wild_combatant(species_id, level, is_shiny=is_shiny, move_tier=2, gen2_mode=state.gen2_mode, gen4_mode=state.gen4_mode)
     enemy = [_make_wild_combatant(species_id, level, is_shiny=is_shiny, move_tier=2, gen2_mode=state.gen2_mode, gen4_mode=state.gen4_mode)]
     result = _run_battle(state, enemy)
-    if not _after_battle(state, result, level_gain=1):
+    if not _after_battle(
+        state,
+        result,
+        level_gain=1,
+        rope_eligible=True,
+        rope_continuation=[{"kind": "offer_catch", "mon": caught, "node_id": node.id}],
+    ):
         return
     state._todo = [{"kind": "evolve", "idx": 0}, {"kind": "offer_catch", "mon": caught, "node_id": node.id}]
     _run_todo(state)
@@ -1973,6 +2101,44 @@ def _resolve_trade_choice(state: RunState, action: SelectOption) -> None:
     state.phase = Phase.ON_MAP
 
 
+def _resolve_escape_rope_choice(state: RunState, action: SelectOption) -> None:
+    """Port of the two `btn-continue-battle` click handlers wired up in
+    `runBattleScreen`'s eligible-loss branch (bundle.deobfuscated.js:81388-
+    81429), CODEX.md P0.6. `action.index is None` (decline) is the button's
+    DEFAULT handler -- `B2D() || (ip && ip(), B2a(!0x1))` -- the same loss/
+    game-over callback an ineligible loss uses. `action.index == 0` (accept)
+    is the "Use Escape Rope" button's handler: consumes exactly the bag
+    entry found at offer time, zeroes every team member's HP, then sets
+    ONLY the final team-list member back to 1 HP (`state["team"][BI7]`
+    where `BI7 = length - 1`) -- an intentionally UNCHANGED, if unusual,
+    replication of the source's own behavior, not "every survivor" or "the
+    first member". Continuing then re-enters the SAME success callback
+    (`iu`) the original battle would have called on an actual win, via
+    `rope_continuation` stashed on `pending.extra` by `_after_battle` --
+    critically not the `evolve` step, since none of the win-branch
+    processing that precedes `iu()` in the source ever runs here.
+    """
+    extra = state.pending.extra
+    if action.index is None:
+        state.pending = None
+        state.phase = Phase.GAME_OVER
+        state.game_over = True
+        state._todo = []
+        _log(state, "game_over")
+        return
+    rope_index = extra["rope_index"]
+    state.items.pop(rope_index)
+    for mon in state.team:
+        mon.current_hp = 0
+    if state.team:
+        state.team[-1].current_hp = 1
+    state.escaped_via_rope = True
+    _log(state, "escape_rope_used", rope_index=rope_index)
+    state.pending = None
+    state._todo = list(extra["continuation"])
+    _run_todo(state)
+
+
 _PENDING_RESOLVERS = {
     Phase.CATCH_CHOICE: _resolve_catch_choice,
     Phase.SWAP_CHOICE: _resolve_swap_choice,
@@ -1981,6 +2147,7 @@ _PENDING_RESOLVERS = {
     Phase.ITEM_CHOICE: _resolve_item_choice,
     Phase.ITEM_EQUIP_CHOICE: _resolve_item_equip_choice,
     Phase.TRADE_CHOICE: _resolve_trade_choice,
+    Phase.ESCAPE_ROPE_CHOICE: _resolve_escape_rope_choice,
 }
 
 
