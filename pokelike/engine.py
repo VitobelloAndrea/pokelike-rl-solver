@@ -120,12 +120,25 @@ _STARTER_LEVEL = 5
 
 # `shiny_rate` trait id used by `roll_shiny`'s doubling check -- matches
 # `rollShiny`/`legendaryShinyChanceFlat`'s own `hasPassive`-style
-# `some(id === "shiny_rate" && enabled !== true)` opt-out check.
+# `some(id === "shiny_rate" && enabled !== !0x1)` check. In the deobfuscated
+# source `!0x1` evaluates to `false`, so this is the ordinary opt-out gate:
+# active unless `enabled` is explicitly false.
 _SHINY_RATE_TRAIT_ID = "shiny_rate"
 
 # CODEX.md P0.6: bag item id `runBattleScreen`'s eligible-loss branch
 # searches for (bundle.deobfuscated.js:81400-81402).
 _ESCAPE_ROPE_ITEM_ID = "escape_rope"
+
+# CODEX P0.7: Zigzagoon/Linoone dex ids -- `runBattleScreen`'s own immediate
+# post-win Gen3-only Pickup branch checks these directly by species
+# (bundle.deobfuscated.js:81230-81231), independent of the ability-driven
+# `grantPickupItem` path (`_grant_pickup_item` below).
+_GEN3_PICKUP_SPECIES = (0x107, 0x108)
+
+# CODEX P0.8: `effort_ribbon`'s flat +10 stat-buff dict (bundle.deobfuscated.js:
+# 81170-81176) -- battle-clone-only, never copied back to persistent state
+# (`_copy_back_battle_result` never touches `stat_buffs`).
+_EFFORT_RIBBON_STAT_BUFFS = {"hp": 10, "atk": 10, "def": 10, "speed": 10, "special": 10, "spdef": 10}
 
 # `doCatchNode`'s Gen1-Nuzlocke, map-0-only restricted candidate set
 # (bundle.deobfuscated.js:78538-78541) -- CODEX.md issue 10.
@@ -901,16 +914,248 @@ def _copy_back_battle_result(state: RunState, clone_team: Sequence[Combatant], p
         orig.current_hp = min(clone.current_hp, orig.max_hp)
 
 
+def _apply_mega_evolution(mon: Combatant) -> bool:
+    """Port of `syncMegaForm`/`applyMegaEvolution` (bundle.deobfuscated.js:
+    86461-86515, CODEX P0.8). Purely a function of `mon.held_item`:
+    transforms in place when the held item is a Mega Stone matching
+    `mon.species_id`, restores from the saved `_baseForm` when a
+    previously-mega'd mon no longer qualifies (item removed/swapped since
+    the last time this ran), and is a no-op in every other case (including
+    an already-mega'd mon that still qualifies -- the source's own `if`
+    chain never re-enters either branch then). `_megaEvolved`/`_baseForm`
+    live in `flags` (matching the source's own ad-hoc field names), same
+    convention as every other `Combatant.flags` entry.
+
+    **Must reassign `mon.flags`, never mutate it in place.** This runs on a
+    freshly `battle_loop.clone_combatant`'d member, BEFORE `battle_loop.
+    run_battle`'s own `_init_battle_state` gets a chance to give the clone
+    its own fresh `flags` dict -- until then, `clone.flags is
+    state.team[i].flags` (a shallow `copy.copy` shares nested mutable
+    fields). Writing `mon.flags[key] = ...` here would silently leak onto
+    the PERSISTENT roster object through that shared dict, bypassing the
+    entire `_copy_back_battle_result` contract -- exactly the "mutable
+    dict/list alias" hazard this port's tests must rule out.
+
+    Sprite/`spriteUrl` handling (`iu["megaSprite"]`/shiny-path substitution,
+    bundle.deobfuscated.js:86484-86488) is deliberately NOT ported: no
+    `Combatant` field anywhere in this engine tracks a sprite path
+    (console/web renderers key off `species_id`/`name`; CLAUDE.md's "js/
+    ui.js is reference-only"). Only the battle-relevant fields
+    (`base_stats`, `types`, `name`) are transformed/restored.
+
+    Acquisition (`isMegaBraceletUnlocked`/`ownsMegaStone`/MVP-count tiers,
+    bundle.deobfuscated.js:86387-86442 -- whether/how a player is ALLOWED to
+    equip a given Mega Stone at all) is explicitly out of scope: this
+    function, like the source's own `applyMegaEvolution`, only cares
+    whether `mon.held_item` already IS a qualifying Mega Stone.
+
+    No generation/mode gate exists in the source for the mechanic itself --
+    `BcV.forEach(applyMegaEvolution)` runs unconditionally for every
+    Story/Nuzlocke battle regardless of gen1/2/3/4 mode.
+    """
+    item = mon.held_item
+    eligible = bool(
+        item is not None
+        and item.is_mega_stone
+        and item.mega_species is not None
+        and item.mega_species == mon.species_id
+        and item.mega_stats is not None
+    )
+    was_evolved = bool(mon.flags.get("_megaEvolved"))
+    if eligible and not was_evolved:
+        mon.flags = {
+            **mon.flags,
+            "_baseForm": {"base_stats": mon.base_stats, "types": mon.types, "name": mon.name},
+            "_megaEvolved": True,
+        }
+        mon.base_stats = item.mega_stats
+        if item.mega_types:
+            mon.types = tuple(item.mega_types)
+        mon.name = item.mega_name or mon.name
+        return True
+    if not eligible and was_evolved:
+        base_form = mon.flags.get("_baseForm") or {}
+        if base_form.get("base_stats") is not None:
+            mon.base_stats = base_form["base_stats"]
+        if base_form.get("types") is not None:
+            mon.types = base_form["types"]
+        if base_form.get("name") is not None:
+            mon.name = base_form["name"]
+        mon.flags = {**mon.flags, "_megaEvolved": False, "_baseForm": None}
+        return True
+    return False
+
+
+def _shiny_first_active(passives: Sequence[Trait]) -> bool:
+    """`shiny_first`'s gate (bundle.deobfuscated.js:81136-81139) is
+    `enabled !== !0x1`. JavaScript `!0x1` is `false`, so this is the same
+    active-unless-explicitly-disabled convention as `battle.has_passive`.
+    The identical deobfuscation idiom appears for `team_reroll` and
+    `legend_traits` at lines 58434/58439 and 60702/60707/60712, and for
+    `shiny_rate` at lines 74919/74953.
+    """
+    return any(t.id == "shiny_first" and t.enabled is not False for t in (passives or ()))
+
+
+def _effort_ribbon_active(passives: Sequence[Trait]) -> bool:
+    """Plain presence check, `enabled` ignored entirely (bundle.deobfuscated.js:
+    81178-81179: `B2y.some(Bcp => Bcp.id === "effort_ribbon")` -- no
+    `enabled` read at all, unlike either convention above)."""
+    return any(t.id == "effort_ribbon" for t in (passives or ()))
+
+
+def _mini_team_reduction(passives: Sequence[Trait]) -> int:
+    """`mini_focus`/`mini_blade`/`solo_blitz` roster-size reduction
+    (bundle.deobfuscated.js:81154-81168) -- each a plain presence check
+    (`enabled` ignored, same as `effort_ribbon` above), additive when
+    several are owned at once (+2/+2/+5 respectively)."""
+    ids = {t.id for t in (passives or ())}
+    reduction = 0
+    if "mini_focus" in ids:
+        reduction += 2
+    if "mini_blade" in ids:
+        reduction += 2
+    if "solo_blitz" in ids:
+        reduction += 5
+    return reduction
+
+
+def _build_battle_clone(state: RunState) -> list[Combatant]:
+    """Port of `runBattleScreen`'s battle-local player-team clone and its
+    four pre-battle transforms, IN SOURCE ORDER (bundle.deobfuscated.js:
+    81115-81188, CODEX P0.8):
+
+    1. `applyMegaEvolution` on every cloned member;
+    2. `shiny_first` -- clone INDEX 0 only (not "first alive"), and only
+       if it isn't already shiny;
+    3. `mini_focus`/`mini_blade`/`solo_blitz` -- additive roster
+       truncation, keeping the front `max(1, len-reduction)` members
+       (order preserved, never truncated below 1 member);
+    4. `effort_ribbon` -- +10 to every stat buff and 1.5x max HP, applied
+       to every NON-shiny member remaining after step 3.
+
+    Order matters for two source-confirmed interactions this port's tests
+    exercise directly: a Mega-evolved member's `effort_ribbon` HP recompute
+    reads the ALREADY-swapped Mega `base_stats.hp` (step 1 precedes step
+    4), and a member `shiny_first` just made shiny in step 2 is excluded
+    from `effort_ribbon` in step 4 (both gate on the same `is_shiny` field,
+    and step 2 runs first).
+
+    This is `state.team`'s ONLY transform boundary for a battle: `state.
+    team` itself is never mutated here (every member is `battle_loop.
+    clone_combatant`'d first) -- the transformed clone this returns is fed
+    to `battle_loop.run_battle` (which clones it AGAIN internally, its own
+    separate clone boundary), and only the existing narrow
+    `_copy_back_battle_result` contract ever writes anything back onto
+    `state.team` afterward. Matches the source's own double-clone structure
+    (`state.team.map(p=>({...p}))` here, `runBattle`'s own
+    `initBattleState({...p})` again inside it).
+    """
+    clone = [battle_loop.clone_combatant(mon) for mon in state.team]
+    for mon in clone:
+        _apply_mega_evolution(mon)
+    if clone and not clone[0].is_shiny and _shiny_first_active(state.passives):
+        clone[0].is_shiny = True
+    reduction = _mini_team_reduction(state.passives)
+    if reduction > 0:
+        clone = clone[: max(1, len(clone) - reduction)]
+    if _effort_ribbon_active(state.passives):
+        for mon in clone:
+            if not mon.is_shiny:
+                mon.stat_buffs = dict(_EFFORT_RIBBON_STAT_BUFFS)
+                mon.max_hp = math.floor(map_gen.calc_hp(mon.base_stats.hp, mon.level) * 1.5)
+                mon.current_hp = mon.max_hp
+    return clone
+
+
+def _grant_gen3_zigzagoon_pickup(state: RunState) -> None:
+    """Port of `runBattleScreen`'s immediate post-`runBattle` Gen3-only
+    Pickup branch (bundle.deobfuscated.js:81223-81245, CODEX P0.7) --
+    INDEPENDENT from `_grant_pickup_item` below (both can fire off the same
+    win). Called from `_run_battle`, i.e. BEFORE copy-back/level-gain have
+    run, so it reads `state.team` exactly as it stood going INTO the
+    battle -- though since it only checks species membership (never
+    `current_hp`), that timing is observationally moot here. Species
+    membership only (Zigzagoon/Linoone, ids 0x107/0x108) -- no alive check
+    (unlike `_grant_pickup_item`), no bag de-dup filtering (unlike
+    `_grant_pickup_item`, which filters against held ids), explicit
+    `state.gen3_mode` gate only (NEVER fires in Gen4 mode, unlike
+    `_grant_pickup_item` which works off whichever ability table
+    `get_gen3_ability` selects). Exactly two possible `rng()` draws: one
+    for the 10% gate, and -- only if that passes -- one more for the
+    ITEM_POOL index, matching the source's own draw count exactly.
+    """
+    if not state.gen3_mode:
+        return
+    if not any(m.species_id in _GEN3_PICKUP_SPECIES for m in state.team):
+        return
+    pool = data.get_passive_items()
+    if not pool:
+        return
+    if rng.rng() >= 0.1:
+        return
+    item = pool[int(rng.rng() * len(pool))]
+    state.items.append(item.id)
+
+
+def _grant_pickup_item(state: RunState) -> None:
+    """Port of `grantPickupItem` (bundle.deobfuscated.js:77615-77641,
+    CODEX P0.7) -- called unconditionally on every Story/Nuzlocke win
+    (source line 81331, right after `applyLevelGain`), independent of and
+    in addition to `_grant_gen3_zigzagoon_pickup` above. Reads `state.team`
+    AFTER copy-back and level-gain have already applied (called from
+    `_after_battle`, itself invoked after those steps in every call site).
+
+    Requires a currently-ALIVE (`current_hp > 0`) team member whose species
+    resolves to the `pickup` ability via `get_gen3_ability` (Gen3 or Gen4
+    table depending on `state.gen4_mode`, exactly `getGen3Ability`'s own
+    table-selection rule) -- NOT restricted to any specific species, and
+    NOT gated on `gen3_mode`/`gen4_mode` at this call site (the source
+    calls this for every win regardless of generation; the practical
+    gen-gating comes entirely from which species can ever be on the team,
+    since the ability tables only assign "pickup" to Gen3/Gen4 dex ids).
+
+    De-duplicates against the bag: only ITEM_POOL entries whose id is NOT
+    already in `state.items` are eligible. Draws exactly one `rng()` for
+    the 10% gate; if the gate passes but every ITEM_POOL entry is already
+    owned, returns WITHOUT a second draw (matching the source's own early
+    `if (!ip.length) return;` before its index roll) -- otherwise exactly
+    one more draw picks the index.
+    """
+    if not state.team:
+        return
+    if not any(
+        m.current_hp > 0 and battle_abilities.get_gen3_ability(m.species_id, gen4_mode=state.gen4_mode) == "pickup"
+        for m in state.team
+    ):
+        return
+    if rng.rng() >= 0.1:
+        return
+    held = set(state.items)
+    pool = [item for item in data.get_passive_items() if item.id not in held]
+    if not pool:
+        return
+    item = pool[int(rng.rng() * len(pool))]
+    state.items.append(item.id)
+
+
 def _run_battle(state: RunState, enemy_team: Sequence[Combatant]) -> BattleResult:
     ability_config, traits_config = _battle_configs(state, enemy_team)
+    player_clone = _build_battle_clone(state)
     result = battle_loop.run_battle(
-        state.team,
+        player_clone,
         list(enemy_team),
         traits=state.passives,
         ability_config=ability_config,
         traits_config=traits_config,
         battle_config=BattleConfig(),
     )
+    # CODEX P0.7: the immediate Gen3 Pickup branch runs BEFORE copy-back in
+    # the source (bundle.deobfuscated.js:81223-81245 precedes 81278-81318),
+    # reading `state.team` pre-battle -- matched here for exact `rng()` draw
+    # ordering even though this particular branch never reads `current_hp`.
+    if result.player_won:
+        _grant_gen3_zigzagoon_pickup(state)
     _copy_back_battle_result(state, result.player_team, result.player_won)
     return result
 
@@ -968,6 +1213,9 @@ def _after_battle(
     if result.player_won:
         participants = set(range(len(state.team))) if all_team_xp else result.player_participants
         _apply_level_gain(state.team, participants, level_gain, gen4_mode=state.gen4_mode)
+        # CODEX P0.7: `grantPickupItem()` (source line 81331) runs right
+        # after `applyLevelGain`, BEFORE the Nuzlocke fainted-cull below.
+        _grant_pickup_item(state)
     if state.nuzlocke_mode and not no_permadeath:
         for mon in state.team:
             if mon.current_hp <= 0 and mon.held_item is not None:

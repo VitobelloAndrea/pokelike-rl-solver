@@ -40,12 +40,39 @@ _DEFAULT_STAGES = ("atk", "def", "speed", "special", "spdef")
 
 @dataclass(frozen=True)
 class HeldItem:
-    """Minimal held-item reference -- battle math only ever reads `.id`
+    """Held-item reference -- battle math only ever reads `.id`
     (JS `hasItem`/`hasPassive`, bundle.deobfuscated.js:55125-55139). Use
     `data.Item.id` when wiring this up to the real item tables.
+
+    The `mega_*` fields mirror `makeMegaStoneItem`'s output shape
+    (bundle.deobfuscated.js:86443-86460) -- `is_mega_stone`/`mega_species`/
+    `mega_stats` are exactly what `syncMegaForm`/`apply_mega_evolution`
+    (engine.py, CODEX P0.8) reads to decide eligibility; a plain `HeldItem`
+    that isn't a Mega Stone simply leaves them at their defaults. `formId`/
+    sprite fields are not carried onto held items here because Combatant has
+    no sprite-path field; `data.MegaStone.form_id` retains the source
+    metadata for verification.
     """
 
     id: str
+    is_mega_stone: bool = False
+    mega_species: Optional[int] = None
+    mega_name: Optional[str] = None
+    mega_types: Optional[tuple[str, ...]] = None
+    mega_stats: Optional["data.BaseStats"] = None
+
+
+def make_mega_stone_item(stone: "data.MegaStone") -> HeldItem:
+    """Port of `makeMegaStoneItem` (bundle.deobfuscated.js:86443-86460),
+    minus its sprite fields (not modeled anywhere in this engine)."""
+    return HeldItem(
+        id=stone.id,
+        is_mega_stone=True,
+        mega_species=stone.species,
+        mega_name=stone.mega_name,
+        mega_types=stone.mega_types,
+        mega_stats=stone.mega_stats,
+    )
 
 
 @dataclass(frozen=True)
@@ -233,8 +260,8 @@ def has_item(items: Optional[Iterable[HeldItem]], item_id: str) -> bool:
 def has_passive(traits: Optional[Iterable[Trait]], trait_id: str) -> bool:
     """Port of `hasPassive` (line 55136-55139). Note the `enabled` check is
     an opt-OUT: a trait counts as active unless `enabled` is explicitly
-    False, matching the source's `iu.enabled !== true /* i.e. !== false, see
-    module docstring */`.
+    False. The deobfuscated source spells the comparison
+    `iu.enabled !== !0x1`; JavaScript `!0x1` evaluates to `false`.
     """
     return bool(traits) and any(t.id == trait_id and t.enabled is not False for t in traits)
 

@@ -273,10 +273,18 @@ def get_usable_items() -> tuple[Item, ...]:
 
 @lru_cache(maxsize=1)
 def get_passive_items() -> tuple[Item, ...]:
-    """Passive/held/global-effect items (type-boost items, Mega Stones,
-    Rocky Helmet, ...) -- NOT the same table as get_usable_items(). No
-    weight/drop-rate field exists on either table; loot selection logic
+    """Passive/held/global-effect items (type-boost items, Rocky Helmet,
+    Choice Band, ...) -- NOT the same table as get_usable_items(). This is
+    an exact, order-preserving port of `ITEM_POOL` (bundle.deobfuscated.js:
+    46461-46498, confirmed by direct id-for-id/order comparison) -- the pool
+    both of `runBattleScreen`'s Pickup reward paths draw from (CODEX P0.7).
+    No weight/drop-rate field exists on this table; loot selection logic
     lives elsewhere and was not traced in Phase 1.
+
+    Mega Stones are a SEPARATE source table (`MEGA_STONES`,
+    bundle.deobfuscated.js:48573-48602) with a materially different shape
+    (species/megaStats/megaTypes/megaName, no `hook`/`minMap`) and are never
+    members of `ITEM_POOL` -- see `get_mega_stones()` below, not this table.
     """
     raw = _load_json("items_passive.json")
     return tuple(Item.from_json(d, usable=False) for d in raw)
@@ -288,6 +296,66 @@ def get_type_item_map() -> dict[str, str]:
     Fire -> charcoal), mirroring TYPE_ITEM_MAP in the source.
     """
     return _load_json("type_item_map.json")
+
+
+@dataclass(frozen=True)
+class MegaStone:
+    """Port of one `MEGA_STONES` entry (bundle.deobfuscated.js:48573-48602,
+    28 entries total, with every battle/runtime field plus `formId` retained
+    exactly -- CODEX P0.8). `species` is the
+    dex id the holder must currently be for the stone to activate
+    (`syncMegaForm`'s `megaSpecies === speciesId` check); `tier`/`starter`
+    are ACQUISITION metadata (MVP-win-count unlock threshold / "one of the
+    three starter-line stones") that this port does not model any
+    equip/unlock flow for -- see `engine._apply_mega_evolution`'s docstring
+    for the acquisition-scope limitation. `form_id` is retained so the
+    source's `img/sprites/pokemon/{formId}.png` metadata can be audited,
+    although no `Combatant` field in this engine tracks or applies a sprite
+    path.
+    """
+
+    id: str
+    name: str
+    species: int
+    form_id: int
+    mega_name: str
+    mega_types: tuple[str, ...]
+    mega_stats: BaseStats
+    tier: int
+    starter: bool = False
+
+    @classmethod
+    def from_json(cls, d: dict) -> "MegaStone":
+        return cls(
+            id=d["id"],
+            name=d["name"],
+            species=d["species"],
+            form_id=d["formId"],
+            mega_name=d["megaName"],
+            mega_types=tuple(d["megaTypes"]),
+            mega_stats=BaseStats.from_json(d["megaStats"]),
+            tier=d["tier"],
+            starter=d.get("starter", False),
+        )
+
+    @property
+    def mega_sprite(self) -> str:
+        """Exact sprite path produced by source `makeMegaStoneItem`."""
+        return f"img/sprites/pokemon/{self.form_id}.png"
+
+
+@lru_cache(maxsize=1)
+def get_mega_stones() -> tuple[MegaStone, ...]:
+    """All 28 Mega Stones (bundle.deobfuscated.js:48573-48602)."""
+    raw = _load_json("mega_stones.json")
+    return tuple(MegaStone.from_json(d) for d in raw)
+
+
+@lru_cache(maxsize=1)
+def get_mega_stone_by_species() -> dict[int, MegaStone]:
+    """dex id -> its Mega Stone, mirroring `MEGA_STONE_BY_SPECIES`
+    (bundle.deobfuscated.js:48606-48608)."""
+    return {stone.species: stone for stone in get_mega_stones()}
 
 
 # ---------------------------------------------------------------------------
