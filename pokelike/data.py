@@ -8,9 +8,14 @@ hand-transcribed -- so field names/values should match the live tables
 exactly as of the mirror's bundle. Regenerate them with:
 
     node tools/extract-data/extract-tables.js pokelike_forked/js/bundle.deobfuscated.js tools/extract-data/out
+    node tools/extract-data/extract-trainer-tables.js pokelike_forked/js/bundle.deobfuscated.js tools/extract-data/out
 
 ...then re-copy the relevant files into pokelike/data/ (see that directory's
-layout for where each JSON file lands).
+layout for where each JSON file lands). The second script (added 2026-07-31,
+CODEX.md P0.9) covers `TRAINER_BATTLE_CONFIG` plus the Silver/Magma/Aqua
+special-rival rosters -- see `tools/extract-data/README.md`'s own section
+on it for why it needs a different (further-extended) safe-execution cutoff
+than the first script.
 
 Nothing in this module touches RNG, battle resolution, or the state machine
 -- those belong in rng.py / battle.py / engine.py (Phase 2, not yet written).
@@ -445,21 +450,22 @@ class Trainer:
     title: Optional[str] = None  # Elite Four members only (e.g. "Elite Four")
 
 
+def _trainer_pokemon_from_json(m: dict) -> TrainerPokemon:
+    return TrainerPokemon(
+        species_id=m["speciesId"],
+        name=m["name"],
+        types=tuple(m["types"]),
+        base_stats=BaseStats.from_json(m["baseStats"]),
+        level=m["level"],
+        held_item=m.get("heldItem"),
+    )
+
+
 def _load_trainers(filename: str) -> tuple[Trainer, ...]:
     raw = _load_json("trainers", filename)
     trainers = []
     for entry in raw:
-        team = tuple(
-            TrainerPokemon(
-                species_id=m["speciesId"],
-                name=m["name"],
-                types=tuple(m["types"]),
-                base_stats=BaseStats.from_json(m["baseStats"]),
-                level=m["level"],
-                held_item=m.get("heldItem"),
-            )
-            for m in entry["team"]
-        )
+        team = tuple(_trainer_pokemon_from_json(m) for m in entry["team"])
         trainers.append(
             Trainer(
                 name=entry["name"],
@@ -483,6 +489,197 @@ def get_gym_leaders(generation: int = 1) -> tuple[Trainer, ...]:
 def get_elite_four(generation: int = 1) -> tuple[Trainer, ...]:
     """generation in {1, 2, 3, 4} -> that generation's fixed Elite Four roster."""
     return _load_trainers(f"gen{generation}_elite4.json")
+
+
+# ---------------------------------------------------------------------------
+# Procedural mid-map trainer archetypes (docs/logic-notes-nodes.md section 3,
+# bundle.deobfuscated.js:79903-80189 TRAINER_BATTLE_CONFIG, 53711-53773 the
+# generation-gated archetype-key lists `generateMap`'s trainerSprite hash
+# picks from) and the fixed Gen2 Silver rival / Gen3 Magma-Aqua rosters
+# (docs/logic-notes-nodes.md section 11, bundle.deobfuscated.js:45447-46103
+# SILVER_ENCOUNTERS/SILVER_STARTER_LINES/MAGMA_ENCOUNTERS/AQUA_ENCOUNTERS).
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class TrainerArchetype:
+    """One `TRAINER_BATTLE_CONFIG[sprite]` entry -- the per-trainer-sprite
+    species pool `doTrainerNode` draws its procedural mid-map roster from.
+
+    `pool` (the Gen1/Story-default field) is `None` for archetypes that only
+    exist from a later generation onward -- e.g. "aceTrainer"/"oldGuy" have
+    an explicit `pool: null` in the source (bundle.deobfuscated.js:80109,
+    80124) despite having gen2/3/4 pools, and several Gen4-only archetypes
+    ("artist", "youngster", ...) never had a `pool` key at all. `doTrainerNode`
+    falls back to the ordinary wild catch-choices pool in that case
+    (bundle.deobfuscated.js:80289-80310) -- not a gap in this table, a real
+    source behavior, replicated by `engine._visit_trainer`'s own fallback.
+    """
+
+    name: str
+    sprite: str
+    pool: Optional[tuple[int, ...]] = None
+    gen2_pool: Optional[tuple[int, ...]] = None
+    gen3_pool: Optional[tuple[int, ...]] = None
+    gen4_pool: Optional[tuple[int, ...]] = None
+
+
+@lru_cache(maxsize=1)
+def get_trainer_battle_config() -> dict[str, TrainerArchetype]:
+    """`TRAINER_BATTLE_CONFIG` keyed by trainer-sprite archetype id (e.g.
+    "aceTrainer", "bugCatcher", ...) -- 34 entries, source order preserved
+    (dict insertion order, matching JS object key order)."""
+    raw = _load_json("trainers", "trainer_battle_config.json")
+    return {
+        key: TrainerArchetype(
+            name=entry["name"],
+            sprite=entry["sprite"],
+            pool=tuple(entry["pool"]) if entry.get("pool") is not None else None,
+            gen2_pool=tuple(entry["gen2Pool"]) if entry.get("gen2Pool") is not None else None,
+            gen3_pool=tuple(entry["gen3Pool"]) if entry.get("gen3Pool") is not None else None,
+            gen4_pool=tuple(entry["gen4Pool"]) if entry.get("gen4Pool") is not None else None,
+        )
+        for key, entry in raw.items()
+    }
+
+
+@lru_cache(maxsize=1)
+def get_trainer_sprite_keys() -> tuple[str, ...]:
+    """`TRAINER_SPRITE_KEYS` (bundle.deobfuscated.js:53711-53727) -- the
+    Gen1/Story candidate archetype-id list `generateMap`'s trainerSprite hash
+    picks from (before the aceTrainer/policeman map-index exclusion and the
+    GEN1_ONLY/GEN2_ONLY filtering `map_gen._trainer_sprite_candidates`
+    applies)."""
+    return tuple(_load_json("map_config", "trainer_sprite_keys.json"))
+
+
+@lru_cache(maxsize=1)
+def get_gen1_only_trainer_keys() -> frozenset[str]:
+    """`GEN1_ONLY_TRAINER_KEYS` (bundle.deobfuscated.js:53736) -- archetype
+    ids excluded from the candidate list when `gen2Mode` is active."""
+    return frozenset(_load_json("map_config", "gen1_only_trainer_keys.json"))
+
+
+@lru_cache(maxsize=1)
+def get_gen2_only_trainer_keys() -> frozenset[str]:
+    """`GEN2_ONLY_TRAINER_KEYS` (bundle.deobfuscated.js:53728-53735) --
+    archetype ids excluded from the candidate list unless `gen2Mode` is
+    active."""
+    return frozenset(_load_json("map_config", "gen2_only_trainer_keys.json"))
+
+
+@lru_cache(maxsize=1)
+def get_gen3_trainer_keys() -> tuple[str, ...]:
+    """`GEN3_TRAINER_KEYS` (bundle.deobfuscated.js:53740-53754) -- the
+    candidate archetype-id list used in place of `TRAINER_SPRITE_KEYS` when
+    `gen3Mode` is active."""
+    return tuple(_load_json("map_config", "gen3_trainer_keys.json"))
+
+
+@lru_cache(maxsize=1)
+def get_gen4_trainer_keys() -> tuple[str, ...]:
+    """`GEN4_TRAINER_KEYS` (bundle.deobfuscated.js:53756-53773) -- the
+    candidate archetype-id list used in place of `TRAINER_SPRITE_KEYS` when
+    `gen4Mode` is active (unconditionally, no map-index/gen1-2-only
+    exclusions applied in that branch)."""
+    return tuple(_load_json("map_config", "gen4_trainer_keys.json"))
+
+
+@dataclass(frozen=True)
+class SilverEncounter:
+    """One `SILVER_ENCOUNTERS[stageIndex]` entry (bundle.deobfuscated.js:
+    45447-45737) -- a fixed Silver-rival roster. No `name` field in the
+    source (unlike Magma/Aqua) -- Silver's battle title is a hardcoded
+    translation string (`t("battle.silverWants")`,
+    bundle.deobfuscated.js:77930), not data-driven."""
+
+    team: tuple[TrainerPokemon, ...]
+
+
+@lru_cache(maxsize=1)
+def get_silver_encounters() -> tuple[SilverEncounter, ...]:
+    """`SILVER_ENCOUNTERS` -- 4 stages (indices 0-3), source order preserved.
+    `doSilverNode` (bundle.deobfuscated.js:77900-77906) picks the stage index
+    via a fixed `{1:0, 3:1, 5:2, 7:3}` map-index lookup, falling back to
+    `state.silverBeaten` (clamped to this tuple's last index) for every other
+    map -- see `engine._silver_encounter_index`."""
+    raw = _load_json("trainers", "silver_encounters.json")
+    return tuple(SilverEncounter(team=tuple(_trainer_pokemon_from_json(m) for m in entry["team"])) for entry in raw)
+
+
+@dataclass(frozen=True)
+class StarterLineSpecies:
+    """One `SILVER_STARTER_LINES[starterSpeciesId]` entry -- a bare species
+    reference (no level/held item: `doSilverNode` resolves the level from
+    the fixed encounter's OWN final-slot level instead,
+    bundle.deobfuscated.js:77913-77925)."""
+
+    species_id: int
+    name: str
+    types: tuple[str, ...]
+    base_stats: BaseStats
+
+
+@lru_cache(maxsize=1)
+def get_silver_starter_lines() -> dict[int, tuple[StarterLineSpecies, ...]]:
+    """`SILVER_STARTER_LINES` (bundle.deobfuscated.js:45734-45737) -- keyed
+    by the PLAYER's Johto starter dex id, mapping to the type-counter
+    evolution line Silver's own starter mirrors (mainline Gold/Silver/
+    Crystal's rival mechanic: Chikorita(152)->Cyndaquil line,
+    Cyndaquil(155)->Totodile line, Totodile(158)->Chikorita line -- verified
+    directly against the extracted base stats/types, not assumed from
+    mainline convention)."""
+    raw = _load_json("trainers", "silver_starter_lines.json")
+    return {
+        int(starter_id): tuple(
+            StarterLineSpecies(
+                species_id=m["speciesId"],
+                name=m["name"],
+                types=tuple(m["types"]),
+                base_stats=BaseStats.from_json(m["baseStats"]),
+            )
+            for m in entries
+        )
+        for starter_id, entries in raw.items()
+    }
+
+
+@dataclass(frozen=True)
+class AdminEncounter:
+    """One `MAGMA_ENCOUNTERS`/`AQUA_ENCOUNTERS` entry
+    (bundle.deobfuscated.js:45820-46103) -- keyed by map index (2, 5, 7)."""
+
+    name: str
+    sprite: str
+    team: tuple[TrainerPokemon, ...]
+
+
+def _load_admin_encounters(filename: str) -> dict[int, AdminEncounter]:
+    raw = _load_json("trainers", filename)
+    return {
+        int(map_index): AdminEncounter(
+            name=entry["name"],
+            sprite=entry["sprite"],
+            team=tuple(_trainer_pokemon_from_json(m) for m in entry["team"]),
+        )
+        for map_index, entry in raw.items()
+    }
+
+
+@lru_cache(maxsize=1)
+def get_magma_encounters() -> dict[int, AdminEncounter]:
+    """`MAGMA_ENCOUNTERS` (bundle.deobfuscated.js:45919-45920) -- keyed by
+    map index; `doAdminNode` falls back to index 2 for any other map
+    (bundle.deobfuscated.js:77964)."""
+    return _load_admin_encounters("magma_encounters.json")
+
+
+@lru_cache(maxsize=1)
+def get_aqua_encounters() -> dict[int, AdminEncounter]:
+    """`AQUA_ENCOUNTERS` (bundle.deobfuscated.js:46102-46103) -- keyed by
+    map index; `doAdminNode` falls back to index 2 for any other map
+    (bundle.deobfuscated.js:77964)."""
+    return _load_admin_encounters("aqua_encounters.json")
 
 
 # ---------------------------------------------------------------------------

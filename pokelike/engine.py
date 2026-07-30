@@ -44,14 +44,14 @@ battle fits inside a single `step()` call and needs no suspension of its own.
 - **Mid-map procedural trainer rosters** (`doTrainerNode`'s
   `TRAINER_BATTLE_CONFIG`, per-archetype species pools) and **the Gen2
   Silver rival / Gen3 Magma-Aqua fixed rosters** (`SILVER_ENCOUNTERS`/
-  `MAGMA_ENCOUNTERS`/`AQUA_ENCOUNTERS`) were never extracted into
-  `pokelike/data.py` -- this session's research reached their *behavior*
-  but not their *data*. `_visit_trainer`/`_visit_special_rival` below
-  approximate these with the same wild-encounter species-pool mechanism
-  (`map_gen.get_catch_choices`), clearly flagged in each function's
-  docstring as an approximation, not a byte-accurate port. A future session
-  should extract the real tables (same technique as
-  `tools/extract-data/extract-tables.js`) and replace these.
+  `MAGMA_ENCOUNTERS`/`AQUA_ENCOUNTERS`) are now real, extracted-table ports
+  (`tools/extract-data/extract-trainer-tables.js`, `data.get_trainer_battle_config`/
+  `get_silver_encounters`/`get_silver_starter_lines`/`get_magma_encounters`/
+  `get_aqua_encounters`) -- see `_visit_trainer`/`_visit_silver`/
+  `_visit_admin` below, and CODEX.md's addendum for full citations. The
+  `trainerSprite` archetype-key assignment itself lives in
+  `map_gen.generate_map` (`_assign_trainer_sprite`), since it's a
+  map-generation-time deterministic hash, not a node-visit-time decision.
 - **The submap system** (`generateSubMap`/`UNDERGROUND`/`DISTORTION`/
   `REWARD`/`SUBEXIT`) -- `map_gen.py` doesn't generate real submaps behind
   these node types (they're placed in the graph but lead nowhere real).
@@ -778,15 +778,17 @@ def _make_wild_combatant(
     )
 
 
-def _build_fixed_team(trainer: data.Trainer, state: RunState) -> list:
-    """Port of `doBossNode`'s team-construction spread (docs/logic-notes-
-    nodes.md section 2) -- `resolveTrainerTeamEvolutions` is a confirmed
-    no-op stub in the source, so it's not replicated (the fixed roster data
-    is already the correct evolved species/level as-authored)."""
+def _build_roster_team(roster: Sequence[data.TrainerPokemon], move_tier: int, gen4_mode: bool) -> list:
+    """Shared `createInstance`-plus-heldItem-spread team builder for every
+    fixed (non-procedural) roster table -- gym leaders/Elite Four
+    (`_build_fixed_team`, per-trainer `moveTier` field) as well as the
+    Silver/Magma/Aqua special-rival rosters (`_visit_silver`/`_visit_admin`,
+    move tier from `getMoveТierForMap` instead, since those tables carry no
+    per-entry `moveTier` field of their own)."""
     team = []
-    for tp in trainer.team:
+    for tp in roster:
         held = HeldItem(id=tp.held_item["id"]) if tp.held_item else None
-        ability = battle_abilities.get_gen3_ability(tp.species_id, state.gen4_mode)
+        ability = battle_abilities.get_gen3_ability(tp.species_id, gen4_mode)
         max_hp = 1 if ability == "wonder_guard" else map_gen.calc_hp(tp.base_stats.hp, tp.level)
         team.append(
             Combatant(
@@ -798,10 +800,19 @@ def _build_fixed_team(trainer: data.Trainer, state: RunState) -> list:
                 current_hp=max_hp,
                 name=tp.name,
                 held_item=held,
-                move_tier=trainer.move_tier if trainer.move_tier is not None else 1,
+                move_tier=move_tier,
             )
         )
     return team
+
+
+def _build_fixed_team(trainer: data.Trainer, state: RunState) -> list:
+    """Port of `doBossNode`'s team-construction spread (docs/logic-notes-
+    nodes.md section 2) -- `resolveTrainerTeamEvolutions` is a confirmed
+    no-op stub in the source, so it's not replicated (the fixed roster data
+    is already the correct evolved species/level as-authored)."""
+    move_tier = trainer.move_tier if trainer.move_tier is not None else 1
+    return _build_roster_team(trainer.team, move_tier, state.gen4_mode)
 
 
 def _gym_leader(state: RunState) -> data.Trainer:
@@ -1731,31 +1742,137 @@ def _visit_battle(state: RunState, node: MapNode) -> None:
     _run_todo(state)
 
 
-def _visit_trainer(state: RunState, node: MapNode) -> None:
-    """APPROXIMATION of `doTrainerNode` (docs/logic-notes-nodes.md section
-    3) -- the real per-archetype species pool table
-    (`TRAINER_BATTLE_CONFIG`) was never extracted into `data.py`. This uses
-    the wild-encounter species pool instead, scaled to the source's own
-    team-size-by-map formula. No held items, matching the source."""
-    level = map_gen.get_level_for_node(node.layer, state.current_map, state.gen2_mode, state.gen3_mode, state.gen4_mode)
-    team_size = 1 if state.current_map == 0 else 2 if state.current_map <= 2 else 3
-    min_dex, max_dex = map_gen.get_catch_gen_range(state.gen2_mode, state.gen3_mode, state.gen4_mode)
-    pool = map_gen.get_catch_choices(
-        state.current_map,
-        max(team_size, 3),
-        max_dex,
-        min_dex,
-        exclude_starters=False,
-        gen2_mode=state.gen2_mode,
-        gen3_mode=state.gen3_mode,
-        gen4_mode=state.gen4_mode,
-    )
+def _trainer_fight_level(state: RunState, node: MapNode) -> int:
+    """Port of `trainerFightLevel` (bundle.deobfuscated.js:80190-80212) --
+    `doTrainerNode`'s OWN level formula, distinct from the shared
+    `getLevelForNode` wild/boss formula: subtracts a per-map-index offset
+    (bigger for Johto/Hoenn-arc maps than Sinnoh, zero in Gen1/Story) so
+    procedural trainer levels trail slightly behind the raw map range,
+    floored at 1. The source's `challengeOnlyFight` 1.5x multiplier is
+    Endless-only, not modeled (out of scope); both operands are already
+    integers in every modeled case, so `Math.round` is a no-op here."""
+    base = map_gen.get_level_for_node(node.layer, state.current_map, state.gen2_mode, state.gen3_mode, state.gen4_mode)
+    cm = state.current_map
+    if state.gen2_mode or state.gen3_mode:
+        offset = 3 if cm >= 4 else 2 if cm >= 2 else 1 if cm >= 1 else 0
+    elif state.gen4_mode:
+        offset = 2 if cm >= 5 else 1 if cm >= 1 else 0
+    else:
+        offset = 0
+    return max(1, base - offset)
+
+
+def _trainer_pool_for_generation(archetype: data.TrainerArchetype, state: RunState) -> Optional[tuple[int, ...]]:
+    """Port of `doTrainerNode`'s per-generation pool selection plus the
+    Gen4-only starter-line exclusion filter (bundle.deobfuscated.js:
+    80234-80252). Returns `None`/empty when the archetype has no pool for
+    the CURRENT generation -- a real source behavior (e.g. "aceTrainer"/
+    "oldGuy" have an explicit `pool: null` in Gen1/Story mode despite having
+    later-gen pools), not a data gap; `_visit_trainer` falls back to the
+    ordinary wild catch-choices pool in that case, matching the source's own
+    `else` branch."""
+    if state.gen4_mode:
+        pool = archetype.gen4_pool
+    elif state.gen3_mode:
+        pool = archetype.gen3_pool
+    elif state.gen2_mode and archetype.gen2_pool:
+        pool = archetype.gen2_pool
+    else:
+        pool = archetype.pool
+    if state.gen4_mode and pool:
+        starter_ids = set(data.get_starter_ids(4))
+        filtered = tuple(sid for sid in pool if battle_abilities.get_evo_line_root(sid) not in starter_ids)
+        if filtered:
+            pool = filtered
+    return pool
+
+
+def _select_trainer_team_species(pool: Sequence[int], team_size: int, level: int) -> list[int]:
+    """Port of `doTrainerNode`'s species-selection block when an archetype
+    pool exists (bundle.deobfuscated.js:80260-80289): dedupe the raw pool,
+    filter by min-level eligibility (falling back to the unfiltered set if
+    that empties it), dedupe again by evolved-target-at-this-level (keep the
+    first candidate per target), Fisher-Yates shuffle with `rng()`, then
+    cycle `shuffled[i % len(shuffled)]` -- each independently re-resolved
+    through `resolveEvoForLevel` -- to fill exactly `team_size` slots (a
+    small pool can repeat species). `challengeBabyEnemies` is Endless-only,
+    not modeled."""
     if not pool:
-        pool = list(data.get_fallback_species_pool().low[:1])
+        return []
+    unique = list(dict.fromkeys(pool))
+    level_filtered = [sid for sid in unique if map_gen.min_level_for_species(sid) <= level]
+    usable = level_filtered if level_filtered else unique
+
+    seen_targets: set = set()
+    deduped: list[int] = []
+    for sid in usable:
+        resolved = map_gen.resolve_evo_for_level(sid, level)
+        if resolved in seen_targets:
+            continue
+        seen_targets.add(resolved)
+        deduped.append(sid)
+
+    shuffled = list(deduped)
+    for i in range(len(shuffled) - 1, 0, -1):
+        j = int(rng.rng() * (i + 1))
+        shuffled[i], shuffled[j] = shuffled[j], shuffled[i]
+
+    return [map_gen.resolve_evo_for_level(shuffled[i % len(shuffled)], level) for i in range(team_size)]
+
+
+def _visit_trainer(state: RunState, node: MapNode) -> None:
+    """Port of `doTrainerNode` (docs/logic-notes-nodes.md section 3,
+    bundle.deobfuscated.js:80213-80345) -- the procedural mid-map trainer
+    roster, keyed by the node's `trainerSprite` archetype
+    (`map_gen.generate_map`'s own deterministic hash assignment, same
+    non-RNG-stream design family as `_assign_legendary_species_id`) into
+    `TRAINER_BATTLE_CONFIG`. Falls back to the `"aceTrainer"` archetype if
+    the node somehow has no `trainerSprite` (defensive, mirrors the source's
+    own `|| "aceTrainer"`), and falls back further to the ordinary wild
+    catch-choices pool if that archetype has no species pool at all for the
+    CURRENT generation (see `_trainer_pool_for_generation`'s docstring --
+    also a real source behavior, not a gap)."""
+    sprite = node.extra.get("trainerSprite") or "aceTrainer"
+    config = data.get_trainer_battle_config()
+    archetype = config.get(sprite) or config["aceTrainer"]
+
+    team_size = 1 if state.current_map == 0 else 2 if state.current_map <= 2 else 3
+    level = _trainer_fight_level(state, node)
     move_tier = map_gen.get_move_tier_for_map(state.current_map)
+    pool = _trainer_pool_for_generation(archetype, state)
+
+    if pool:
+        species_ids = _select_trainer_team_species(pool, team_size, level)
+    else:
+        # bundle.deobfuscated.js:80289-80309: no archetype pool for this
+        # generation -- fall back to the ordinary wild catch-choices pool,
+        # requesting exactly 3 (the source's own hardcoded count) and
+        # SLICING (not cycling) to team_size, so the resulting enemy team
+        # can legitimately be shorter than team_size if the catch pool
+        # itself came up short.
+        min_dex, max_dex = map_gen.get_catch_gen_range(state.gen2_mode, state.gen3_mode, state.gen4_mode)
+        candidates = map_gen.get_catch_choices(
+            state.current_map,
+            3,
+            max_dex,
+            min_dex,
+            exclude_starters=True,
+            gen2_mode=state.gen2_mode,
+            gen3_mode=state.gen3_mode,
+            gen4_mode=state.gen4_mode,
+        )
+        species_ids = [map_gen.resolve_evo_for_level(sid, level) for sid in candidates[:team_size]]
+
+    if not species_ids:
+        # bundle.deobfuscated.js:80312-80315: empty candidate pool -> the
+        # node is silently skipped, no battle at all.
+        _advance(state, node.id)
+        state.phase = Phase.ON_MAP
+        return
+
     enemy = [
-        _make_wild_combatant(map_gen.resolve_evo_for_level(pool[i % len(pool)], level), level, move_tier=move_tier, gen2_mode=state.gen2_mode, gen4_mode=state.gen4_mode)
-        for i in range(team_size)
+        _make_wild_combatant(sid, level, move_tier=move_tier, gen2_mode=state.gen2_mode, gen4_mode=state.gen4_mode)
+        for sid in species_ids
     ]
     result = _run_battle(state, enemy)
     # CODEX.md P0.6: `doTrainerNode`'s own `runBattleScreen` call passes
@@ -1773,46 +1890,105 @@ def _visit_trainer(state: RunState, node: MapNode) -> None:
     _run_todo(state)
 
 
-def _visit_special_rival(state: RunState, node: MapNode, kind: str) -> None:
-    """APPROXIMATION of `doSilverNode`/`doAdminNode` (docs/logic-notes-
-    nodes.md section 11) -- the real fixed rosters (`SILVER_ENCOUNTERS`/
-    `MAGMA_ENCOUNTERS`/`AQUA_ENCOUNTERS`) were never extracted into
-    `data.py`. Uses the same procedural approximation as `_visit_trainer`,
-    boosted a couple levels. Faithfully replicates the confirmed real
-    behavior around the (approximated) fight: Nuzlocke-permadeath-exempt,
-    full-team heal on win, no badge/item/catch reward.
-    """
-    level = (
-        map_gen.get_level_for_node(node.layer, state.current_map, state.gen2_mode, state.gen3_mode, state.gen4_mode)
-        + 2
-    )
-    min_dex, max_dex = map_gen.get_catch_gen_range(state.gen2_mode, state.gen3_mode, state.gen4_mode)
-    pool = map_gen.get_catch_choices(
-        state.current_map,
-        3,
-        max_dex,
-        min_dex,
-        exclude_starters=False,
-        gen2_mode=state.gen2_mode,
-        gen3_mode=state.gen3_mode,
-        gen4_mode=state.gen4_mode,
-    )
-    if not pool:
-        pool = list(data.get_fallback_species_pool().low[:1])
+_SILVER_STAGE_BY_MAP = {1: 0, 3: 1, 5: 2, 7: 3}
+
+
+def _visit_silver(state: RunState, node: MapNode) -> None:
+    """Port of `doSilverNode` (docs/logic-notes-nodes.md section 11,
+    bundle.deobfuscated.js:77895-77957). The stage index is a fixed
+    map-index lookup for maps 1/3/5/7 (bundle.deobfuscated.js:77899-77903);
+    every OTHER map index falls back to `state.silver_beaten` (how many
+    times Silver has already been beaten this run) -- both paths clamped to
+    `SILVER_ENCOUNTERS`'s last valid index. The final team slot is then
+    replaced by the player's starter's type-counter mirror line
+    (`SILVER_STARTER_LINES`, mainline Gold/Silver/Crystal's rival mechanic),
+    resolved to whatever evolution stage the ENCOUNTER's own (unmodified)
+    final-slot level supports -- bundle.deobfuscated.js:77908-77926."""
+    encounters = data.get_silver_encounters()
+    stage_index = min(_SILVER_STAGE_BY_MAP.get(state.current_map, state.silver_beaten), len(encounters) - 1)
+    encounter = encounters[stage_index]
     move_tier = map_gen.get_move_tier_for_map(state.current_map)
-    enemy = [
-        _make_wild_combatant(map_gen.resolve_evo_for_level(pool[i % len(pool)], level), level, move_tier=move_tier, gen2_mode=state.gen2_mode, gen4_mode=state.gen4_mode)
-        for i in range(3)
-    ]
-    result = _run_battle(state, enemy)
+    team = _build_roster_team(encounter.team, move_tier, state.gen4_mode)
+
+    starter_line = data.get_silver_starter_lines().get(state.starter_species_id)
+    if starter_line and team:
+        last_idx = len(team) - 1
+        last_level = team[last_idx].level
+        target_species = map_gen.resolve_evo_for_level(starter_line[0].species_id, last_level)
+        idx = next((i for i, m in enumerate(starter_line) if m.species_id == target_species), 0)
+        chosen = starter_line[idx]
+        # Use the SILVER_STARTER_LINES record itself, not the general
+        # Pokedex row. The source passes `B2a` directly to createInstance
+        # (bundle.deobfuscated.js:77921-77924). These Gen2 rival records
+        # intentionally omit `baseStats.spdef`, so battle stat resolution
+        # falls back to `special`; substituting the Pokedex row here would
+        # silently use its distinct explicit Sp. Def for most Johto
+        # starters and change real battle damage despite matching species,
+        # level, types, and name.
+        ability = battle_abilities.get_gen3_ability(chosen.species_id, state.gen4_mode)
+        max_hp = 1 if ability == "wonder_guard" else map_gen.calc_hp(chosen.base_stats.hp, last_level)
+        team[last_idx] = Combatant(
+            species_id=chosen.species_id,
+            level=last_level,
+            base_stats=chosen.base_stats,
+            types=chosen.types,
+            max_hp=max_hp,
+            current_hp=max_hp,
+            name=chosen.name,
+            held_item=None,
+            move_tier=move_tier,
+        )
+
+    result = _run_battle(state, team)
+    # CODEX.md P0.6: doSilverNode's runBattleScreen call passes isBoss=true
+    # (bundle.deobfuscated.js:77938) -- no Escape Rope recovery offer, same
+    # as every other boss-tier fight. Silver's Nuzlocke-permadeath exemption
+    # comes from a hardcoded `iS !== "silver"` sprite-name check inside
+    # runBattleScreen's own win branch (bundle.deobfuscated.js:81360) --
+    # a DIFFERENT mechanism from `doAdminNode`'s `state._noPermaDeath` flag
+    # (see `_visit_admin`) with the same observable effect (always exempt),
+    # modeled here with the same `no_permadeath=True` call-time flag.
     if not _after_battle(state, result, level_gain=4, all_team_xp=True, no_permadeath=True):
         return
-    finish = {
-        "kind": "heal_and_mark",
-        "node_id": node.id,
-        "silver": kind == "silver",
-        "admin": kind in ("magma", "aqua"),
-    }
+    finish = {"kind": "heal_and_mark", "node_id": node.id, "silver": True, "admin": False}
+    state._todo = [{"kind": "evolve", "idx": 0}, finish]
+    _run_todo(state)
+
+
+def _visit_admin(state: RunState, node: MapNode, kind: str) -> None:
+    """Port of `doAdminNode` (docs/logic-notes-nodes.md section 11,
+    bundle.deobfuscated.js:77958-78006). Roster keyed by map index (2/5/7);
+    any OTHER map index falls back to the FIXED index 2
+    (bundle.deobfuscated.js:77964, `iu[state.currentMap] || iu[0x2]`) --
+    unlike Silver's `silver_beaten`-count fallback, Magma/Aqua's fallback is
+    not battle-count-based. If even that fallback entry is missing
+    (defensive; both tables always have index 2 in the extracted data), the
+    node is a silent no-battle advance, matching the source's own
+    `if (!iS) { advance; return; }` guard."""
+    # bundle.deobfuscated.js:77960: `state.foughtAdmin = true` is the very
+    # FIRST thing doAdminNode does, unconditionally -- set even on the
+    # empty-roster no-battle path, and regardless of win/loss below.
+    state.fought_admin = True
+    encounters = data.get_magma_encounters() if kind == "magma" else data.get_aqua_encounters()
+    encounter = encounters.get(state.current_map) or encounters.get(2)
+    if encounter is None:
+        _advance(state, node.id)
+        state.phase = Phase.ON_MAP
+        return
+    move_tier = map_gen.get_move_tier_for_map(state.current_map)
+    team = _build_roster_team(encounter.team, move_tier, state.gen4_mode)
+    result = _run_battle(state, team)
+    # CODEX.md P0.6: doAdminNode's runBattleScreen call passes isBoss=true
+    # (bundle.deobfuscated.js:77985) -- no Escape Rope recovery offer.
+    # Magma/Aqua's Nuzlocke-permadeath exemption is the source's own
+    # `state._noPermaDeath = true` flag, held for the exact duration of the
+    # fight (set bundle.deobfuscated.js:77980, reset to false right after
+    # runBattleScreen resolves, 77996) -- modeled with the same
+    # `no_permadeath=True` call-time flag `_visit_silver` uses for its own,
+    # differently-mechanized exemption.
+    if not _after_battle(state, result, level_gain=4, all_team_xp=True, no_permadeath=True):
+        return
+    finish = {"kind": "heal_and_mark", "node_id": node.id, "silver": False, "admin": True}
     state._todo = [{"kind": "evolve", "idx": 0}, finish]
     _run_todo(state)
 
@@ -2413,9 +2589,9 @@ _NODE_HANDLERS = {
     # source: `case "mega": doItemNode(B);` -- no branch param, verbatim
     # (docs/logic-notes-nodes.md section 0).
     "mega": _visit_item,
-    map_gen.SILVER: lambda state, node: _visit_special_rival(state, node, "silver"),
-    map_gen.MAGMA: lambda state, node: _visit_special_rival(state, node, "magma"),
-    map_gen.AQUA: lambda state, node: _visit_special_rival(state, node, "aqua"),
+    map_gen.SILVER: _visit_silver,
+    map_gen.MAGMA: lambda state, node: _visit_admin(state, node, "magma"),
+    map_gen.AQUA: lambda state, node: _visit_admin(state, node, "aqua"),
     # Submap system not ported (map_gen.py's own scope note) -- approximated
     # per CLAUDE.md's own suggestion.
     map_gen.UNDERGROUND: _visit_battle,

@@ -5,10 +5,15 @@
 **Scope of this module.** `generate_map()` is a faithful, complete port of
 `generateMap` (line 53214-53507) -- the per-map 9-layer node/edge graph
 (start -> a 2-node pair -> six depth-varying middle layers -> boss), plus
-its Nuzlocke/Gen2/Gen3/Gen4/Endless node-type overrides AND the
-deterministic (non-RNG-stream) legendary-node species hash
+its Nuzlocke/Gen2/Gen3/Gen4/Endless node-type overrides AND two
+deterministic (non-RNG-stream) hashes: the legendary-node species hash
 (`_assign_legendary_species_id`, ported after finding `getRandomLegendary`
-is dead code -- see that function's docstring). Encounter selection
+is dead code -- see that function's docstring) and the mid-map
+TRAINER-node archetype hash (`_assign_trainer_sprite`, CODEX.md P0.9,
+2026-07-31 -- a DIFFERENT mixing function, FNV-1a+murmur3-fmix32 rather
+than the legendary hash's DJB2-ish one, populating
+`node.extra["trainerSprite"]` for `engine._visit_trainer`'s
+`TRAINER_BATTLE_CONFIG` lookup). Encounter selection
 (`get_bst_bucket`, `get_catch_choices`, `get_level_for_node`,
 `resolve_evo_for_level`, `pick_wild_encounter`) is a faithful port of the
 STANDARD (non-Endless-buff-pool) path used by Story/Nuzlocke/Battle-Tower.
@@ -49,6 +54,7 @@ have one yet (that's `engine.py`'s job).
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from functools import lru_cache
 from typing import Optional, Sequence
@@ -204,6 +210,22 @@ def _pick_node_type(depth: int, map_index: int, gen2: bool, gen3: bool, gen4: bo
     return picked
 
 
+def _js_round(x: float) -> int:
+    """JS `Math.round(x)` for `x >= 0` (every call site here is a level or a
+    level-range span, always non-negative): rounds half AWAY FROM ZERO
+    (equivalently, half UP for non-negative x), unlike Python's builtin
+    `round()`, which rounds half TO EVEN (banker's rounding). Found via the
+    battle-oracle cross-check while validating `_trainer_fight_level`
+    (CODEX.md addendum): `get_level_for_node`'s gen1 branch computes
+    `lo + frac*(hi-lo)` which lands on an exact `.5` at map index 8
+    (53 + 0.5*(64-53) = 58.5) -- Python's `round(58.5)` gives 58,
+    `Math.round(58.5)` gives 59, a genuine pre-existing divergence
+    unrelated to trainer/Silver/Magma/Aqua specifically but load-bearing
+    for `_trainer_fight_level`'s own exact parity, so fixed here rather
+    than left as a silent off-by-one."""
+    return math.floor(x + 0.5)
+
+
 def _imul32(a: int, b: int) -> int:
     """Signed 32-bit multiply matching JS `Math.imul` (see rng.py's
     `_mulberry32_step` docstring for why masked-unsigned arithmetic
@@ -252,6 +274,83 @@ def _assign_legendary_species_id(node_id: str, map_index: int, run_seed: int, ge
     for ch in node_id:
         seed = _to_int32(_imul32(seed, 0x1F) + ord(ch))
     return pool[abs(seed) % len(pool)]
+
+
+def _urshift32(x: int, bits: int) -> int:
+    """JS `x >>> bits` (unsigned right shift): treats `x` as an unsigned
+    32-bit value before shifting, regardless of Python's arbitrary-precision
+    signed representation."""
+    return (x & 0xFFFFFFFF) >> bits
+
+
+def _trainer_sprite_candidates(map_index: int, gen2_mode: bool, gen3_mode: bool, gen4_mode: bool) -> tuple[str, ...]:
+    """Port of the candidate-archetype-list filter inside `generateMap`'s
+    trainerSprite-assignment closure (`B2D`, bundle.deobfuscated.js:
+    53223-53237). `gen4Mode` bypasses every exclusion (`GEN4_TRAINER_KEYS`
+    used as-is); every other mode first drops "aceTrainer"/"policeman" past
+    their own map-index cutoffs (map_index>=6 / >=4 respectively -- true
+    even in gen3Mode), then gen3Mode allows everything else through
+    unconditionally, and Gen1/Gen2 apply the GEN1_ONLY/GEN2_ONLY exclusion
+    sets on top.
+    """
+    if gen4_mode:
+        return data.get_gen4_trainer_keys()
+
+    base = data.get_gen3_trainer_keys() if gen3_mode else data.get_trainer_sprite_keys()
+
+    def excluded_by_map_index(key: str) -> bool:
+        return (key == "aceTrainer" and map_index >= 6) or (key == "policeman" and map_index >= 4)
+
+    if gen3_mode:
+        return tuple(key for key in base if not excluded_by_map_index(key))
+
+    gen1_only = data.get_gen1_only_trainer_keys()
+    gen2_only = data.get_gen2_only_trainer_keys()
+    return tuple(
+        key
+        for key in base
+        if not excluded_by_map_index(key)
+        and not ((not gen2_mode and key in gen2_only) or (gen2_mode and key in gen1_only))
+    )
+
+
+def _trainer_sprite_hash(node_id: str, map_index: int, run_seed: int) -> int:
+    """Port of the deterministic (non-RNG-stream) hash `generateMap`'s
+    trainerSprite-assignment closure computes (`B2D`, bundle.deobfuscated.js:
+    53238-53248) -- an FNV-1a-style accumulation over the node id's
+    characters seeded from `imul(map_index, 0x9e3779b1) ^ run_seed`, finished
+    with a MurmurHash3 `fmix32`-style avalanche (two xor-shifts around an
+    `imul` by `0x7feb352d`). Same non-RNG-stream design family as
+    `_assign_legendary_species_id`, but a different mixing function -- ported
+    separately rather than reused, since the two hashes are confirmed
+    distinct in the source (DJB2-ish `hash*31+ch` there vs FNV-1a+fmix32
+    here). Returns the raw signed int32 hash; callers index
+    `abs(hash) % len(candidates)`.
+    """
+    seed = _to_int32(_imul32(_to_int32(map_index), 0x9E3779B1)) ^ _to_int32(run_seed)
+    seed = _to_int32(seed)
+    for ch in node_id:
+        seed = _to_int32(_imul32(seed ^ ord(ch), 0x1000193))
+    seed = _to_int32(seed ^ _urshift32(seed, 0x10))
+    seed = _to_int32(_imul32(seed, 0x7FEB352D))
+    seed = _to_int32(seed ^ _urshift32(seed, 0xF))
+    return seed
+
+
+def _assign_trainer_sprite(node_id: str, map_index: int, run_seed: int, gen2_mode: bool, gen3_mode: bool, gen4_mode: bool) -> Optional[str]:
+    """Port of `B2D` in full (bundle.deobfuscated.js:53221-53248) -- called
+    once per TRAINER-type node at map-generation time (`B2a`'s dispatch,
+    line 53309), populating `node.extra["trainerSprite"]`. This is what
+    `doTrainerNode`/`engine._visit_trainer` key into
+    `TRAINER_BATTLE_CONFIG` with -- **not** a live per-visit roll, matching
+    the source's own design (revisiting the node never changes its
+    archetype, since the node object itself carries the field).
+    """
+    candidates = _trainer_sprite_candidates(map_index, gen2_mode, gen3_mode, gen4_mode)
+    if not candidates:
+        return None
+    h = _trainer_sprite_hash(node_id, map_index, run_seed)
+    return candidates[abs(h) % len(candidates)]
 
 
 def _make_node(node_id: str, node_type: str, layer: int, col: int, **extra) -> MapNode:
@@ -338,6 +437,8 @@ def generate_map(
         for node in layer_nodes:
             if node.type == LEGENDARY:
                 node.extra["legendarySpeciesId"] = _assign_legendary_species_id(node.id, map_index, run_seed, gen2_mode, gen3_mode, gen4_mode)
+            elif node.type == TRAINER:
+                node.extra["trainerSprite"] = _assign_trainer_sprite(node.id, map_index, run_seed, gen2_mode, gen3_mode, gen4_mode)
         if (
             not flags.challenge_no_heal
             and depth == len(_LAYER_WIDTHS) - 1
@@ -347,17 +448,25 @@ def generate_map(
         layers.append(layer_nodes)
 
     # Gen2 Silver rival node -- layer index 4, odd map indices only.
+    # `del ...trainerSprite` mirrors the source dropping the field when a
+    # node that happened to roll TRAINER gets overridden to a special type
+    # (bundle.deobfuscated.js:53449, 53460-53462, 53470-53473) -- inert for
+    # engine.py (a SILVER/MAGMA/AQUA-typed node is never dispatched to
+    # `_visit_trainer`), kept for node-state fidelity.
     if gen2_mode and map_index in (1, 3, 5, 7):
         silver_layer = layers[4]
         if len(silver_layer) == 3:
             silver_layer[1].type = SILVER
+            silver_layer[1].extra.pop("trainerSprite", None)
 
     # Gen3 Team Magma/Aqua nodes -- layer index 4, specific map indices.
     if gen3_mode and not flags.is_endless_mode and map_index in (2, 5, 7):
         magma_layer = layers[4]
         if len(magma_layer) == 3:
             magma_layer[0].type = MAGMA
+            magma_layer[0].extra.pop("trainerSprite", None)
             magma_layer[2].type = AQUA
+            magma_layer[2].extra.pop("trainerSprite", None)
 
     # Gen4 Underground/Distortion nodes -- layer index 4, specific map indices.
     if gen4_mode and not flags.is_endless_mode:
@@ -365,8 +474,10 @@ def generate_map(
         if len(gen4_layer) == 3:
             if map_index in (1, 3, 6):
                 gen4_layer[0].type = UNDERGROUND
+                gen4_layer[0].extra.pop("trainerSprite", None)
             if map_index in (3, 5, 7):
                 gen4_layer[2].type = DISTORTION
+                gen4_layer[2].extra.pop("trainerSprite", None)
 
     if flags.is_endless_mode and flags.challenge_only_fight:
         for layer in layers:
@@ -498,8 +609,8 @@ def get_level_for_node(
     map_range = data.get_map_level_ranges(1)[current_map]
     lo, hi = map_range.min, map_range.max
     frac = min(1.0, max(0.0, (layer - 1) / 6))
-    base = round(lo + frac * (hi - lo))
-    jitter_span = max(1, round((hi - lo) / 8))
+    base = _js_round(lo + frac * (hi - lo))
+    jitter_span = max(1, _js_round((hi - lo) / 8))
     return min(hi, max(lo, base + int(rng.rng() * jitter_span)))
 
 
