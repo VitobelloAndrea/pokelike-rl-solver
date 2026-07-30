@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>Pokelike (Python engine) — local web UI</title>
+  <meta name="color-scheme" content="dark">
+  <link rel="stylesheet" href="/style/main.css">
+  <!--
+    Adapted from pokelike_forked/index.html -- same screen ids/classes for
+    the core-loop screens this build supports, so pokelike_forked/style/main.css
+    applies with no changes. Removed: ads/analytics/cloud-sync/maintenance-gate
+    scripts, the run-menu sidebar and every meta screen (Pokedex/achievements/
+    settings/Hall of Fame/Battle Tower/Challenges/history region select) --
+    none of that is backed by engine.py, see pokelike/webui/__init__.py's
+    module docstring for why. New: #move-tutor-screen, #item-equip-screen,
+    #evolution-screen (the real site handles these as modals over the map
+    screen rather than dedicated full screens -- built here as screens for
+    simplicity, reusing the same .screen/.screen-intro/.poke-card conventions).
+  -->
+</head>
+<body>
+
+<!-- ===== TITLE SCREEN ===== -->
+<div id="title-screen" class="screen active">
+  <header class="title-hero">
+    <h1 class="game-logo">Pokelike</h1>
+    <p class="game-subtitle"><span class="game-subtitle-inner">
+      <span class="game-subtitle-text">Python engine -- local web UI</span>
+    </span></p>
+  </header>
+  <div class="title-mode-cards">
+    <div class="title-mode-col">
+      <button type="button" id="btn-start-story" class="title-mode-card title-mode-card--story">
+        <span class="title-mode-card-title">Story</span>
+        <span class="title-mode-card-figure"><span class="title-mode-card-action">Play Story</span></span>
+      </button>
+    </div>
+    <div class="title-mode-col">
+      <button type="button" id="btn-start-nuzlocke" class="title-mode-card title-mode-card--story">
+        <span class="title-mode-card-title">Nuzlocke</span>
+        <span class="title-mode-card-figure"><span class="title-mode-card-action">Play Nuzlocke</span></span>
+      </button>
+    </div>
+  </div>
+  <p class="screen-desc" style="text-align:center;margin-top:12px;">
+    A local, from-scratch Python port of the engine -- not the live site.
+    See docs/webui.md for scope/known gaps.
+  </p>
+</div>
+
+<!-- ===== STARTER SELECT ===== -->
+<div id="starter-screen" class="screen">
+  <header class="screen-intro"><h2>Choose Your Starter!</h2></header>
+  <div id="starter-choices"></div>
+</div>
+
+<!-- ===== MAP SCREEN ===== -->
+<div id="map-screen" class="screen">
+  <div class="map-panels">
+    <div class="hud-box map-panel-left">
+      <div class="hud-label">TEAM</div>
+      <div id="team-bar"></div>
+    </div>
+    <div class="hud-box map-panel-right">
+      <div class="hud-label">ITEMS</div>
+      <div id="item-bar"></div>
+      <div class="hud-label map-badges-label">BADGES</div>
+      <div id="badge-count-panel"></div>
+    </div>
+  </div>
+  <div id="map-container"></div>
+</div>
+
+<!-- ===== BATTLE SCREEN (pre/post snapshot, not animated -- see webui docstring) ===== -->
+<div id="battle-screen" class="screen">
+  <div class="battle-header screen-intro">
+    <h2 id="battle-title">Battle!</h2>
+    <p id="battle-subtitle" class="screen-desc"></p>
+  </div>
+  <div class="battle-stage">
+    <div class="battle-field">
+      <div class="battle-side">
+        <div class="battle-side-label">Your Team</div>
+        <div id="player-side"></div>
+      </div>
+      <div class="battle-side">
+        <div class="battle-side-label">Enemy</div>
+        <div id="enemy-side"></div>
+      </div>
+    </div>
+  </div>
+  <div class="battle-controls">
+    <button id="btn-continue-battle" class="btn-primary btn-md">Continue</button>
+  </div>
+</div>
+
+<!-- ===== CATCH / SHINY / LEGENDARY-CATCH SCREEN ===== -->
+<div id="catch-screen" class="screen">
+  <header class="screen-intro"><h2 id="catch-title">Wild Pokemon Appeared!</h2></header>
+  <div id="catch-choices"></div>
+  <div style="text-align:center;margin-top:12px;">
+    <button id="btn-skip-catch" class="btn-secondary btn-md">Skip</button>
+  </div>
+</div>
+
+<!-- ===== ITEM SCREEN ===== -->
+<div id="item-screen" class="screen">
+  <header class="screen-intro">
+    <h2>Item Found!</h2>
+    <p class="screen-desc">Choose one item to keep</p>
+  </header>
+  <div id="item-choices"></div>
+  <div style="text-align:center;margin-top:12px;">
+    <button id="btn-skip-item" class="btn-secondary btn-md">Skip</button>
+  </div>
+</div>
+
+<!-- ===== ITEM EQUIP SCREEN (new -- see file header) ===== -->
+<div id="item-equip-screen" class="screen">
+  <header class="screen-intro">
+    <h2>Equip Item</h2>
+    <p id="item-equip-desc" class="screen-desc"></p>
+  </header>
+  <div id="item-equip-choices"></div>
+</div>
+
+<!-- ===== MOVE TUTOR SCREEN (new -- see file header) ===== -->
+<div id="move-tutor-screen" class="screen">
+  <header class="screen-intro">
+    <h2>Move Tutor</h2>
+    <p class="screen-desc">Teach one Pokemon a new move tier</p>
+  </header>
+  <div id="move-tutor-choices"></div>
+  <div style="text-align:center;margin-top:12px;">
+    <button id="btn-skip-tutor" class="btn-secondary btn-md">Skip</button>
+  </div>
+</div>
+
+<!-- ===== EVOLUTION CHOICE SCREEN (branching evolution -- mandatory, no skip) ===== -->
+<div id="evolution-screen" class="screen">
+  <header class="screen-intro"><h2>Choose its evolution:</h2></header>
+  <div id="evolution-choices"></div>
+</div>
+
+<!-- ===== SWAP SCREEN ===== -->
+<div id="swap-screen" class="screen">
+  <header class="screen-intro">
+    <h2>Team Full!</h2>
+    <p class="screen-desc">Choose a Pokemon to release, or keep your team as-is</p>
+  </header>
+  <div id="swap-choices"></div>
+  <div style="text-align:center;margin-top:12px;">
+    <button id="btn-cancel-swap" class="btn-secondary btn-md">Keep team as-is</button>
+  </div>
+</div>
+
+<!-- ===== TRADE SCREEN ===== -->
+<div id="trade-screen" class="screen">
+  <header class="screen-intro">
+    <h2>Trade Offer</h2>
+    <p class="screen-desc">Pick a Pokemon to trade away</p>
+  </header>
+  <div id="trade-choices"></div>
+  <div style="text-align:center;margin-top:12px;">
+    <button id="btn-skip-trade" class="btn-secondary btn-md">Decline</button>
+  </div>
+</div>
+
+<!-- ===== BADGE SCREEN ===== -->
+<div id="badge-screen" class="screen">
+  <header class="screen-intro"><h2>Badge Earned!</h2></header>
+  <div class="badge-earn-body">
+    <p id="badge-count-display" class="badge-earn-count"></p>
+  </div>
+  <div class="badge-earn-footer">
+    <button id="btn-next-map" class="btn-primary btn-md">Next Map &rarr;</button>
+  </div>
+</div>
+
+<!-- ===== GAME OVER ===== -->
+<div id="gameover-screen" class="screen">
+  <div class="gameover-title">GAME OVER</div>
+  <div id="gameover-badges"></div>
+  <div id="gameover-team"></div>
+  <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:12px;">
+    <button id="btn-retry" class="btn-primary btn-lg">Play Again</button>
+  </div>
+</div>
+
+<!-- ===== WIN SCREEN ===== -->
+<div id="win-screen" class="screen">
+  <div class="win-title">YOU ARE THE<br>CHAMPION!</div>
+  <p style="color:var(--text-dim);">You defeated the Elite Four!</p>
+  <div id="win-team"></div>
+  <div style="display:flex;gap:8px;justify-content:center;margin-top:8px;">
+    <button id="btn-play-again" class="btn-primary btn-md">Play Again</button>
+  </div>
+</div>
+
+<script src="/js/app.js"></script>
+</body>
+</html>

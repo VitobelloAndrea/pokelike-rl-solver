@@ -1,0 +1,2010 @@
+"""The game's state machine: run lifecycle, map traversal, and node-visit
+resolution, tying `map_gen.py` + the battle engine (`battle.py`/
+`battle_abilities.py`/`battle_traits.py`/`battle_loop.py`) together into a
+single playable run. This is the first module in the repo that reads/writes
+persistent run state rather than being a pure, stateless formula library.
+
+Citations: `docs/logic-notes.md` sections 2-3 (state object shape, mode
+differences) plus two deep-dive companion docs written this session,
+`docs/logic-notes-nodes.md` (every node-visit handler,
+`doBattleNode`/`doCatchNode`/`doBossNode`/etc.) and
+`docs/logic-notes-runlifecycle.md` (`startNewRun`/`startMap`/
+`checkAndEvolveTeam`/`applyLevelGain`/run-over conditions) -- read those
+before touching this module, the same way `battle_loop.py` points at
+`docs/logic-notes-runbattle.md`.
+
+**The central design decision** (per CLAUDE.md's explicit callout): the JS
+has **no persistent "in battle" state at all** -- "in battle" is pure control
+flow, a `Promise`-returning screen function awaited by the map loop. Tracing
+the node handlers (`docs/logic-notes-nodes.md`) shows this is true of far
+more than just battle, though: `doCatchNode`'s candidate-pick, the team-full
+swap screen, `checkAndEvolveTeam`'s branching-evolution modal, the move
+tutor's target pick, the item-equip modal, and the trade-target pick are
+*all* suspended `await`-a-click continuations in the source, not data. A
+faithful `engine.step(action) -> new_state` API can't suspend a Python call
+the way JS suspends a `Promise` -- so this module reifies **every one of
+those suspension points** as an explicit `Phase` the state machine can be in,
+not just a battle phase. `RunState.pending` (a `PendingChoice`) is what a
+caller reads to know a decision is expected and what `SelectOption`/whichever
+action resolves it; `RunState.phase` is the JS's collapsed-into-one-`Phase`-
+enum answer to "which suspended continuation, if any, are we sitting at
+right now." Battle itself does NOT need its own phase, because
+`battle_loop.run_battle` (unlike the source's `runBattle`) is a synchronous
+function that resolves an entire multi-round battle in one call -- there is
+no per-turn player decision anywhere in this game (`getBestMove` picks both
+sides' moves automatically, docs/logic-notes.md section 6.5), so a whole
+battle fits inside a single `step()` call and needs no suspension of its own.
+
+**Deliberately out of scope this session** (flagged, not silently dropped):
+- **Endless mode / Battle Tower / Challenges.** `map_gen.py` itself only
+  fully ports the Story/Nuzlocke path (its own docstring flags
+  `generateSubMap`, the Endless buff-pool, and Endless2 overrides as
+  unported); this module inherits that scope. `ChallengeFlags()` is always
+  constructed with its Story-mode defaults.
+- **Mid-map procedural trainer rosters** (`doTrainerNode`'s
+  `TRAINER_BATTLE_CONFIG`, per-archetype species pools) and **the Gen2
+  Silver rival / Gen3 Magma-Aqua fixed rosters** (`SILVER_ENCOUNTERS`/
+  `MAGMA_ENCOUNTERS`/`AQUA_ENCOUNTERS`) were never extracted into
+  `pokelike/data.py` -- this session's research reached their *behavior*
+  but not their *data*. `_visit_trainer`/`_visit_special_rival` below
+  approximate these with the same wild-encounter species-pool mechanism
+  (`map_gen.get_catch_choices`), clearly flagged in each function's
+  docstring as an approximation, not a byte-accurate port. A future session
+  should extract the real tables (same technique as
+  `tools/extract-data/extract-tables.js`) and replace these.
+- **The submap system** (`generateSubMap`/`UNDERGROUND`/`DISTORTION`/
+  `REWARD`/`SUBEXIT`) -- `map_gen.py` doesn't generate real submaps behind
+  these node types (they're placed in the graph but lead nowhere real).
+  This module resolves `UNDERGROUND`/`DISTORTION` as an ordinary wild battle
+  and `REWARD`/`SUBEXIT` as a no-op advance, per CLAUDE.md's own suggestion
+  ("can just be treated as ordinary battle/reward nodes for now").
+- **Trait/passive acquisition mid-run is genuinely NOT a Story/Nuzlocke
+  mechanic -- traced and confirmed, not a gap.** `showPassiveItemChoice`
+  (bundle.deobfuscated.js:84961-85049) -- the ONLY function in the entire
+  bundle that ever grants a new trait -- opens with `if (!state ||
+  !state["challengeId"]) { resolve(); return; }` and its single call site
+  (bundle.deobfuscated.js:86193) is deep inside `runEndlessTrainerFight`'s
+  post-boss-win handling, gated on `state.challengeEndless`/
+  `endlessState`. Grepping the whole bundle confirms there is no second
+  call site. Mid-run trait acquisition is therefore an **Endless-mode-only**
+  mechanic; `RunState.passives` correctly models Story/Nuzlocke as
+  "traits are a fixed pre-run loadout, never earned mid-run" (a `reset()`-
+  time input a caller supplies, e.g. for RL scenarios studying a fixed
+  trait build). CODEX.md's audit flagged this as an unmodeled gap without
+  tracing this gate; corrected here -- see CODEX.md issue 17's resolution
+  note.
+- **Bag items are now a modeled action.** `UseItem`/`EquipItem` (this
+  module's public `Action` union) port `applyUsableItemTo`/
+  `equipItemFromBag` -- Rare Candy/Sacred Ash/Moon Stone/TM usage and
+  bag<->held-item swapping. `ReorderTeam` ports the team bar's drag/click-
+  to-swap reordering. See `_apply_use_item`/`_apply_equip_item`/
+  `_apply_reorder_team` and their docstrings.
+- **Three untraced numeric constants** get documented placeholders rather
+  than fabricated "plausible" values: `doLegendaryNode`'s
+  `legendaryShinyChanceFlat()`, standard-mode `doTradeNode`'s
+  `rollShiny()`, and its `tradeOfferLevel`'s level-bonus term (used as `+0`
+  here). See `docs/logic-notes-nodes.md` sections 8-9.
+
+Deliberately NOT replicated (per CLAUDE.md's "js/ui.js is reference-only"
+and `battle_loop.py`'s own precedent): the JS's per-turn `log`/`detailedLog`
+event arrays. `RunState.log` is this module's OWN event representation (one
+entry per node visit / evolution / badge / victory), coarser than a
+mainline-style turn-by-turn battle log because `battle_loop.run_battle`
+itself doesn't expose one (see that module's docstring) -- `render/` shows
+before/after team snapshots per battle, not blow-by-blow turns, until a
+future session adds an optional event-callback to `battle_loop.run_battle`.
+"""
+
+from __future__ import annotations
+
+import dataclasses
+import math
+from dataclasses import dataclass, field
+from enum import Enum
+from typing import Optional, Sequence, Union
+
+from pokelike import battle, battle_abilities, battle_loop, battle_traits, data, map_gen, rng
+from pokelike.battle import BattleConfig, Combatant, HeldItem, Trait
+from pokelike.battle_loop import BattleResult
+from pokelike.map_gen import ChallengeFlags, MapNode
+
+# doCatchNode/catchPokemon's hardcoded cap (bundle.deobfuscated.js:79035) --
+# NOT the same thing as state.maxTeamSize, which is a watermark stat only
+# (docs/logic-notes-nodes.md section 4, docs/logic-notes-runlifecycle.md
+# section 8).
+TEAM_CAP = 6
+
+# startNewRun/pickForcedStarter/selectStarter all hardcode level 5 for a
+# fresh starter (bundle.deobfuscated.js:75648).
+_STARTER_LEVEL = 5
+
+# `shiny_rate` trait id used by `roll_shiny`'s doubling check -- matches
+# `rollShiny`/`legendaryShinyChanceFlat`'s own `hasPassive`-style
+# `some(id === "shiny_rate" && enabled !== true)` opt-out check.
+_SHINY_RATE_TRAIT_ID = "shiny_rate"
+
+# `doCatchNode`'s Gen1-Nuzlocke, map-0-only restricted candidate set
+# (bundle.deobfuscated.js:78538-78541) -- CODEX.md issue 10.
+_GEN1_NUZLOCKE_MAP0_RESTRICTED = frozenset(
+    {0xA, 0xB, 0x1B, 0x36, 0x38, 0x3C, 0x45, 0x48, 0x4A, 0x4F, 0x51, 0x56, 0x60, 0x62, 0x64, 0x66, 0x6F, 0x74, 0x76, 0x78, 0x81, 0x85}
+)
+
+# `doCatchNode`'s map-0/layer-1 "guarantee a Grass and a Water option"
+# safety net (bundle.deobfuscated.js:78567-78578), indexed
+# [gen1, gen2, gen3] -- unreachable in gen4 mode in the source too (the
+# outer gate is `!state.gen4Mode`), so no gen4 entry is needed.
+_MAP0_SAFETY_NET: dict[int, tuple[tuple[int, ...], tuple[int, ...]]] = {
+    0: ((0x2B, 0x45, 0x66), (0x36, 0x3C, 0x48, 0x4F, 0x56, 0x62, 0x74, 0x76, 0x78, 0x81)),
+    1: ((0xBB, 0xBF), (0xB7, 0xC2, 0xDF)),
+    2: ((0x10E, 0x111, 0x11D), (0x116, 0x11B, 0x155)),
+}
+
+
+class Phase(str, Enum):
+    """Every suspended-continuation point the source's node handlers can
+    leave the player sitting at (see module docstring). `ON_MAP` is the only
+    phase where `VisitNode` is a valid action; every other non-terminal
+    phase expects `SelectOption` (or `AdvanceMap`/`ChooseStarter` for their
+    own dedicated phases).
+    """
+
+    CHOOSE_STARTER = "choose_starter"
+    ON_MAP = "on_map"
+    CATCH_CHOICE = "catch_choice"
+    SWAP_CHOICE = "swap_choice"
+    EVOLUTION_CHOICE = "evolution_choice"
+    MOVE_TUTOR_CHOICE = "move_tutor_choice"
+    ITEM_CHOICE = "item_choice"
+    ITEM_EQUIP_CHOICE = "item_equip_choice"
+    TRADE_CHOICE = "trade_choice"
+    NEXT_MAP_READY = "next_map_ready"
+    GAME_OVER = "game_over"
+    VICTORY = "victory"
+
+
+@dataclass
+class PendingChoice:
+    """A decision the caller must resolve before the state machine can
+    proceed. `options` is the renderer/agent-facing view -- plain dicts of
+    primitives, safe to print or feed to a UI/Gym observation. `extra` is
+    engine-internal bookkeeping needed to actually apply the chosen option
+    (may hold live `Combatant`/`data.Trainer` object references) -- callers
+    outside this module shouldn't need to read it.
+    """
+
+    phase: Phase
+    options: list = field(default_factory=list)
+    optional: bool = False
+    extra: dict = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class VisitNode:
+    """Valid only when `RunState.phase == Phase.ON_MAP`. `node_id` must name
+    a currently-accessible node in `RunState.map.nodes`."""
+
+    node_id: str
+
+
+@dataclass(frozen=True)
+class AdvanceMap:
+    """Valid only when `RunState.phase == Phase.NEXT_MAP_READY` (the badge
+    screen's "Next Map" button, docs/logic-notes-runlifecycle.md section 3)."""
+
+
+@dataclass(frozen=True)
+class ChooseStarter:
+    """Valid only when `RunState.phase == Phase.CHOOSE_STARTER`."""
+
+    species_id: int
+
+
+@dataclass(frozen=True)
+class SelectOption:
+    """The generic answer to any `PendingChoice`: an index into
+    `RunState.pending.options`, or `None` to skip/cancel/decline -- valid
+    only when `RunState.pending.optional` is True (CLAUDE.md flags this
+    variable-cardinality "pick 1 of N, or skip" shape as a real Gym-design
+    concern for Phase 3; this is the single action type every such decision
+    in this engine funnels through).
+    """
+
+    index: Optional[int] = None
+
+
+@dataclass(frozen=True)
+class ReorderTeam:
+    """Valid only when `RunState.phase == Phase.ON_MAP`. `order` must be a
+    permutation of `range(len(RunState.team))` -- `new_team[i] =
+    old_team[order[i]]`. Port of the source's team-bar drag/click-to-swap
+    reordering (CODEX.md issues 5/36): battle order is mechanically
+    significant (`run_battle` always fights whichever living member is
+    FIRST in list order), but the source models arbitrary reordering, not
+    just adjacent swaps, so this takes a full permutation rather than a
+    `(i, j)` swap pair -- a caller that only wants a two-element swap can
+    build one by rotating a copy of `list(range(len(team)))`.
+    """
+
+    order: tuple[int, ...]
+
+
+@dataclass(frozen=True)
+class UseItem:
+    """Valid only when `RunState.phase == Phase.ON_MAP`. Port of
+    `applyUsableItemTo` (CODEX.md issue 16) -- uses a consumable bag item
+    (`RunState.items[item_index]`) on `RunState.team[target_index]`. Every
+    usable item (Rare Candy/Sacred Ash/Moon Stone/TM) requires a target;
+    see `_usable_item_can_target` for the per-item eligibility rule the
+    source itself uses to gray out invalid targets. May raise a
+    `Phase.EVOLUTION_CHOICE` (Moon Stone forcing a branching evolution, or
+    Rare Candy's level-up making one newly eligible) the same way a battle
+    win's automatic evolution check does.
+    """
+
+    item_index: int
+    target_index: int
+
+
+@dataclass(frozen=True)
+class EquipItem:
+    """Valid only when `RunState.phase == Phase.ON_MAP`. Port of
+    `equipItemFromBag` (CODEX.md issues 9/16): moves
+    `RunState.items[bag_index]` onto `RunState.team[team_index].held_item`,
+    pushing whatever was already held back into the bag. The source applies
+    no type restriction here (any bag item, usable or passive, can be
+    "equipped"), replicated as-is per CLAUDE.md's "preserve unusual source
+    behavior" convention.
+    """
+
+    bag_index: int
+    team_index: int
+
+
+Action = Union[VisitNode, AdvanceMap, ChooseStarter, SelectOption, ReorderTeam, UseItem, EquipItem]
+
+
+@dataclass
+class RunState:
+    """Everything a run needs, kept close to `startNewRun`'s own field list
+    (docs/logic-notes.md section 2.1, docs/logic-notes-runlifecycle.md
+    section 1) plus the extra bookkeeping this port's explicit `Phase`
+    design needs that the source doesn't structurally have. `team` is a
+    plain `list[battle.Combatant]` -- the source's roster Pokemon ARE
+    battler objects (HP/status persist across battles, only in-battle-only
+    fields like `stages` reset each fight via `initBattleState`), so no
+    separate "roster wrapper" type is needed (CLAUDE.md's brief floated one
+    as an option; this is the simpler one).
+    """
+
+    nuzlocke_mode: bool = False
+    gen2_mode: bool = False
+    gen3_mode: bool = False
+    gen4_mode: bool = False
+    shiny_charm: bool = False
+    run_seed: int = 0
+
+    current_map: int = 0
+    map: Optional[map_gen.GeneratedMap] = None
+    current_node_id: Optional[str] = None
+
+    team: list = field(default_factory=list)  # list[Combatant]
+    items: list = field(default_factory=list)  # list[str] -- bag item ids (usable + released held items)
+    passives: list = field(default_factory=list)  # list[Trait] -- player's collected traits; acquisition not modeled, see module docstring
+
+    badges: int = 0
+    elite_index: int = 0
+    starter_species_id: Optional[int] = None
+    max_team_size: int = 1  # watermark stat, NOT a cap -- see TEAM_CAP
+    silver_beaten: int = 0
+    fought_admin: bool = False
+    used_pokecenter: bool = False
+    picked_up_item: bool = False
+    used_tm: bool = False
+    used_ball_catch: bool = False
+    got_via_question: bool = False
+
+    question_cache: dict = field(default_factory=dict)  # node id -> resolved type string
+
+    phase: Phase = Phase.CHOOSE_STARTER
+    pending: Optional[PendingChoice] = None
+    game_over: bool = False
+    won: bool = False
+
+    log: list = field(default_factory=list)  # this module's own event log, see module docstring
+    _todo: list = field(default_factory=list)  # resumable post-battle work queue, see _run_todo
+
+
+def accessible_nodes(state: RunState) -> list[MapNode]:
+    """Convenience for `render/`/a future Gym wrapper: every node the player
+    could legally `VisitNode` right now."""
+    if state.map is None:
+        return []
+    return [n for n in state.map.nodes.values() if n.accessible]
+
+
+def legal_actions(state: RunState) -> dict:
+    """Phase 3 boundary prep (CODEX.md issue 32): a single authoritative
+    answer to "what can `Engine.step` legally be called with right now,"
+    spanning every phase this state machine can be in -- not just
+    `accessible_nodes`'s map-only slice. Exists so a future Gym wrapper
+    reads legality off the engine instead of re-deriving/duplicating it
+    (and risking drift, per CODEX.md's own warning).
+
+    Returns a dict keyed by action TYPE (not a flat list of concrete
+    `Action` instances) because a couple of these have a combinatorially
+    large or genuinely unbounded parameter space -- `ReorderTeam.order` is
+    any permutation of the current team, `UseItem`/`EquipItem` are
+    (bag index, team index) pairs -- enumerating every concrete instance
+    would blow up for no benefit. Each entry instead gives the legal
+    *parameter ranges/indices* for that action type, letting a caller build
+    whatever concrete `Action`/action-mask representation it wants:
+
+    - `{"choose_starter": {"species_ids": [...]}}` -- `Phase.CHOOSE_STARTER`.
+    - `{"select_option": {"indices": [...], "optional": bool}}` -- any
+      `PendingChoice` phase (catch/swap/evolution/move-tutor/item/trade).
+      `indices` is `range(len(pending.options))`; `None` is also legal
+      (skip/decline) iff `optional` is True.
+    - `{"advance_map": True}` -- `Phase.NEXT_MAP_READY`.
+    - On `Phase.ON_MAP`: `"visit_node"` (accessible node ids), and, if
+      applicable, `"reorder_team"` (current team size, so a caller knows
+      what permutation length is legal), `"use_item"` (one entry per bag
+      item that's usable AND has at least one eligible target, each with
+      its own `target_indices` from `_usable_item_can_target`), and
+      `"equip_item"` (every bag index / team index pair is legal -- the
+      source itself applies no item-type restriction here, CODEX.md issue
+      16, replicated as-is rather than adding a restriction the engine
+      doesn't have).
+    - `{}` on `Phase.GAME_OVER`/`Phase.VICTORY` (or a `None` map) -- no
+      legal actions, the run has ended.
+    """
+    if state.phase in (Phase.GAME_OVER, Phase.VICTORY):
+        return {}
+    if state.phase == Phase.CHOOSE_STARTER:
+        return {"choose_starter": {"species_ids": [o["species_id"] for o in state.pending.options]}}
+    if state.phase in _PENDING_RESOLVERS and state.pending is not None:
+        return {
+            "select_option": {
+                "indices": list(range(len(state.pending.options))),
+                "optional": state.pending.optional,
+            }
+        }
+    if state.phase == Phase.NEXT_MAP_READY:
+        return {"advance_map": True}
+    if state.phase == Phase.ON_MAP:
+        result: dict = {"visit_node": {"node_ids": [n.id for n in accessible_nodes(state)]}}
+        if len(state.team) > 1:
+            result["reorder_team"] = {"team_size": len(state.team)}
+        usable_ids = {item.id for item in data.get_usable_items()}
+        use_item = []
+        for item_idx, item_id in enumerate(state.items):
+            if item_id not in usable_ids:
+                continue
+            targets = [i for i, mon in enumerate(state.team) if _usable_item_can_target(item_id, mon)]
+            if targets:
+                use_item.append({"item_index": item_idx, "item_id": item_id, "target_indices": targets})
+        if use_item:
+            result["use_item"] = use_item
+        if state.items and state.team:
+            result["equip_item"] = {
+                "bag_indices": list(range(len(state.items))),
+                "team_indices": list(range(len(state.team))),
+            }
+        return result
+    return {}
+
+
+class Engine:
+    """Thin stateful wrapper: `reset()`/`step()` mirror the eventual
+    `gymnasium.Env` shape on purpose (CLAUDE.md's Phase 3 note), but nothing
+    below imports `gymnasium` or knows about observation/action spaces --
+    that's Phase 3's job, deliberately deferred.
+
+    **Owns a private RNG stream (CODEX.md issue 15).** Every module this
+    engine calls into (`battle.py`/`battle_loop.py`/`battle_abilities.py`/
+    `battle_traits.py`/`map_gen.py`) draws randomness through
+    `pokelike.rng`'s module-level `rng()`, which -- faithfully mirroring the
+    JS's own single process-wide global -- defaults to one shared stream for
+    every caller. Left alone, two `Engine` instances in the same process
+    would silently share that stream: stepping one would advance/reseed the
+    RNG state the other's next roll depends on. Each `Engine` instead
+    creates its own `rng.Mulberry32` in `__init__` and swaps it in as the
+    module's "active" stream (`rng.set_active_stream`) for the exact
+    duration of every `reset()`/`step()` call, restoring whatever was active
+    before on the way out. Since neither method is reentrant/async, two
+    engines' calls never actually interleave mid-body -- swapping a single
+    pointer around each top-level call is sufficient for full independence
+    without threading an RNG instance through every function signature in
+    the modules above (see `rng.py`'s own docstring for the same rationale).
+    """
+
+    def __init__(self) -> None:
+        self.state: Optional[RunState] = None
+        self._rng_stream = rng.new_stream()
+
+    def reset(
+        self,
+        *,
+        nuzlocke_mode: bool = False,
+        gen2_mode: bool = False,
+        gen3_mode: bool = False,
+        gen4_mode: bool = False,
+        shiny_charm: bool = False,
+        seed: Optional[int] = None,
+        passives: Sequence[Trait] = (),
+    ) -> RunState:
+        """Port of `startNewRun` (docs/logic-notes-runlifecycle.md section
+        1), split into two steps the way the real game's UI is: this seeds
+        the RNG and builds the empty-team `state`, leaving `Phase.CHOOSE_
+        STARTER` pending; `step(ChooseStarter(...))` finishes what
+        `selectStarter`+`startMap(0)` do in the source. Generation unlocks
+        (`gen2_mode`/etc.) are plain caller-supplied booleans, matching
+        `startNewRun`'s own parameters -- the account-level Hall-of-Fame
+        unlock gate they come from in the source is out of scope for a
+        per-run engine (docs/logic-notes-runlifecycle.md section 3).
+
+        Exactly one of `gen2_mode`/`gen3_mode`/`gen4_mode` may be True at a
+        time (or none, for Gen1) -- CODEX.md issue 14: the source's
+        generation picker is a single account-level choice, never several
+        generations "unlocked" simultaneously for one run.
+
+        `shiny_charm` stands in for the source's `hasShinyCharm()`
+        (bundle.deobfuscated.js:48965-48967), which is just
+        `isPokedexComplete()` -- an account-level Hall-of-Fame/Pokedex-
+        completion flag entirely outside any single run's `state`, the same
+        category of out-of-episode account state as `gen2_mode`/etc.
+        Doubles standard and legendary shiny chance when True (CODEX.md
+        issue 6, `roll_shiny`).
+        """
+        if sum(bool(f) for f in (gen2_mode, gen3_mode, gen4_mode)) > 1:
+            raise ValueError(
+                "at most one of gen2_mode/gen3_mode/gen4_mode may be set -- "
+                "generation selection is mutually exclusive (CODEX.md issue 14)"
+            )
+        previous = rng.set_active_stream(self._rng_stream)
+        try:
+            run_seed = seed if seed is not None else rng.new_run_seed()
+            rng.seed_rng(run_seed)
+            state = RunState(
+                nuzlocke_mode=nuzlocke_mode,
+                gen2_mode=gen2_mode,
+                gen3_mode=gen3_mode,
+                gen4_mode=gen4_mode,
+                shiny_charm=shiny_charm,
+                run_seed=run_seed,
+                passives=list(passives),
+            )
+            generation = _generation(state)
+            state.pending = PendingChoice(
+                phase=Phase.CHOOSE_STARTER,
+                options=[
+                    {"species_id": sid, "name": data.get_pokedex()[sid].name}
+                    for sid in data.get_starter_ids(generation)
+                ],
+                optional=False,
+            )
+            state.phase = Phase.CHOOSE_STARTER
+            self.state = state
+            return state
+        finally:
+            rng.set_active_stream(previous)
+
+    def step(self, action: Action) -> RunState:
+        state = self.state
+        if state is None:
+            raise RuntimeError("call reset() before step()")
+        if state.phase in (Phase.GAME_OVER, Phase.VICTORY):
+            raise ValueError(f"run has ended ({state.phase.value}); call reset() to start a new run")
+        previous = rng.set_active_stream(self._rng_stream)
+        try:
+            _dispatch_action(state, action)
+            return state
+        finally:
+            rng.set_active_stream(previous)
+
+
+# ---------------------------------------------------------------------------
+# Action dispatch
+# ---------------------------------------------------------------------------
+
+
+def _generation(state: RunState) -> int:
+    return 4 if state.gen4_mode else 3 if state.gen3_mode else 2 if state.gen2_mode else 1
+
+
+def _dispatch_action(state: RunState, action: Action) -> None:
+    if state.phase == Phase.CHOOSE_STARTER:
+        if not isinstance(action, ChooseStarter):
+            raise ValueError("expected ChooseStarter while choosing a starter")
+        generation = _generation(state)
+        if action.species_id not in data.get_starter_ids(generation):
+            raise ValueError(f"{action.species_id} is not a valid starter for this run")
+        mon = _make_wild_combatant(action.species_id, _STARTER_LEVEL, move_tier=0, gen2_mode=state.gen2_mode, gen4_mode=state.gen4_mode)
+        mon.is_shiny = False
+        state.team = [mon]
+        state.starter_species_id = action.species_id
+        state.max_team_size = 1
+        state.pending = None
+        _start_map(state, 0)
+        return
+
+    if state.phase == Phase.ON_MAP:
+        if isinstance(action, VisitNode):
+            _visit_node(state, action.node_id)
+            return
+        if isinstance(action, ReorderTeam):
+            _apply_reorder_team(state, action)
+            return
+        if isinstance(action, UseItem):
+            _apply_use_item(state, action)
+            return
+        if isinstance(action, EquipItem):
+            _apply_equip_item(state, action)
+            return
+        raise ValueError("expected VisitNode/ReorderTeam/UseItem/EquipItem while on the map")
+
+    if state.phase == Phase.NEXT_MAP_READY:
+        if not isinstance(action, AdvanceMap):
+            raise ValueError("expected AdvanceMap after a boss win")
+        # Badge-advance clamp, docs/logic-notes-runlifecycle.md section 3
+        # (bundle.deobfuscated.js:81465-81471).
+        if state.current_map >= 7:
+            state.elite_index = 0
+            _start_map(state, 8)
+        else:
+            _start_map(state, state.current_map + 1)
+        return
+
+    if not isinstance(action, SelectOption):
+        raise ValueError(f"expected SelectOption while resolving {state.phase.value}")
+    _resolve_pending(state, action)
+
+
+def _start_map(state: RunState, map_index: int) -> None:
+    """Port of `startMap` (docs/logic-notes-runlifecycle.md section 2) --
+    the ONLY place a map gets (re)generated. Full-team heal is conditional
+    on `map_index > 0`, matching the source exactly (map 0's team was just
+    created full-HP, so it doesn't need it)."""
+    state.current_map = map_index
+    state.map = map_gen.generate_map(
+        map_index,
+        nuzlocke_mode=state.nuzlocke_mode,
+        gen2_mode=state.gen2_mode,
+        gen3_mode=state.gen3_mode,
+        gen4_mode=state.gen4_mode,
+        flags=ChallengeFlags(),
+        run_seed=state.run_seed,
+    )
+    if map_index > 0:
+        for mon in state.team:
+            mon.current_hp = mon.max_hp
+    # Belt-and-suspenders alongside `_resolve_question`'s now map-qualified
+    # cache key (CODEX.md issue 9): entries from a previous map can never be
+    # looked up again once the key includes `current_map`, but dropping them
+    # here keeps `question_cache` from growing unboundedly across a long run.
+    state.question_cache.clear()
+    state.current_node_id = "n0_0"
+    state.phase = Phase.ON_MAP
+    state.pending = None
+    _log(state, "start_map", map_index=map_index)
+
+
+def _resolve_pending(state: RunState, action: SelectOption) -> None:
+    pending = state.pending
+    if pending is None:
+        raise ValueError(f"no pending choice for phase {state.phase.value}")
+    if action.index is not None and not (0 <= action.index < len(pending.options)):
+        raise ValueError(f"index {action.index} out of range for {len(pending.options)} options")
+    if action.index is None and not pending.optional:
+        raise ValueError(f"a choice is required for {state.phase.value}, it cannot be skipped")
+
+    resolver = _PENDING_RESOLVERS.get(state.phase)
+    if resolver is None:
+        raise ValueError(f"phase {state.phase.value} does not accept SelectOption")
+    resolver(state, action)
+
+
+# ---------------------------------------------------------------------------
+# Small shared helpers
+# ---------------------------------------------------------------------------
+
+
+def _log(state: RunState, event_type: str, **fields) -> None:
+    state.log.append({"type": event_type, **fields})
+
+
+def _mon_summary(mon: Combatant) -> dict:
+    return {
+        "species_id": mon.species_id,
+        "name": mon.name,
+        "level": mon.level,
+        "current_hp": mon.current_hp,
+        "max_hp": mon.max_hp,
+        "status": mon.status,
+        "is_shiny": mon.is_shiny,
+        "held_item": mon.held_item.id if mon.held_item is not None else None,
+    }
+
+
+def _shuffle(items: list) -> None:
+    """Fisher-Yates via the global RNG stream, same idiom as
+    `map_gen.get_catch_choices`'s inline shuffle (docs/logic-notes.md
+    section 6.5)."""
+    for i in range(len(items) - 1, 0, -1):
+        j = int(rng.rng() * (i + 1))
+        items[i], items[j] = items[j], items[i]
+
+
+def _advance(state: RunState, node_id: str) -> None:
+    """Port of `advanceFromNode` (docs/logic-notes-nodes.md section 12).
+    `onNodeClick`'s own eager pre-dispatch lockout is provably idempotent
+    with this (per that doc's analysis), so it's only done once, here,
+    after the node resolves."""
+    assert state.map is not None
+    node = state.map.nodes[node_id]
+    node.visited = True
+    node.accessible = False
+    for other in state.map.nodes.values():
+        if other.layer == node.layer and other.id != node_id and other.accessible:
+            other.accessible = False
+    for src, dst in state.map.edges:
+        if src == node_id:
+            dst_node = state.map.nodes[dst]
+            dst_node.revealed = True
+            dst_node.accessible = True
+
+
+def _try_add_to_team(state: RunState, mon: Combatant, node_id: str) -> None:
+    """Port of `catchPokemon`'s team-full branch (docs/logic-notes-nodes.md
+    section 4): add directly if there's room, else prompt a swap/release
+    choice. Shared by catch/shiny/legendary/trade-adjacent flows."""
+    if len(state.team) < TEAM_CAP:
+        state.team.append(mon)
+        state.max_team_size = max(state.max_team_size, len(state.team))
+        _log(state, "catch", species_id=mon.species_id, name=mon.name, is_shiny=mon.is_shiny)
+        _advance(state, node_id)
+        state.phase = Phase.ON_MAP
+        state.pending = None
+    else:
+        state.pending = PendingChoice(
+            phase=Phase.SWAP_CHOICE,
+            options=[_mon_summary(m) for m in state.team],
+            optional=True,
+            extra={"incoming": mon, "node_id": node_id},
+        )
+        state.phase = Phase.SWAP_CHOICE
+
+
+def _shiny_chance(state: RunState) -> float:
+    """Port of `rollShiny`/`legendaryShinyChanceFlat`'s shared probability
+    formula (bundle.deobfuscated.js:74912-74923, 74946-74957): 1% base, 2%
+    with the Shiny Charm (`state.shiny_charm`, an explicit stand-in for the
+    source's account-level `hasShinyCharm()`), doubled again if the
+    `shiny_rate` trait is active. Both source functions are identical up to
+    this point -- `legendaryShinyChanceFlat` just returns the number instead
+    of also rolling against it, for a call site
+    (`doLegendaryNode`/bundle.deobfuscated.js:80427-80429) that wants the
+    percentage for display before rolling. `roll_shiny` below covers both
+    uses with a single RNG-consuming helper (CODEX.md issues 5/6)."""
+    chance = 0.02 if state.shiny_charm else 0.01
+    if battle.has_passive(state.passives, _SHINY_RATE_TRAIT_ID):
+        chance *= 2
+    return chance
+
+
+def roll_shiny(state: RunState) -> bool:
+    """Port of `rollShiny()` (bundle.deobfuscated.js:74912-74923). Consumes
+    exactly one `rng()` draw, matching every catch/trade/legendary call site
+    that calls it once per candidate."""
+    return rng.rng() < _shiny_chance(state)
+
+
+def _make_wild_combatant(
+    species_id: int,
+    level: int,
+    *,
+    is_shiny: bool = False,
+    move_tier: int = 1,
+    gen2_mode: bool = False,
+    gen4_mode: bool = False,
+) -> Combatant:
+    """Port of `createInstance` (docs/logic-notes-nodes.md section 1) --
+    the sole factory for a battle-ready Pokemon instance in the source,
+    used for wild/trainer/boss/catch/legendary/trade/shiny mons alike.
+    `held_item` is deliberately never set here -- callers that need one
+    (fixed trainer rosters) set it themselves afterward, matching the
+    source's own `{...createInstance(...), heldItem: ...}` spread pattern.
+    """
+    mon_data = data.get_pokedex()[species_id]
+    base_stats = mon_data.base_stats
+    if is_shiny and gen2_mode:
+        # +20% base stats, Gen2-mode-only shiny bonus (docs/logic-notes-nodes.md
+        # section 1, bundle.deobfuscated.js:49241-49249).
+        base_stats = dataclasses.replace(
+            base_stats,
+            hp=round(base_stats.hp * 1.2),
+            atk=round(base_stats.atk * 1.2),
+            defense=round(base_stats.defense * 1.2),
+            speed=round(base_stats.speed * 1.2),
+            special=round(base_stats.special * 1.2),
+            spdef=round(base_stats.spdef * 1.2) if base_stats.spdef is not None else None,
+        )
+    ability = battle_abilities.get_gen3_ability(species_id, gen4_mode)
+    max_hp = 1 if ability == "wonder_guard" else map_gen.calc_hp(base_stats.hp, level)
+    return Combatant(
+        species_id=species_id,
+        level=level,
+        base_stats=base_stats,
+        types=mon_data.types,
+        max_hp=max_hp,
+        current_hp=max_hp,
+        name=mon_data.name,
+        move_tier=max(0, min(2, move_tier)),
+        is_shiny=is_shiny,
+    )
+
+
+def _build_fixed_team(trainer: data.Trainer, state: RunState) -> list:
+    """Port of `doBossNode`'s team-construction spread (docs/logic-notes-
+    nodes.md section 2) -- `resolveTrainerTeamEvolutions` is a confirmed
+    no-op stub in the source, so it's not replicated (the fixed roster data
+    is already the correct evolved species/level as-authored)."""
+    team = []
+    for tp in trainer.team:
+        held = HeldItem(id=tp.held_item["id"]) if tp.held_item else None
+        ability = battle_abilities.get_gen3_ability(tp.species_id, state.gen4_mode)
+        max_hp = 1 if ability == "wonder_guard" else map_gen.calc_hp(tp.base_stats.hp, tp.level)
+        team.append(
+            Combatant(
+                species_id=tp.species_id,
+                level=tp.level,
+                base_stats=tp.base_stats,
+                types=tp.types,
+                max_hp=max_hp,
+                current_hp=max_hp,
+                name=tp.name,
+                held_item=held,
+                move_tier=trainer.move_tier if trainer.move_tier is not None else 1,
+            )
+        )
+    return team
+
+
+def _gym_leader(state: RunState) -> data.Trainer:
+    leaders = data.get_gym_leaders(_generation(state))
+    return leaders[min(state.current_map, len(leaders) - 1)]
+
+
+def _elite_four_roster(state: RunState) -> tuple:
+    return data.get_elite_four(_generation(state))
+
+
+def _battle_configs(state: RunState, enemy_team: Sequence[Combatant]):
+    """Port of `runBattleScreen`'s battle-config construction
+    (bundle.deobfuscated.js:81067-81085) -- **not** a fixed "always build
+    both" wiring. The source only ever builds a non-null battle config in
+    two disjoint branches:
+
+    - `state.isEndlessMode` (out of scope this session, `map_gen.py`/
+      `engine.py` don't model Endless): `computeTraitTiers` against the
+      LIVE team + `buildTraitsConfig` with the ENEMY tier map left `{}`,
+      optionally merged with `buildGen3AbilityConfig()` if a Gen3/Gen4
+      challenge flag is set.
+    - Ordinary (non-Endless) `gen3Mode || gen4Mode`: `buildGen3AbilityConfig()`
+      merged with `buildTraitsConfig({}, {}, passives)` -- note BOTH tier
+      maps are `{}` here, not `compute_trait_tiers(state.team)` -- ordinary
+      Story/Nuzlocke battles never get the automatic per-type tier bonus,
+      only whatever individually-named traits `state.passives` happens to
+      contain (normally none, since trait acquisition is Endless-only).
+
+    Ordinary Gen1/Gen2 (neither branch matches) gets **no battle config at
+    all** -- `ability_config`/`traits_config` are both `None`. This does NOT
+    disable every trait effect: `battle_loop.run_battle`'s own inline checks
+    (`rand_start`/`sof_double`/`lead_speed`/etc, all directly `has_passive`
+    against the `traits` argument, not through this hook object) still run
+    regardless, matching the source's separate `hasPassive(passives, ...)`
+    call sites inside `runBattle` itself that don't go through `B71`.
+
+    **`traits_config` is `None`, not an empty object, when there is nothing
+    for it to do.** `buildTraitsConfig` itself returns `null` when both tier
+    maps AND the passives list are empty (bundle.deobfuscated.js:60733-
+    60738) -- for ordinary Story/Nuzlocke that means `traits_config` is only
+    ever non-`None` if the player has picked up at least one named passive
+    (tier maps are always `{}` here). This matters beyond "skip a no-op
+    call": whether `traits_config` is `None` decides whether `runBattle`'s
+    battle config is `mergeBattleConfigs(ability, traits)` or bare `ability`
+    -- and `mergeBattleConfigs` changes generic-hook (`beforeTurn`/
+    `onBeforeAttack`/`isTrickRoom`) return-value semantics, see
+    `battle_loop.run_battle`'s own docstring. Building a real (if inert)
+    `TraitsConfig` here unconditionally, as an earlier version of this
+    function did, silently forced every Gen3/Gen4 battle into the merged
+    path even with zero passives -- itself a source of false "merged"
+    results.
+    """
+    if not (state.gen3_mode or state.gen4_mode):
+        return None, None
+    ability_config = battle_abilities.Gen3AbilityConfig(gen4_mode=state.gen4_mode)
+    player_tiers: dict = {}
+    enemy_tiers: dict = {}
+    if player_tiers or enemy_tiers or state.passives:
+        traits_config = battle_traits.TraitsConfig(player_tiers=player_tiers, enemy_tiers=enemy_tiers, traits=state.passives)
+    else:
+        traits_config = None
+    return ability_config, traits_config
+
+
+def _wg_max_hp(species_id: int, gen4_mode: bool, computed: int) -> int:
+    """Port of `wgMaxHp` (bundle.deobfuscated.js:49227-49234): Wonder Guard's
+    1-HP clamp is derived from the SPECIES id via `getGen3Ability`, never
+    from a battler's own possibly-Trace-mutated `_gen3Ability` field. Used
+    only by the persistent-roster HP recomputation paths (post-battle
+    copy-back, level gain, Rare Candy) -- in-battle checks correctly keep
+    using the battle-local (possibly Traced) `Combatant.gen3_ability`
+    (CODEX.md issue 20)."""
+    return 1 if battle_abilities.get_gen3_ability(species_id, gen4_mode) == "wonder_guard" else computed
+
+
+def _copy_back_battle_result(state: RunState, clone_team: Sequence[Combatant], player_won: bool) -> None:
+    """Port of `runBattleScreen`'s selective post-battle copy-back from the
+    battle-local clone (`Bch` = `runBattle`'s returned `pTeam`) onto the
+    persistent `state.team` objects (bundle.deobfuscated.js:81283-81318 on a
+    win, 81389-81391 on a loss). This is the ONLY channel through which
+    battle-local mutations reach the persistent roster -- everything else
+    the clone accumulated (types/base_stats changes from Ditto/Multitype/
+    Forecast/Color Change/Deoxys, a Traced `gen3_ability`, `stages`,
+    `status`, one-shot `flags`, ...) is discarded with the clone
+    (CODEX.md issues 3-4). Iterates by `state.team` length/index, matching
+    the source's `for (i=0; i<state.team.length; i++)` -- NOT the clone's
+    length -- so a clone array padded/shaped differently never desyncs
+    persistent indices.
+    """
+    for idx, orig in enumerate(state.team):
+        if idx >= len(clone_team):
+            continue
+        clone = clone_team[idx]
+        if not player_won:
+            orig.current_hp = clone.current_hp
+            continue
+        if clone.flags.get("_runSpeedStage"):
+            orig.flags["_runSpeedStage"] = clone.flags["_runSpeedStage"]
+        if clone.flags.get("_runMaxHp"):
+            orig.flags["_runMaxHp"] = clone.flags["_runMaxHp"]
+        if clone.level != orig.level:
+            orig.level = clone.level
+            orig.max_hp = clone.max_hp
+        if orig.flags.get("_runMaxHp"):
+            hp_buff = (orig.stat_buffs or {}).get("hp", 0)
+            computed = math.floor(map_gen.calc_hp(orig.base_stats.hp, orig.level) * (1 + 0.05 * hp_buff))
+            computed += orig.flags.get("_runMaxHp", 0)
+            orig.max_hp = _wg_max_hp(orig.species_id, state.gen4_mode, computed)
+        orig.current_hp = min(clone.current_hp, orig.max_hp)
+
+
+def _run_battle(state: RunState, enemy_team: Sequence[Combatant]) -> BattleResult:
+    ability_config, traits_config = _battle_configs(state, enemy_team)
+    result = battle_loop.run_battle(
+        state.team,
+        list(enemy_team),
+        traits=state.passives,
+        ability_config=ability_config,
+        traits_config=traits_config,
+        battle_config=BattleConfig(),
+    )
+    _copy_back_battle_result(state, result.player_team, result.player_won)
+    return result
+
+
+def _after_battle(
+    state: RunState,
+    result: BattleResult,
+    level_gain: int,
+    *,
+    all_team_xp: bool = False,
+    no_permadeath: bool = False,
+) -> bool:
+    """Port of the sequence `runBattleScreen` runs immediately after a
+    battle resolves, MINUS the evolution check (a separate resumable step,
+    see `_run_todo`): apply level gain, then (Nuzlocke) cull fainted team
+    members, then decide whether the run continues
+    (docs/logic-notes-runlifecycle.md sections 5-6). Returns False if the
+    run just ended (loss, or a Nuzlocke total wipe) -- callers must stop
+    processing immediately when this returns False, `state.phase` is
+    already `GAME_OVER`.
+    """
+    _log(
+        state,
+        "battle",
+        won=result.player_won,
+        rounds=result.rounds,
+        player_team=[_mon_summary(m) for m in state.team],
+        enemy_team=[_mon_summary(m) for m in result.enemy_team],
+    )
+    if result.player_won:
+        participants = set(range(len(state.team))) if all_team_xp else result.player_participants
+        _apply_level_gain(state.team, participants, level_gain, gen4_mode=state.gen4_mode)
+    if state.nuzlocke_mode and not no_permadeath:
+        for mon in state.team:
+            if mon.current_hp <= 0 and mon.held_item is not None:
+                state.items.append(mon.held_item.id)
+        state.team = [m for m in state.team if m.current_hp > 0]
+    if not state.team or not result.player_won:
+        state.phase = Phase.GAME_OVER
+        state.game_over = True
+        state.pending = None
+        state._todo = []
+        _log(state, "game_over")
+        return False
+    return True
+
+
+def _apply_level_gain(team: list, participants: set, base_gain: int, level_cap: int = 100, gen4_mode: bool = False) -> None:
+    """Port of `applyLevelGain` (docs/logic-notes-runlifecycle.md section
+    5). There is no XP curve in the source at all -- leveling is a flat
+    "+N levels per battle win", `base_gain` already encodes which N for this
+    encounter type (see each `_visit_*` call site). Endless-only trait
+    bonuses (`post_combat_lvl`, `bug_relevel`) are not modeled, consistent
+    with trait acquisition being out of scope this session.
+    """
+    for idx, mon in enumerate(team):
+        if not (mon.current_hp > 0 or idx in participants):
+            continue
+        gain = base_gain
+        if mon.held_item is not None and mon.held_item.id == "lucky_egg" and rng.rng() < 0.3:
+            gain += 1
+        new_level = min(mon.level + gain, level_cap)
+        if new_level == mon.level:
+            continue
+        old_max_hp = mon.max_hp
+        computed = map_gen.calc_hp(mon.base_stats.hp, new_level)
+        hp_buff = (mon.stat_buffs or {}).get("hp", 0)
+        if hp_buff:
+            computed = math.floor(computed * (1 + 0.05 * hp_buff))
+        # `_runMaxHp` (the persistent `ko_maxhp` trait bonus, CODEX.md issue
+        # 8) must be folded back in here -- bundle.deobfuscated.js:56835-
+        # 56841's `applyLevelGain` adds it to the recomputed HP curve for
+        # exactly this reason: without it, a level-up recompute silently
+        # erases the accumulated bonus instead of preserving it.
+        computed += mon.flags.get("_runMaxHp", 0)
+        # Wonder Guard's 1-HP clamp is species-derived (`wgMaxHp`), never
+        # read off the persistent `mon.gen3_ability` field -- that field
+        # only reflects whatever a Traced battle last set it to and is
+        # otherwise unset outside battle (CODEX.md issue 20).
+        new_max_hp = _wg_max_hp(mon.species_id, gen4_mode, computed)
+        if mon.current_hp > 0:
+            mon.current_hp += max(0, new_max_hp - old_max_hp)
+        mon.max_hp = new_max_hp
+        mon.level = new_level
+
+
+_NINJASK_ID = 291  # 0x123 -- Nincada's sole evolution target
+_SHEDINJA_ID = 292  # 0x124
+
+
+def _maybe_spawn_shedinja(state: RunState, evolved: Combatant) -> None:
+    """Port of `spawnShedinjaIfNinjask` (bundle.deobfuscated.js:79848-79882)
+    -- called after EVERY evolution (both `applyEvolution`'s Moon-Stone path
+    and `checkAndEvolveTeam`'s automatic path), it's a no-op unless the mon
+    that just evolved is now Ninjask (species 291, i.e. Nincada just
+    evolved) and the team has an open slot (< `TEAM_CAP`). Spawns a fresh,
+    full-HP Shedinja (292) at the same level/shininess/move-tier -- Wonder
+    Guard's 1-HP clamp is applied automatically by `_make_wild_combatant`'s
+    own species-based check, not duplicated here. The source's `_fromReroll`
+    gate (a trade-reroll flag) is not modeled -- this engine has no trade
+    reroll flow, so it's always the "normal" branch (CODEX.md issue 17).
+    """
+    if evolved.species_id != _NINJASK_ID or len(state.team) >= TEAM_CAP:
+        return
+    shedinja = _make_wild_combatant(
+        _SHEDINJA_ID,
+        evolved.level,
+        is_shiny=evolved.is_shiny,
+        move_tier=evolved.move_tier,
+        gen2_mode=state.gen2_mode,
+        gen4_mode=state.gen4_mode,
+    )
+    state.team.append(shedinja)
+    state.max_team_size = max(state.max_team_size, len(state.team))
+
+
+def _apply_evolution(state: RunState, mon: Combatant, into_species_id: int, *, force: bool = False) -> None:
+    """Port of the per-mon stat update shared by `checkAndEvolveTeam`
+    (`force=False`, docs/logic-notes-runlifecycle.md section 4,
+    bundle.deobfuscated.js:70648-70669) and `applyEvolution` (`force=True`,
+    Moon Stone's path, bundle.deobfuscated.js:79798-79826) -- these are TWO
+    DISTINCT source functions with different HP-recompute formulas, not one
+    function called two ways (CODEX.md issue 18):
+
+    - `checkAndEvolveTeam` (force=False): HP = `floor(calcHp(newBaseStats.hp,
+      level) * (1+0.05*hpBuff))`, no augment. A fainted mon (checked BEFORE
+      the recompute) stays at 0 HP after evolving.
+    - `applyEvolution` (force=True): HP additionally multiplies by
+      `(1 + (augment_pct||0)/100)`, and -- a real, source-confirmed
+      discrepancy, not a guess -- current HP is UNCONDITIONALLY
+      `max(1, floor(fraction*newMaxHp))` even if the mon was fainted, so a
+      Moon-Stone-forced evolution can revive a fainted teammate to 1 HP as
+      a side effect of the HP-curve recompute. Neither path Wonder-Guard-
+      clamps HP (a confirmed source discrepancy relative to
+      `_apply_level_gain`, replicated as-is).
+    """
+    was_fainted = mon.current_hp <= 0
+    hp_fraction = (mon.current_hp / mon.max_hp) if mon.max_hp else 0.0
+    new_species = data.get_pokedex()[into_species_id]
+    mon.species_id = into_species_id
+    mon.name = new_species.name
+    mon.types = new_species.types
+    mon.base_stats = new_species.base_stats
+    max_hp = map_gen.calc_hp(mon.base_stats.hp, mon.level)
+    hp_buff = (mon.stat_buffs or {}).get("hp", 0)
+    if hp_buff:
+        max_hp = math.floor(max_hp * (1 + 0.05 * hp_buff))
+    if force:
+        augment_pct = mon.augment_pct or 0
+        max_hp = math.floor(max_hp * (1 + augment_pct / 100))
+        mon.max_hp = max_hp
+        mon.current_hp = max(1, math.floor(hp_fraction * max_hp))
+    else:
+        mon.max_hp = max_hp
+        mon.current_hp = 0 if was_fainted else max(1, math.floor(hp_fraction * max_hp))
+    _maybe_spawn_shedinja(state, mon)
+
+
+def _maybe_evolve_one(state: RunState, idx: int, *, source: str, force: bool = False) -> bool:
+    """Shared per-mon evolution check used by both `_evolve_step` (the
+    resumable post-battle team scan, `source="todo"`) and Moon
+    Stone/Rare-Candy bag-item usage (`source="item"`, see `_apply_use_item`).
+    `force=True` is Moon Stone's `applyEvolution` behavior (bundle.
+    deobfuscated.js:79783-79800): skip the level requirement entirely,
+    forcing whatever evolution exists (branching still means a real choice,
+    not skipped). Returns True if a `Phase.EVOLUTION_CHOICE` was raised
+    (caller must stop and let the player resolve it via
+    `_resolve_evolution_choice`, which reads `extra["source"]` to know
+    whether to resume `state._todo` or just return to `Phase.ON_MAP`)."""
+    mon = state.team[idx]
+    # eviolite doubles as this game's Everstone-equivalent -- see
+    # docs/logic-notes-runlifecycle.md section 4, a deliberate deviation
+    # from mainline (where Eviolite is a pure stat item).
+    if mon.held_item is not None and mon.held_item.id == "eviolite":
+        return False
+    branches = data.get_branching_evolutions().get(mon.species_id)
+    if branches and (force or mon.level >= branches[0].level):
+        state.pending = PendingChoice(
+            phase=Phase.EVOLUTION_CHOICE,
+            options=[{"into": b.into, "name": b.name} for b in branches],
+            optional=False,
+            extra={"team_index": idx, "branches": branches, "source": source, "force": force},
+        )
+        state.phase = Phase.EVOLUTION_CHOICE
+        return True
+    evo = data.get_evolutions().get(mon.species_id)
+    if evo is not None and (force or mon.level >= evo.level) and evo.into != mon.species_id:
+        _apply_evolution(state, mon, evo.into, force=force)
+        _log(state, "evolve", team_index=idx, into=evo.into, name=evo.name)
+    return False
+
+
+def _evolve_step(state: RunState, step: dict) -> bool:
+    """Port of `checkAndEvolveTeam` (docs/logic-notes-runlifecycle.md
+    section 4), split into a resumable step: processes team members
+    starting at `step["idx"]`, evolving non-branching species automatically
+    and pausing (returns True) the first time it hits a branching-eligible
+    species, leaving `step["idx"]` at that member so resuming re-checks it
+    after the choice is applied. Returns False once the whole team has been
+    checked with nothing left pending.
+    """
+    team = state.team
+    idx = step["idx"]
+    while idx < len(team):
+        if _maybe_evolve_one(state, idx, source="todo"):
+            step["idx"] = idx
+            return True
+        idx += 1
+    return False
+
+
+# ---------------------------------------------------------------------------
+# Bag item use / equip (CODEX.md issues 5, 9, 16, 36) -- port of
+# `applyUsableItemTo`/`usableItemCanTarget`/`equipItemFromBag`
+# (bundle.deobfuscated.js:79571-79654, 79652-79671). Endless-only levers
+# (`isEndlessMode`'s uncapped Rare Candy level, `challengeNoEvo`) are not
+# modeled, consistent with the rest of this module's Story/Nuzlocke scope.
+# ---------------------------------------------------------------------------
+
+
+def _usable_item_can_target(item_id: str, mon: Combatant) -> bool:
+    """Port of `usableItemCanTarget` (bundle.deobfuscated.js:79571-79583)."""
+    if item_id == "sacred_ash":
+        return mon.current_hp < mon.max_hp
+    if item_id == "moon_stone":
+        if mon.current_hp <= 0:
+            return False
+        if mon.species_id in data.get_branching_evolutions():
+            return True
+        evo = data.get_evolutions().get(mon.species_id)
+        return bool(evo and evo.into != mon.species_id)
+    if item_id == "tm_normal":
+        return mon.current_hp > 0 and mon.move_tier < 2
+    return True  # rare_candy: unconditionally eligible, even fainted -- see _apply_rare_candy
+
+
+def _apply_rare_candy(mon: Combatant, gen4_mode: bool = False) -> None:
+    """Port of `applyUsableItemTo`'s `rare_candy` branch
+    (bundle.deobfuscated.js:79598-79619): +3 levels (capped at 100),
+    recomputed HP folding in `_runMaxHp` (CODEX.md issue 8) the same way
+    `_apply_level_gain` does. Uses `(currentHp||0) + max(0, delta)` --
+    exactly like the source, this can partially or fully "revive" a fainted
+    mon purely as a side effect of the HP-curve recompute, not a dedicated
+    revive branch; replicated as-is rather than special-cased away.
+    """
+    for _ in range(3):
+        if mon.level < 100:
+            mon.level += 1
+    hp_buff = (mon.stat_buffs or {}).get("hp", 0)
+    computed = math.floor(map_gen.calc_hp(mon.base_stats.hp, mon.level) * (1 + 0.05 * hp_buff))
+    computed += mon.flags.get("_runMaxHp", 0)
+    new_max_hp = _wg_max_hp(mon.species_id, gen4_mode, computed)
+    delta = new_max_hp - (mon.max_hp or new_max_hp)
+    mon.max_hp = new_max_hp
+    mon.current_hp = min(new_max_hp, (mon.current_hp or 0) + max(0, delta))
+
+
+def _apply_use_item(state: RunState, action: UseItem) -> None:
+    if not (0 <= action.item_index < len(state.items)):
+        raise ValueError(f"no such bag item index: {action.item_index}")
+    if not (0 <= action.target_index < len(state.team)):
+        raise ValueError(f"no such team index: {action.target_index}")
+    item_id = state.items[action.item_index]
+    mon = state.team[action.target_index]
+    if not _usable_item_can_target(item_id, mon):
+        raise ValueError(f"{item_id} cannot target {mon.name}")
+    state.items.pop(action.item_index)
+
+    if item_id == "sacred_ash":
+        revived = mon.current_hp <= 0
+        mon.current_hp = mon.max_hp
+        _log(state, "use_item", item_id=item_id, team_index=action.target_index, revived=revived)
+        state.phase = Phase.ON_MAP
+    elif item_id == "rare_candy":
+        # `applyUsableItemTo`'s `rare_candy` branch calls the FULL
+        # `checkAndEvolveTeam()` afterward (bundle.deobfuscated.js:79619-
+        # 79624), not a target-only check -- CODEX.md issue 19. Reuses the
+        # same resumable `_todo`-queue "evolve" step the post-battle path
+        # uses (source="todo", so branching-choice resumption correctly
+        # continues scanning the REST of the team, not just this one mon),
+        # with a trailing `finish_on_map` entry since there's no
+        # node-advance step to fall through to afterward.
+        _apply_rare_candy(mon, gen4_mode=state.gen4_mode)
+        _log(state, "use_item", item_id=item_id, team_index=action.target_index, new_level=mon.level)
+        state._todo = [{"kind": "evolve", "idx": 0}, {"kind": "finish_on_map"}]
+        _run_todo(state)
+    elif item_id == "moon_stone":
+        _log(state, "use_item", item_id=item_id, team_index=action.target_index)
+        if not _maybe_evolve_one(state, action.target_index, source="item", force=True):
+            state.phase = Phase.ON_MAP
+    elif item_id == "tm_normal":
+        mon.move_tier = min(2, mon.move_tier + 1)  # nullish-safe: move_tier is never None, CODEX.md issue 11
+        state.used_tm = True
+        _log(state, "use_item", item_id=item_id, team_index=action.target_index, move_tier=mon.move_tier)
+        state.phase = Phase.ON_MAP
+    else:
+        state.items.insert(action.item_index, item_id)
+        raise ValueError(f"unknown usable item: {item_id}")
+
+
+def _apply_equip_item(state: RunState, action: EquipItem) -> None:
+    """Port of `equipItemFromBag` (bundle.deobfuscated.js:79652-79671)."""
+    if not (0 <= action.bag_index < len(state.items)):
+        raise ValueError(f"no such bag item index: {action.bag_index}")
+    if not (0 <= action.team_index < len(state.team)):
+        raise ValueError(f"no such team index: {action.team_index}")
+    item_id = state.items.pop(action.bag_index)
+    mon = state.team[action.team_index]
+    old_item = mon.held_item
+    if old_item is not None:
+        state.items.append(old_item.id)
+    mon.held_item = HeldItem(id=item_id)
+    _log(state, "equip_item", team_index=action.team_index, item_id=item_id, replaced=old_item.id if old_item else None)
+    state.phase = Phase.ON_MAP
+
+
+def _apply_reorder_team(state: RunState, action: ReorderTeam) -> None:
+    """Port of the team bar's drag/click-to-swap reordering (CODEX.md
+    issues 5/36) -- battle order is mechanically significant since
+    `run_battle` always fights whichever LIVING member is first in list
+    order."""
+    if sorted(action.order) != list(range(len(state.team))):
+        raise ValueError("order must be a permutation of the current team indices")
+    state.team = [state.team[i] for i in action.order]
+    state.phase = Phase.ON_MAP
+
+
+def _run_todo(state: RunState) -> None:
+    """Drains `state._todo`, a small resumable work queue. Exists because a
+    won battle's aftermath (evolution check -> node-specific finish action)
+    can be interrupted mid-way by a branching-evolution choice, which is
+    itself a suspended-continuation point per the module docstring --
+    `_todo` is how that interruption survives across `step()` calls without
+    reifying a bespoke `Phase` for every possible "what to do when the
+    evolution choice comes back" continuation.
+    """
+    while state._todo:
+        step = state._todo[0]
+        kind = step["kind"]
+        if kind == "evolve":
+            if _evolve_step(state, step):
+                return
+            state._todo.pop(0)
+        elif kind == "advance":
+            _advance(state, step["node_id"])
+            state.phase = Phase.ON_MAP
+            state._todo.pop(0)
+        elif kind == "grant_badge":
+            state.badges += 1
+            _advance(state, step["node_id"])
+            state.phase = Phase.NEXT_MAP_READY
+            _log(state, "badge", badges=state.badges)
+            state._todo.pop(0)
+        elif kind == "heal_and_mark":
+            for mon in state.team:
+                mon.current_hp = mon.max_hp
+            if step.get("silver"):
+                state.silver_beaten += 1
+            if step.get("admin"):
+                state.fought_admin = True
+            _advance(state, step["node_id"])
+            state.phase = Phase.ON_MAP
+            state._todo.pop(0)
+        elif kind == "offer_catch":
+            state._todo.pop(0)
+            _try_add_to_team(state, step["mon"], step["node_id"])
+            return
+        elif kind == "elite4_fight":
+            _elite4_fight_step(state, step)
+            return
+        elif kind == "finish_on_map":
+            state.phase = Phase.ON_MAP
+            state._todo.pop(0)
+        else:  # pragma: no cover -- exhaustive by construction
+            state._todo.pop(0)
+
+
+def _elite4_fight_step(state: RunState, step: dict) -> None:
+    """Port of `doElite4`/`doGen2Elite4`'s sequential gauntlet loop
+    (docs/logic-notes-nodes.md section 2). Since `battle_loop.run_battle`
+    resolves instantly (no player choice mid-fight), the whole gauntlet can
+    run within a single `step()` call unless a branching evolution
+    interrupts it -- exactly the case `_run_todo`'s queue exists for.
+    `state.elite_index` is updated per-fight (not just at the end), matching
+    the source's own resume-checkpoint behavior."""
+    roster = step["roster"]
+    idx = step["idx"]
+    node_id = step["node_id"]
+    if idx >= len(roster):
+        state.elite_index = 0
+        _advance(state, node_id)
+        state.phase = Phase.VICTORY
+        state.won = True
+        _log(state, "victory")
+        state._todo.pop(0)
+        return
+    trainer = roster[idx]
+    enemy = _build_fixed_team(trainer, state)
+    result = _run_battle(state, enemy)
+    state.elite_index = idx
+    level_gain = 1 if state.nuzlocke_mode else 2
+    won = _after_battle(state, result, level_gain=level_gain)
+    if not won:
+        return  # _after_battle already cleared state._todo and set GAME_OVER
+    state._todo.pop(0)
+    state._todo.insert(0, {"kind": "elite4_fight", "idx": idx + 1, "roster": roster, "node_id": node_id})
+    state._todo.insert(0, {"kind": "evolve", "idx": 0})
+    _run_todo(state)
+
+
+# ---------------------------------------------------------------------------
+# Question-node resolution -- docs/logic-notes-nodes.md section 0
+# ---------------------------------------------------------------------------
+
+
+def _resolve_question(state: RunState, node: MapNode) -> str:
+    """Port of `resolveQuestionMark` (Story-mode branch only; Endless mode's
+    different cutoff ladder is out of scope). Cached per `"m<currentMap>:
+    <nodeId>"` key -- matching `onNodeClick`'s own cache key
+    (bundle.deobfuscated.js:77315-77324, Endless mode's region-qualified key
+    variant not modeled) -- so revisiting the same question node always
+    yields the same resolved type, matching `state.savedQuestionResolve`.
+    CODEX.md issue 9: this used to key on bare node id only, and node ids
+    repeat every map, so a question at `n4_1` on map 0 could pin every
+    LATER map's `n4_1` question to the same resolved type without consuming
+    RNG -- the map-qualified key here makes that collision impossible.
+    """
+    cache_key = f"m{state.current_map}:{node.id}"
+    cached = state.question_cache.get(cache_key)
+    if cached is not None:
+        return cached
+    roll = rng.rng()
+    shiny_bonus = 0.07 if battle.has_passive(state.passives, "shiny_rate") else 0.0  # hasShinyCharm() not modeled
+    if roll < 0.22:
+        resolved = map_gen.BATTLE
+    elif roll < 0.42:
+        resolved = map_gen.TRAINER
+    elif roll < 0.52:
+        resolved = map_gen.BATTLE if state.nuzlocke_mode else map_gen.CATCH
+    elif roll < 0.65:
+        resolved = map_gen.ITEM
+    elif roll < 0.72 + shiny_bonus:
+        resolved = "shiny"
+    else:
+        resolved = "mega"
+    state.question_cache[cache_key] = resolved
+    return resolved
+
+
+# ---------------------------------------------------------------------------
+# Node dispatch
+# ---------------------------------------------------------------------------
+
+
+def _visit_node(state: RunState, node_id: str) -> None:
+    assert state.map is not None
+    node = state.map.nodes.get(node_id)
+    if node is None:
+        raise ValueError(f"no such node: {node_id}")
+    if not node.accessible:
+        raise ValueError(f"node {node_id} is not accessible")
+    state.current_node_id = node_id
+    node_type = node.type
+    if node_type == map_gen.QUESTION:
+        node_type = _resolve_question(state, node)
+    # onNodeClick's own `default: doBattleNode` fallback (bundle.deobfuscated.js:77389-77390).
+    handler = _NODE_HANDLERS.get(node_type, _visit_battle)
+    handler(state, node)
+
+
+def _visit_battle(state: RunState, node: MapNode) -> None:
+    """Port of `doBattleNode` (docs/logic-notes-nodes.md section 1) --
+    species/level selection is already `map_gen.pick_wild_encounter`, so
+    this only builds the combatant and resolves the fight."""
+    species_id, level = map_gen.pick_wild_encounter(
+        node.layer,
+        state.current_map,
+        player_team_types=[tuple(m.types) for m in state.team],
+        gen2_mode=state.gen2_mode,
+        gen3_mode=state.gen3_mode,
+        gen4_mode=state.gen4_mode,
+    )
+    move_tier = map_gen.get_move_tier_for_map(state.current_map)
+    enemy = [_make_wild_combatant(species_id, level, move_tier=move_tier, gen2_mode=state.gen2_mode, gen4_mode=state.gen4_mode)]
+    result = _run_battle(state, enemy)
+    if not _after_battle(state, result, level_gain=1):
+        return
+    state._todo = [{"kind": "evolve", "idx": 0}, {"kind": "advance", "node_id": node.id}]
+    _run_todo(state)
+
+
+def _visit_trainer(state: RunState, node: MapNode) -> None:
+    """APPROXIMATION of `doTrainerNode` (docs/logic-notes-nodes.md section
+    3) -- the real per-archetype species pool table
+    (`TRAINER_BATTLE_CONFIG`) was never extracted into `data.py`. This uses
+    the wild-encounter species pool instead, scaled to the source's own
+    team-size-by-map formula. No held items, matching the source."""
+    level = map_gen.get_level_for_node(node.layer, state.current_map, state.gen2_mode, state.gen3_mode, state.gen4_mode)
+    team_size = 1 if state.current_map == 0 else 2 if state.current_map <= 2 else 3
+    min_dex, max_dex = map_gen.get_catch_gen_range(state.gen2_mode, state.gen3_mode, state.gen4_mode)
+    pool = map_gen.get_catch_choices(
+        state.current_map,
+        max(team_size, 3),
+        max_dex,
+        min_dex,
+        exclude_starters=False,
+        gen2_mode=state.gen2_mode,
+        gen3_mode=state.gen3_mode,
+        gen4_mode=state.gen4_mode,
+    )
+    if not pool:
+        pool = list(data.get_fallback_species_pool().low[:1])
+    move_tier = map_gen.get_move_tier_for_map(state.current_map)
+    enemy = [
+        _make_wild_combatant(map_gen.resolve_evo_for_level(pool[i % len(pool)], level), level, move_tier=move_tier, gen2_mode=state.gen2_mode, gen4_mode=state.gen4_mode)
+        for i in range(team_size)
+    ]
+    result = _run_battle(state, enemy)
+    if not _after_battle(state, result, level_gain=2):
+        return
+    state._todo = [{"kind": "evolve", "idx": 0}, {"kind": "advance", "node_id": node.id}]
+    _run_todo(state)
+
+
+def _visit_special_rival(state: RunState, node: MapNode, kind: str) -> None:
+    """APPROXIMATION of `doSilverNode`/`doAdminNode` (docs/logic-notes-
+    nodes.md section 11) -- the real fixed rosters (`SILVER_ENCOUNTERS`/
+    `MAGMA_ENCOUNTERS`/`AQUA_ENCOUNTERS`) were never extracted into
+    `data.py`. Uses the same procedural approximation as `_visit_trainer`,
+    boosted a couple levels. Faithfully replicates the confirmed real
+    behavior around the (approximated) fight: Nuzlocke-permadeath-exempt,
+    full-team heal on win, no badge/item/catch reward.
+    """
+    level = (
+        map_gen.get_level_for_node(node.layer, state.current_map, state.gen2_mode, state.gen3_mode, state.gen4_mode)
+        + 2
+    )
+    min_dex, max_dex = map_gen.get_catch_gen_range(state.gen2_mode, state.gen3_mode, state.gen4_mode)
+    pool = map_gen.get_catch_choices(
+        state.current_map,
+        3,
+        max_dex,
+        min_dex,
+        exclude_starters=False,
+        gen2_mode=state.gen2_mode,
+        gen3_mode=state.gen3_mode,
+        gen4_mode=state.gen4_mode,
+    )
+    if not pool:
+        pool = list(data.get_fallback_species_pool().low[:1])
+    move_tier = map_gen.get_move_tier_for_map(state.current_map)
+    enemy = [
+        _make_wild_combatant(map_gen.resolve_evo_for_level(pool[i % len(pool)], level), level, move_tier=move_tier, gen2_mode=state.gen2_mode, gen4_mode=state.gen4_mode)
+        for i in range(3)
+    ]
+    result = _run_battle(state, enemy)
+    if not _after_battle(state, result, level_gain=4, all_team_xp=True, no_permadeath=True):
+        return
+    finish = {
+        "kind": "heal_and_mark",
+        "node_id": node.id,
+        "silver": kind == "silver",
+        "admin": kind in ("magma", "aqua"),
+    }
+    state._todo = [{"kind": "evolve", "idx": 0}, finish]
+    _run_todo(state)
+
+
+def _visit_boss(state: RunState, node: MapNode) -> None:
+    """Port of `doBossNode` (docs/logic-notes-nodes.md section 2). Map
+    index 8 IS the Elite Four gauntlet (docs/logic-notes-runlifecycle.md
+    section 3) -- dispatched to the resumable `elite4_fight` step since a
+    branching evolution could interrupt the gauntlet mid-way."""
+    if state.current_map == 8:
+        roster = _elite_four_roster(state)
+        state._todo = [{"kind": "elite4_fight", "idx": state.elite_index, "roster": roster, "node_id": node.id}]
+        _run_todo(state)
+        return
+    trainer = _gym_leader(state)
+    enemy = _build_fixed_team(trainer, state)
+    result = _run_battle(state, enemy)
+    level_gain = 1 if state.nuzlocke_mode else 2  # docs/logic-notes-runlifecycle.md section 5
+    if not _after_battle(state, result, level_gain=level_gain):
+        return
+    state._todo = [{"kind": "evolve", "idx": 0}, {"kind": "grant_badge", "node_id": node.id}]
+    _run_todo(state)
+
+
+def _visit_pokecenter(state: RunState, node: MapNode) -> None:
+    """Port of `doPokeCenterNode` (docs/logic-notes-nodes.md section 6) --
+    unconditional full-team heal, `challengeNoHeal` gate not modeled
+    (challenge-mode only)."""
+    for mon in state.team:
+        mon.current_hp = mon.max_hp
+    state.used_pokecenter = True
+    _advance(state, node.id)
+    state.phase = Phase.ON_MAP
+
+
+def _dedup_by_evo_line(species_ids: Sequence[int]) -> list[int]:
+    """Port of `doCatchNode`'s final generic dedup block (bundle.deobfuscated.js:
+    78722-78729): keep only the FIRST candidate for each evolution-line
+    root, dropping later candidates from the same line."""
+    seen: set = set()
+    result = []
+    for sid in species_ids:
+        root = battle_abilities.get_evo_line_root(sid)
+        if root in seen:
+            continue
+        seen.add(root)
+        result.append(sid)
+    return result
+
+
+def _visit_catch(state: RunState, node: MapNode) -> None:
+    """Port of `doCatchNode`'s Story/Nuzlocke-relevant path
+    (docs/logic-notes-nodes.md section 4; bundle.deobfuscated.js:78426-78760).
+    Endless/Challenge-only branches (`challengeRandomizer`/submap-typed
+    pools/`activeEncounterType`/`challengeNoEvo`/`challengeBabyOnly`/the
+    Endless "reroll pool" bookkeeping and its own exclude-team-species
+    branch) are out of scope, consistent with the rest of this module.
+
+    Fixes applied here (CODEX.md issue 10 -- this function used to build
+    its 1-or-3-candidate pool directly instead of rolling a larger pool and
+    narrowing it the way the source does):
+    - candidates are rolled non-shiny placeholder-chance and at
+      `map_gen.get_move_tier_for_map`'s tier, not always non-shiny/tier 1;
+    - Nuzlocke excludes species whose evolution line is already on the
+      team, falling back to the unfiltered pool only if that would leave
+      nothing (matching the source's `slice(0,1)` -- Nuzlocke still only
+      ever offers ONE candidate);
+    - the Gen1-Nuzlocke, map-0-only restricted starter-adjacent species set
+      is applied;
+    - the map-0/layer-1 "guarantee a Grass and a Water option" safety net
+      applies outside Nuzlocke/Gen4;
+    - the Gen3, non-Nuzlocke "prefer species not already on the team, but
+      don't require it" preference applies;
+    - candidates are deduplicated by evolution line before the final
+      top-3 slice, matching the source's own dedup step.
+    """
+    min_dex, max_dex = map_gen.get_catch_gen_range(state.gen2_mode, state.gen3_mode, state.gen4_mode)
+    pool = list(
+        map_gen.get_catch_choices(
+            state.current_map,
+            18,
+            max_dex,
+            min_dex,
+            exclude_starters=True,
+            gen2_mode=state.gen2_mode,
+            gen3_mode=state.gen3_mode,
+            gen4_mode=state.gen4_mode,
+        )
+    )
+    if not pool:
+        _advance(state, node.id)
+        state.phase = Phase.ON_MAP
+        return
+
+    node_level = map_gen.get_level_for_node(node.layer, state.current_map, state.gen2_mode, state.gen3_mode, state.gen4_mode)
+    level = max(4, node_level) if state.current_map == 0 else node_level
+
+    matched = [sid for sid in pool if map_gen.min_level_for_species(sid) <= level]
+    if matched:
+        pool = matched if len(matched) >= 3 else (matched + [sid for sid in pool if sid not in matched])[:3]
+
+    if (
+        state.nuzlocke_mode
+        and state.current_map == 0
+        and not state.gen2_mode
+        and not state.gen3_mode
+        and not state.gen4_mode
+    ):
+        restricted = _GEN1_NUZLOCKE_MAP0_RESTRICTED
+        narrowed = [sid for sid in pool if sid in restricted]
+        if narrowed:
+            pool = narrowed
+
+    if not state.nuzlocke_mode and not state.gen4_mode and state.current_map == 0 and node.layer == 1:
+        grass_pool, water_pool = _MAP0_SAFETY_NET[2 if state.gen3_mode else 1 if state.gen2_mode else 0]
+
+        def has_type(species_id: int, type_name: str) -> bool:
+            return type_name in {t.capitalize() for t in data.get_pokedex()[species_id].types}
+
+        # The source REPLACES pool[0] (Grass) and the first non-Grass slot
+        # (Water, falling back to index 2) in place -- not an insert -- see
+        # bundle.deobfuscated.js:78567-78578.
+        if not any(has_type(sid, "Grass") for sid in pool):
+            grass_pick = grass_pool[int(rng.rng() * len(grass_pool))]
+            if pool:
+                pool[0] = grass_pick
+            else:
+                pool.append(grass_pick)
+        if not any(has_type(sid, "Water") for sid in pool):
+            water_pick = water_pool[int(rng.rng() * len(water_pool))]
+            idx = next((i for i, sid in enumerate(pool) if not has_type(sid, "Grass")), None)
+            if idx is None:
+                idx = min(2, max(0, len(pool) - 1))
+            if pool:
+                pool[idx] = water_pick
+            else:
+                pool.append(water_pick)
+
+    own_evo_roots = {battle_abilities.get_evo_line_root(m.species_id) for m in state.team}
+
+    if state.nuzlocke_mode:
+        excluded = [sid for sid in pool if battle_abilities.get_evo_line_root(sid) not in own_evo_roots]
+        pool = (excluded if excluded else pool)[:1]
+    elif state.gen3_mode:
+        preferred = [sid for sid in pool if battle_abilities.get_evo_line_root(sid) not in own_evo_roots]
+        if len(preferred) >= 3:
+            pool = preferred
+        elif preferred:
+            preferred_set = set(preferred)
+            pool = preferred + [sid for sid in pool if sid not in preferred_set]
+
+    pool = _dedup_by_evo_line(pool)[:3]
+    if not pool:
+        _advance(state, node.id)
+        state.phase = Phase.ON_MAP
+        return
+
+    # `createInstance` is called DIRECTLY on the pool candidates in the
+    # source's `doCatchNode` -- unlike `doBattleNode`/`doTrainerNode`, it
+    # never calls `resolveEvoForLevel` for a catch offer (confirmed by
+    # grepping every `resolveEvoForLevel` call site in the bundle: none are
+    # inside `doCatchNode`). The `_legendary`-species "+5 levels" bonus
+    # `createInstance`'s caller applies there is also unreachable for this
+    # port's in-scope pool: `map_gen.get_catch_choices` unconditionally
+    # excludes `LEGENDARY_IDS` from its candidates (matching the source's
+    # own `base_eligible`/`B6o` filter), so no catch candidate here is ever
+    # legendary -- that bonus only matters for the Endless/Challenge
+    # randomizer pools this module doesn't model.
+    move_tier = map_gen.get_move_tier_for_map(state.current_map)
+    mons = []
+    for sid in pool:
+        is_shiny = roll_shiny(state)
+        mons.append(_make_wild_combatant(sid, level, is_shiny=is_shiny, move_tier=move_tier, gen2_mode=state.gen2_mode, gen4_mode=state.gen4_mode))
+
+    origin = "catch" if node.type == map_gen.CATCH else "question"
+    state.pending = PendingChoice(
+        phase=Phase.CATCH_CHOICE,
+        options=[_mon_summary(m) for m in mons],
+        optional=True,
+        extra={"candidates": mons, "node_id": node.id, "origin": origin},
+    )
+    state.phase = Phase.CATCH_CHOICE
+
+
+def _visit_shiny(state: RunState, node: MapNode) -> None:
+    """Port of `doShinyNode` (bundle.deobfuscated.js:80872-80934,
+    docs/logic-notes-nodes.md section 10) -- always-shiny, first (not
+    random) candidate, no battle at all. Two source details this used to
+    get wrong (CODEX.md issues 9-10): the candidate pool is 3 candidates
+    (`getCatchChoices(..., 0x3, ...)`, exact RNG-consumption match), not 1;
+    and the first candidate is passed DIRECTLY to `createInstance` -- the
+    source never calls `resolveEvoForLevel` in this path (grepped every
+    call site: none are inside `doShinyNode`), so an evolution-eligible
+    candidate is NOT auto-evolved here the way catch/battle candidates
+    elsewhere are.
+    """
+    level = map_gen.get_level_for_node(node.layer, state.current_map, state.gen2_mode, state.gen3_mode, state.gen4_mode)
+    min_dex, max_dex = map_gen.get_catch_gen_range(state.gen2_mode, state.gen3_mode, state.gen4_mode)
+    candidates = map_gen.get_catch_choices(
+        state.current_map,
+        3,
+        max_dex,
+        min_dex,
+        exclude_starters=True,
+        gen2_mode=state.gen2_mode,
+        gen3_mode=state.gen3_mode,
+        gen4_mode=state.gen4_mode,
+    )
+    if not candidates:
+        _advance(state, node.id)
+        state.phase = Phase.ON_MAP
+        return
+    species_id = candidates[0]
+    move_tier = map_gen.get_move_tier_for_map(state.current_map)
+    mon = _make_wild_combatant(species_id, level, is_shiny=True, move_tier=move_tier, gen2_mode=state.gen2_mode, gen4_mode=state.gen4_mode)
+    state.pending = PendingChoice(
+        phase=Phase.CATCH_CHOICE,
+        options=[_mon_summary(mon)],
+        optional=True,
+        extra={"candidates": [mon], "node_id": node.id, "origin": "question"},
+    )
+    state.phase = Phase.CATCH_CHOICE
+
+
+def _visit_legendary(state: RunState, node: MapNode) -> None:
+    """Port of `doLegendaryNode` (docs/logic-notes-nodes.md section 9).
+    `node.extra["legendarySpeciesId"]` is already populated at map-
+    generation time by `map_gen.generate_map`. A single-mon battle; winning
+    auto-adds the (freshly-instantiated, full-HP) legendary via the same
+    catch-or-swap flow as any other catch, matching the source's
+    `showSwapScreen` call from the win callback -- there is no separate
+    catch-rate roll. Shiny chance uses `roll_shiny` (`legendaryShinyChanceFlat`
+    plus its own inline roll at the doLegendaryNode call site are the same
+    formula/RNG draw as `rollShiny`, CODEX.md issue 5)."""
+    species_id = node.extra.get("legendarySpeciesId")
+    if species_id is None:
+        _advance(state, node.id)
+        state.phase = Phase.ON_MAP
+        return
+    level = data.get_map_level_ranges(_generation(state))[state.current_map].max
+    is_shiny = roll_shiny(state)
+    caught = _make_wild_combatant(species_id, level, is_shiny=is_shiny, move_tier=2, gen2_mode=state.gen2_mode, gen4_mode=state.gen4_mode)
+    enemy = [_make_wild_combatant(species_id, level, is_shiny=is_shiny, move_tier=2, gen2_mode=state.gen2_mode, gen4_mode=state.gen4_mode)]
+    result = _run_battle(state, enemy)
+    if not _after_battle(state, result, level_gain=1):
+        return
+    state._todo = [{"kind": "evolve", "idx": 0}, {"kind": "offer_catch", "mon": caught, "node_id": node.id}]
+    _run_todo(state)
+
+
+def _visit_move_tutor(state: RunState, node: MapNode) -> None:
+    """Port of `doMoveTutorNode` (docs/logic-notes-nodes.md section 7) --
+    bumps one chosen team member's `move_tier` by 1 (cap 2); mons already at
+    tier 2 aren't offered."""
+    # `move_tier` is a plain `int` field (never `None`, default 1) -- `or 1`
+    # would wrongly treat a valid tier-0 mon (maps 0-2) as tier 1 (CODEX.md
+    # issue 11: tier 0 is a real, nullish-vs-falsy-sensitive value, not an
+    # "unset" sentinel).
+    eligible = [(i, m) for i, m in enumerate(state.team) if m.move_tier < 2]
+    if not eligible:
+        _advance(state, node.id)
+        state.phase = Phase.ON_MAP
+        return
+    options = [
+        {"team_index": i, "species_id": m.species_id, "name": m.name, "move_tier": m.move_tier} for i, m in eligible
+    ]
+    state.pending = PendingChoice(phase=Phase.MOVE_TUTOR_CHOICE, options=options, optional=True, extra={"node_id": node.id})
+    state.phase = Phase.MOVE_TUTOR_CHOICE
+
+
+def _visit_item(state: RunState, node: MapNode) -> None:
+    """Port of `doItemNode` (docs/logic-notes-nodes.md section 5). Also the
+    handler for a `"mega"`-resolved question node, verbatim, matching the
+    source's own no-branch-parameter dispatch -- Mega Stones themselves are
+    Endless-mode-only and not modeled, so a `"mega"` visit behaves exactly
+    like a plain item node here, same as in Story mode on the live site."""
+    held_ids = {m.held_item.id for m in state.team if m.held_item is not None}
+    owned_ids = held_ids | set(state.items)
+    reverse_type_item = {item_id: type_name for type_name, item_id in data.get_type_item_map().items()}
+    team_types = {t.capitalize() for m in state.team for t in m.types}
+
+    def passive_eligible(item: data.Item) -> bool:
+        if item.id in owned_ids:
+            return False
+        if item.min_map is not None and state.current_map < item.min_map:
+            return False
+        # CODEX.md issue 12: `"gen2Only": true` (Loaded Dice) was parsed out
+        # of the JSON but dropped on the floor -- the item could be offered
+        # outside Gen2 mode.
+        if item.gen2_only and not state.gen2_mode:
+            return False
+        required_type = reverse_type_item.get(item.id)
+        if required_type is not None and required_type.capitalize() not in team_types:
+            return False
+        return True
+
+    def usable_eligible(item: data.Item) -> bool:
+        if item.id == "sacred_ash":
+            return any(m.current_hp < m.max_hp for m in state.team)
+        if item.id == "moon_stone":
+            has_pending_evo = any(
+                m.species_id in data.get_evolutions() or m.species_id in data.get_branching_evolutions()
+                for m in state.team
+            )
+            return has_pending_evo and state.current_map <= 2
+        if item.id == "tm_normal":
+            return any(m.move_tier < 2 for m in state.team)
+        return True  # rare_candy: always eligible
+
+    pool = [it for it in data.get_passive_items() if passive_eligible(it)]
+    pool += [it for it in data.get_usable_items() if usable_eligible(it)]
+    if not pool:
+        _advance(state, node.id)
+        state.phase = Phase.ON_MAP
+        return
+    _shuffle(pool)
+    offered = pool[:3]
+    state.pending = PendingChoice(
+        phase=Phase.ITEM_CHOICE,
+        options=[{"id": it.id, "name": it.name, "usable": it.usable} for it in offered],
+        optional=True,
+        extra={"items": offered, "node_id": node.id},
+    )
+    state.phase = Phase.ITEM_CHOICE
+
+
+def _visit_trade(state: RunState, node: MapNode) -> None:
+    """Port of `doTradeNode`'s standard-mode flow (docs/logic-notes-nodes.md
+    section 8) -- the Endless2-only `showTradeReleaseScreen` variant is out
+    of scope. Pick a team member to trade away, get back a random species
+    from the general catch pool (see `_resolve_trade_choice` for the exact
+    `rollStoryTradeReplacement` port)."""
+    state.pending = PendingChoice(
+        phase=Phase.TRADE_CHOICE,
+        options=[_mon_summary(m) for m in state.team],
+        optional=True,
+        extra={"node_id": node.id},
+    )
+    state.phase = Phase.TRADE_CHOICE
+
+
+def _advance_only(state: RunState, node: MapNode) -> None:
+    """APPROXIMATION for `REWARD`/`SUBEXIT` nodes -- these belong to the
+    not-yet-ported submap system (`generateSubMap`); there is no real reward
+    or exit behavior to model without it, so visiting one is just a free
+    advance, per CLAUDE.md's own suggestion for deferred submap nodes."""
+    _advance(state, node.id)
+    state.phase = Phase.ON_MAP
+
+
+# ---------------------------------------------------------------------------
+# Pending-choice resolvers (SelectOption while state.phase is a *_CHOICE phase)
+# ---------------------------------------------------------------------------
+
+
+def _resolve_catch_choice(state: RunState, action: SelectOption) -> None:
+    extra = state.pending.extra
+    node_id = extra["node_id"]
+    if action.index is None:
+        state.pending = None
+        _advance(state, node_id)
+        state.phase = Phase.ON_MAP
+        return
+    mon = extra["candidates"][action.index]
+    origin = extra.get("origin")
+    if origin == "catch":
+        state.used_ball_catch = True
+    elif origin == "question":
+        state.got_via_question = True
+    state.pending = None
+    _try_add_to_team(state, mon, node_id)
+
+
+def _resolve_swap_choice(state: RunState, action: SelectOption) -> None:
+    extra = state.pending.extra
+    node_id = extra["node_id"]
+    if action.index is not None:
+        released = state.team[action.index]
+        if released.held_item is not None:
+            state.items.append(released.held_item.id)
+        incoming = extra["incoming"]
+        state.team[action.index] = incoming
+        state.max_team_size = max(state.max_team_size, len(state.team))
+        _log(state, "catch", species_id=incoming.species_id, name=incoming.name, is_shiny=incoming.is_shiny, released=released.name)
+    state.pending = None
+    _advance(state, node_id)
+    state.phase = Phase.ON_MAP
+
+
+def _resolve_evolution_choice(state: RunState, action: SelectOption) -> None:
+    extra = state.pending.extra
+    idx = extra["team_index"]
+    branches = extra["branches"]
+    chosen = branches[action.index]
+    _apply_evolution(state, state.team[idx], chosen.into, force=extra.get("force", False))
+    _log(state, "evolve", team_index=idx, into=chosen.into, name=chosen.name)
+    state.pending = None
+    if extra.get("source", "todo") == "item":
+        # Raised by `_apply_use_item` (Moon Stone/Rare Candy), not the
+        # post-battle `_todo` queue -- just return to the map.
+        state.phase = Phase.ON_MAP
+        return
+    state._todo[0]["idx"] = idx + 1
+    _run_todo(state)
+
+
+def _resolve_move_tutor_choice(state: RunState, action: SelectOption) -> None:
+    extra = state.pending.extra
+    node_id = extra["node_id"]
+    if action.index is not None:
+        team_index = state.pending.options[action.index]["team_index"]
+        mon = state.team[team_index]
+        mon.move_tier = min(2, mon.move_tier + 1)  # CODEX.md issue 11: tier 0 -> 1, not -> 2
+        state.used_tm = True
+        _log(state, "move_tutor", team_index=team_index, name=mon.name, move_tier=mon.move_tier)
+    state.pending = None
+    _advance(state, node_id)
+    state.phase = Phase.ON_MAP
+
+
+def _resolve_item_choice(state: RunState, action: SelectOption) -> None:
+    extra = state.pending.extra
+    node_id = extra["node_id"]
+    if action.index is None:
+        state.pending = None
+        _advance(state, node_id)
+        state.phase = Phase.ON_MAP
+        return
+    item = extra["items"][action.index]
+    state.picked_up_item = True
+    if item.usable:
+        state.items.append(item.id)
+        _log(state, "item", name=item.name, usable=True)
+        state.pending = None
+        _advance(state, node_id)
+        state.phase = Phase.ON_MAP
+        return
+    state.pending = PendingChoice(
+        phase=Phase.ITEM_EQUIP_CHOICE,
+        options=[_mon_summary(m) for m in state.team],
+        optional=False,
+        extra={"item_id": item.id, "node_id": node_id},
+    )
+    state.phase = Phase.ITEM_EQUIP_CHOICE
+
+
+def _resolve_item_equip_choice(state: RunState, action: SelectOption) -> None:
+    extra = state.pending.extra
+    mon = state.team[action.index]
+    if mon.held_item is not None:
+        state.items.append(mon.held_item.id)
+    mon.held_item = HeldItem(id=extra["item_id"])
+    _log(state, "item", name=extra["item_id"], usable=False, equipped_on=mon.name)
+    state.pending = None
+    _advance(state, extra["node_id"])
+    state.phase = Phase.ON_MAP
+
+
+def _resolve_trade_choice(state: RunState, action: SelectOption) -> None:
+    """Port of `doTradeNode`'s click handler + `rollStoryTradeReplacement` +
+    `completeTrade` (bundle.deobfuscated.js:80620-80628, 80785-80839) --
+    the ordinary (non-Endless2) story-mode trade path. CODEX.md issue 1/21's
+    level fix (+`tradeLevelGain()`, capped 100 outside Endless) is preserved;
+    this additionally fixes issue 7 (pool size/exclude-starters args) and
+    issue 8 (held-item transfer must happen only after a replacement is
+    actually constructed, matching `completeTrade`, not unconditionally
+    up front)."""
+    extra = state.pending.extra
+    node_id = extra["node_id"]
+    if action.index is None:
+        state.pending = None
+        _advance(state, node_id)
+        state.phase = Phase.ON_MAP
+        return
+    outgoing = state.team[action.index]
+    # `rollStoryTradeReplacement`'s real pool is `getCatchChoices(
+    # getEncounterMapIndex(), 0x12, maxGenId, !isEndlessMode, minGenId,
+    # isEndlessMode)` -- 18 candidates, starters EXCLUDED in ordinary
+    # (non-Endless) play, unlike this module's other trade-adjacent
+    # approximations that reuse `get_catch_choices` with different args.
+    offer_level = min(100, outgoing.level + 3)
+    min_dex, max_dex = map_gen.get_catch_gen_range(state.gen2_mode, state.gen3_mode, state.gen4_mode)
+    pool = list(
+        map_gen.get_catch_choices(
+            state.current_map,
+            18,
+            max_dex,
+            min_dex,
+            exclude_starters=True,
+            gen2_mode=state.gen2_mode,
+            gen3_mode=state.gen3_mode,
+            gen4_mode=state.gen4_mode,
+        )
+    )
+    excluded = [sid for sid in pool if sid != outgoing.species_id]
+    if excluded:
+        pool = excluded
+    if not pool:
+        # `rollStoryTradeReplacement` returns null; `doTradeNode`'s handler
+        # just advances past the node without calling `completeTrade` at
+        # all -- the outgoing Pokemon's held item is NEVER transferred here.
+        state.pending = None
+        _advance(state, node_id)
+        state.phase = Phase.ON_MAP
+        return
+    new_species = pool[int(rng.rng() * len(pool))]
+    move_tier = max(map_gen.get_move_tier_for_map(state.current_map), outgoing.move_tier)
+    is_shiny = roll_shiny(state)
+    incoming = _make_wild_combatant(new_species, offer_level, is_shiny=is_shiny, move_tier=move_tier, gen2_mode=state.gen2_mode, gen4_mode=state.gen4_mode)
+    # `completeTrade` transfers the held item only once `incoming` exists.
+    if outgoing.held_item is not None:
+        state.items.append(outgoing.held_item.id)
+    state.team[action.index] = incoming
+    state.got_via_question = True
+    _log(state, "trade", gave=outgoing.name, received=incoming.name)
+    state.pending = None
+    _advance(state, node_id)
+    state.phase = Phase.ON_MAP
+
+
+_PENDING_RESOLVERS = {
+    Phase.CATCH_CHOICE: _resolve_catch_choice,
+    Phase.SWAP_CHOICE: _resolve_swap_choice,
+    Phase.EVOLUTION_CHOICE: _resolve_evolution_choice,
+    Phase.MOVE_TUTOR_CHOICE: _resolve_move_tutor_choice,
+    Phase.ITEM_CHOICE: _resolve_item_choice,
+    Phase.ITEM_EQUIP_CHOICE: _resolve_item_equip_choice,
+    Phase.TRADE_CHOICE: _resolve_trade_choice,
+}
+
+
+_NODE_HANDLERS = {
+    map_gen.BATTLE: _visit_battle,
+    map_gen.CATCH: _visit_catch,
+    map_gen.ITEM: _visit_item,
+    map_gen.BOSS: _visit_boss,
+    map_gen.POKECENTER: _visit_pokecenter,
+    map_gen.TRAINER: _visit_trainer,
+    map_gen.LEGENDARY: _visit_legendary,
+    map_gen.MOVE_TUTOR: _visit_move_tutor,
+    map_gen.TRADE: _visit_trade,
+    "shiny": _visit_shiny,
+    # source: `case "mega": doItemNode(B);` -- no branch param, verbatim
+    # (docs/logic-notes-nodes.md section 0).
+    "mega": _visit_item,
+    map_gen.SILVER: lambda state, node: _visit_special_rival(state, node, "silver"),
+    map_gen.MAGMA: lambda state, node: _visit_special_rival(state, node, "magma"),
+    map_gen.AQUA: lambda state, node: _visit_special_rival(state, node, "aqua"),
+    # Submap system not ported (map_gen.py's own scope note) -- approximated
+    # per CLAUDE.md's own suggestion.
+    map_gen.UNDERGROUND: _visit_battle,
+    map_gen.DISTORTION: _visit_battle,
+    map_gen.REWARD: _visit_item,
+    map_gen.SUBEXIT: _advance_only,
+}

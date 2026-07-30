@@ -1,0 +1,905 @@
+# As a condition of accessing this website, you agree to abide by the following
+# content signals:
+
+# (a)  If a Content-Signal = yes, you may collect content for the corresponding
+#      use.
+# (b)  If a Content-Signal = no, you may not collect content for the
+#      corresponding use.
+# (c)  If the website operator does not include a Content-Signal for a
+#      corresponding use, the website operator neither grants nor restricts
+#      permission via Content-Signal with respect to the corresponding use.
+
+# The content signals and their meanings are:
+
+# search:   building a search index and providing search results (e.g., returning
+#           hyperlinks and short excerpts from your website's contents). Search does not
+#           include providing AI-generated search summaries.
+# ai-input: inputting content into one or more AI models (e.g., retrieval
+#           augmented generation, grounding, or other real-time taking of content for
+#           generative AI search answers).
+# ai-train: training or fine-tuning AI models.
+# use:      how AI systems may consume the content (immediate, reference, or full).
+
+# ANY RESTRICTIONS EXPRESSED VIA CONTENT SIGNALS ARE EXPRESS RESERVATIONS OF
+# RIGHTS UNDER ARTICLE 4 OF THE EUROPEAN UNION DIRECTIVE 2019/790 ON COPYRIGHT
+# AND RELATED RIGHTS IN THE DIGITAL SINGLE MARKET.
+
+# BEGIN Cloudflare Managed content
+
+User-agent: *
+Content-Signal: search=yes,ai-train=no,use=reference
+Allow: /
+
+User-agent: Amazonbot
+Disallow: /
+
+User-agent: Applebot-Extended
+Disallow: /
+
+User-agent: Bytespider
+Disallow: /
+
+User-agent: CCBot
+Disallow: /
+
+User-agent: ClaudeBot
+Disallow: /
+
+User-agent: CloudflareBrowserRenderingCrawler
+Disallow: /
+
+User-agent: Google-Extended
+Disallow: /
+
+User-agent: GPTBot
+Disallow: /
+
+User-agent: meta-externalagent
+Disallow: /
+
+# END Cloudflare Managed Content
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+
+  <!-- ===== Maintenance / "updating" gate (operator toggle) =====================
+       Flip POKE_MAINTENANCE to true and redeploy to show the updating screen to
+       the public during a release. Type POKE_MAINTENANCE_CODE on the overlay to
+       reveal the live game — it's stored in localStorage so it sticks on this
+       device until the code changes. This runs before the bundle, so the gate
+       works even if the game JS fails to load. NOTE: soft client-side lock — the
+       bundle still downloads, so treat the code as "keep casual players out,"
+       not real security. Flip back to false + redeploy to lift it. -->
+  <script>
+    window.POKE_MAINTENANCE = false;
+    window.POKE_MAINTENANCE_CODE = 'pokelike2026';
+    (function () {
+      try {
+        if (window.POKE_MAINTENANCE &&
+            localStorage.getItem('poke_maint_ok') !== window.POKE_MAINTENANCE_CODE) {
+          document.documentElement.classList.add('poke-maint-on');
+        }
+      } catch (e) {
+        if (window.POKE_MAINTENANCE) document.documentElement.classList.add('poke-maint-on');
+      }
+    })();
+  </script>
+  <style>
+    #poke-maint-overlay { display: none; }
+    html.poke-maint-on body { overflow: hidden; }
+    html.poke-maint-on #poke-maint-overlay {
+      display: flex; position: fixed; inset: 0; z-index: 2147483647;
+      flex-direction: column; align-items: center; justify-content: center;
+      gap: 18px; padding: 24px; box-sizing: border-box; text-align: center;
+      color: #e8eefc; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      background: radial-gradient(circle at 50% 28%, #16203a 0%, #0a0e18 72%);
+    }
+    #poke-maint-overlay .pm-emoji { font-size: 54px; line-height: 1; }
+    #poke-maint-overlay h1 { margin: 0; font-size: 24px; font-weight: 700; }
+    #poke-maint-overlay p  { margin: 0; max-width: 440px; opacity: .82; font-size: 15px; line-height: 1.55; }
+    #poke-maint-overlay .pm-row { display: flex; gap: 8px; margin-top: 6px; }
+    #poke-maint-overlay input {
+      padding: 11px 14px; width: 190px; border-radius: 10px; border: 1px solid #2c3a5e;
+      background: #0e1424; color: #e8eefc; font-size: 15px; outline: none;
+    }
+    #poke-maint-overlay input:focus { border-color: #38d6e6; }
+    #poke-maint-overlay button {
+      padding: 11px 20px; border-radius: 10px; border: 0; cursor: pointer;
+      background: #38d6e6; color: #04121a; font-weight: 700; font-size: 15px;
+    }
+    #poke-maint-overlay .pm-err { color: #ff7a7a; font-size: 13px; min-height: 16px; }
+  </style>
+
+  <!-- Publift Fuse ad tags — PREVIEW build: a single ad fixed to the bottom-right
+       (see #fuse-corner-ad below). The bundled Quantcast CMP handles consent. -->
+  <link rel="preconnect" href="https://cdn.fuseplatform.net" crossorigin>
+  <!-- DEFERRED LOAD: Fuse pulls in GPT (pubads_impl.js) + the consent UI, whose
+       init is a 200-350ms main-thread freeze (measured with perf-rig) that would
+       otherwise block the title screen from becoming interactive — and, being
+       async, could also land mid-gameplay. We load it at the FIRST user
+       interaction or the first idle after `load`, whichever comes first, so the
+       game is interactive first and ads/consent init a beat later. Ads still load
+       automatically; the preconnect above keeps the connection warm. -->
+  <script>
+    (function () {
+      // A/B switch: ?noads skips the ad stack entirely (for perf comparisons).
+      if (/[?&]noads\b/.test(location.search)) return;
+      var loaded = false, evs = ['pointerdown', 'keydown', 'touchstart'];
+      function loadFuse() {
+        if (loaded) return; loaded = true;
+        for (var i = 0; i < evs.length; i++) window.removeEventListener(evs[i], loadFuse);
+        var s = document.createElement('script');
+        s.async = true;
+        s.src = 'https://cdn.fuseplatform.net/publift/tags/2/4296/fuse.js';
+        document.head.appendChild(s);
+      }
+      for (var i = 0; i < evs.length; i++) window.addEventListener(evs[i], loadFuse, { passive: true });
+      // Fallback so ads still load for users who don't interact: hold a short
+      // floor after load to protect the entry experience (title render + first
+      // navigation), then load at the next idle. Most users tap to start a run
+      // well before this, so ads usually load on that interaction — during a
+      // screen transition where a brief init hitch is masked.
+      function sched() {
+        setTimeout(function () {
+          if ('requestIdleCallback' in window) requestIdleCallback(loadFuse, { timeout: 1500 });
+          else loadFuse();
+        }, 3000);
+      }
+      if (document.readyState === 'complete') sched();
+      else window.addEventListener('load', sched, { once: true });
+    })();
+  </script>
+  <!-- Non-prod hosts override page_url so GAM serves on the preview origin. -->
+  <script>
+    (function () {
+      var h = location.hostname;
+      if (h === 'pokelike.xyz' || h === 'www.pokelike.xyz') return;
+      window.googletag = window.googletag || { cmd: [] };
+      googletag.cmd.push(function () {
+        googletag.pubads().set('page_url', 'pokelike.xyz');
+      });
+    })();
+  </script>
+  <!-- Ad-refresh DEFER during battles (best-of-both-worlds). Fuse auto-refreshes the
+       ad ~every 30s; each refresh runs an Amazon apstag (A9) + GPT auction that
+       freezes the main thread ~100-230ms and can land mid-fight. While a battle is on
+       screen the app sets window.__pklAdsPaused=true (see showScreen). We used to DROP
+       the refresh that landed mid-battle, but a battle-heavy session swallows many
+       30s cycles that way — the impressions were lost (~20% revenue). Now we DEFER
+       instead: the mid-battle GPT refresh is captured and REPLAYED the moment the
+       battle ends (on the map, where the ~100-230ms freeze is harmless), so the
+       impression still fires — just a few seconds later. The apstag (A9) auction is
+       still skipped mid-battle (its cost is exactly what we're avoiding); the deferred
+       GPT replay fires the impression with Google demand. Net: same lag fix, most of
+       the lost impressions recovered. -->
+  <script>
+    (function () {
+      var _paused = false;
+      var _origRefresh = null;
+      var _deferredArgs = null; // args of a GPT refresh captured while paused
+
+      // Fire the auction that was deferred mid-battle. Re-defers if a new battle
+      // started in the meantime; small delay so it lands after the map has settled,
+      // not on top of the battle→map transition.
+      function flushDeferred() {
+        if (!_deferredArgs || !_origRefresh) return;
+        var args = _deferredArgs; _deferredArgs = null;
+        setTimeout(function () {
+          if (_paused) { _deferredArgs = args; return; } // re-entered a battle — keep deferring
+          try { _origRefresh.apply(null, args); } catch (e) {}
+        }, 600);
+      }
+
+      // Expose __pklAdsPaused as a property so leaving a battle (true → false) can
+      // replay the deferred refresh. The app assigns to it in showScreen.
+      Object.defineProperty(window, '__pklAdsPaused', {
+        configurable: true,
+        get: function () { return _paused; },
+        set: function (v) {
+          var was = _paused;
+          _paused = !!v;
+          if (was && !_paused) flushDeferred();
+        }
+      });
+
+      // 1) GPT slot refresh — DEFER (capture) the reload/auction while paused.
+      window.googletag = window.googletag || { cmd: [] };
+      googletag.cmd.push(function () {
+        try {
+          var pubads = googletag.pubads();
+          if (pubads && !pubads.__pklRefreshPatched) {
+            _origRefresh = pubads.refresh.bind(pubads);
+            pubads.refresh = function () {
+              if (_paused) { _deferredArgs = arguments; return; } // defer, don't drop
+              return _origRefresh.apply(null, arguments);
+            };
+            pubads.__pklRefreshPatched = true;
+          }
+        } catch (e) {}
+      });
+      // 2) Amazon apstag (A9) header-bidding — the biggest per-refresh freeze.
+      // apstag loads async via Fuse and sets fetchBids once; poll briefly and wrap
+      // it so a paused auction resolves instantly with no bids (Fuse's cycle then
+      // hits the deferred GPT refresh above → no auction, no freeze mid-battle).
+      function patchApstag() {
+        try {
+          var a = window.apstag;
+          if (a && typeof a.fetchBids === 'function' && !a.fetchBids.__pklWrapped) {
+            var orig = a.fetchBids;
+            var wrapped = function (cfg, cb) {
+              if (_paused) { try { cb && cb([]); } catch (e) {} return; }
+              return orig.apply(this, arguments);
+            };
+            wrapped.__pklWrapped = true;
+            a.fetchBids = wrapped;
+          }
+        } catch (e) {}
+      }
+      var tries = 0, iv = setInterval(function () {
+        patchApstag();
+        if (++tries > 60) clearInterval(iv); // ~30s window to catch the async load
+      }, 500);
+    })();
+  </script>
+
+  <title>Pokelike — Pokemon Roguelike</title>
+  <meta name="description" content="A fan-made Pokemon roguelike. Explore Kanto and Johto, battle gym leaders, and climb the Battle Tower.">
+  <link rel="canonical" href="https://pokelike.xyz/">
+  <meta name="robots" content="index, follow, max-image-preview:large">
+  <meta name="referrer" content="strict-origin-when-cross-origin">
+  <meta name="color-scheme" content="dark">
+  <meta name="format-detection" content="telephone=no">
+  <meta http-equiv="Permissions-Policy" content="camera=(), microphone=(), geolocation=(), payment=(), usb=()">
+  <meta name="application-name" content="Pokelike">
+  <meta name="theme-color" content="#0e0e0e">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Pokelike">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <link rel="icon" type="image/png" sizes="192x192" href="img/icon-192.png">
+  <link rel="apple-touch-icon" href="img/apple-touch-icon.png">
+  <meta property="og:type" content="website">
+  <meta property="og:locale" content="en_US">
+  <meta property="og:site_name" content="Pokelike">
+  <meta property="og:title" content="Pokelike — Pokemon Roguelike">
+  <meta property="og:description" content="A fan-made Pokemon roguelike. Explore Kanto and Johto, battle gym leaders, and climb the Battle Tower.">
+  <meta property="og:image" content="https://pokelike.xyz/img/og-image.png">
+  <meta property="og:image:alt" content="Pokelike — Pokemon Roguelike browser game">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:url" content="https://pokelike.xyz/">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Pokelike — Pokemon Roguelike">
+  <meta name="twitter:description" content="A fan-made Pokemon roguelike. Explore Kanto and Johto, battle gym leaders, and climb the Battle Tower.">
+  <meta name="twitter:image" content="https://pokelike.xyz/img/og-image.png">
+  <meta name="twitter:image:alt" content="Pokelike — Pokemon Roguelike browser game">
+  <link rel="dns-prefetch" href="https://www.googletagmanager.com">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="preload" href="style/main.css" as="style">
+  <link rel="stylesheet" href="style/main.css">
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+  <noscript><link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet"></noscript>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "WebApplication",
+    "name": "Pokelike",
+    "description": "A fan-made Pokemon roguelike. Explore Kanto and Johto, battle gym leaders, and climb the Battle Tower.",
+    "url": "https://pokelike.xyz/",
+    "image": "https://pokelike.xyz/img/og-image.png",
+    "applicationCategory": "GameApplication",
+    "operatingSystem": "Any",
+    "browserRequirements": "Requires JavaScript",
+    "inLanguage": "en",
+    "offers": {
+      "@type": "Offer",
+      "price": "0",
+      "priceCurrency": "USD"
+    }
+  }
+  </script>
+</head>
+<body>
+
+<!-- Maintenance "updating" screen — shown only when the gate script in <head>
+     adds .poke-maint-on. Self-contained: no dependency on the game bundle. -->
+<div id="poke-maint-overlay" role="dialog" aria-label="Site updating" aria-modal="true">
+  <div class="pm-emoji">🔧</div>
+  <h1>We’re updating Pokelike</h1>
+  <p>We’re shipping a big update (v2.0!). The game will be back online in a few minutes — thanks for your patience.</p>
+  <div class="pm-row">
+    <input id="poke-maint-code" type="password" placeholder="Access code" autocomplete="off" aria-label="Access code">
+    <button id="poke-maint-go" type="button">Enter</button>
+  </div>
+  <div class="pm-err" id="poke-maint-err" aria-live="polite"></div>
+  <script>
+    (function () {
+      var ov = document.getElementById('poke-maint-overlay');
+      if (!ov) return;
+      var input = document.getElementById('poke-maint-code');
+      var btn   = document.getElementById('poke-maint-go');
+      var err   = document.getElementById('poke-maint-err');
+      function submit() {
+        if (input.value === (window.POKE_MAINTENANCE_CODE || '')) {
+          try { localStorage.setItem('poke_maint_ok', window.POKE_MAINTENANCE_CODE); } catch (e) {}
+          document.documentElement.classList.remove('poke-maint-on');
+          ov.remove();
+        } else {
+          err.textContent = 'Incorrect code';
+          input.value = '';
+          input.focus();
+        }
+      }
+      btn.addEventListener('click', submit);
+      input.addEventListener('keydown', function (e) { if (e.key === 'Enter') submit(); });
+    })();
+  </script>
+</div>
+
+<!-- Background music (managed by app/audio.js; starts on first interaction) -->
+<audio id="bg-music" preload="none"></audio>
+
+<!-- Team hover card popup -->
+<div id="team-hover-card"></div>
+
+<!-- ===== TITLE SCREEN ===== -->
+<div id="title-screen" class="screen">
+  <header class="title-hero">
+    <h1 class="game-logo"><img src="img/logo.png" alt="Pokelike"></h1>
+    <p class="game-subtitle">
+      <span class="game-subtitle-inner">
+        <span class="game-subtitle-text" data-i18n="title.subtitle">Pokémon Roguelike</span>
+        <span class="game-subtitle-sep" aria-hidden="true">|</span>
+        <span class="title-version" onclick="openPatchNotesModal()">v2.4</span>
+      </span>
+    </p>
+  </header>
+  <div class="title-mode-cards">
+    <div class="title-mode-col">
+      <button type="button" id="btn-history-run" class="title-mode-card title-mode-card--story">
+        <span class="title-mode-card-title" data-i18n="title.story">Story</span>
+        <span class="title-mode-card-figure">
+          <img class="title-mode-card-img" src="img/modeImages/story-mode.png" alt="">
+          <span class="title-mode-card-action" data-i18n="title.playStory">Play Story</span>
+        </span>
+      </button>
+      <button id="btn-continue-run" class="title-mode-resume title-mode-resume--story" style="display:none;" data-i18n="title.resumeStory">Resume Story</button>
+    </div>
+    <div class="title-mode-col">
+      <button type="button" id="btn-endless-run" class="title-mode-card title-mode-card--tower">
+        <span class="title-mode-card-title" data-i18n="title.battleTower">Battle Tower</span>
+        <span class="title-mode-card-figure">
+          <img class="title-mode-card-img" src="img/modeImages/battle-tower.png" alt="">
+          <span class="title-mode-card-action" data-i18n="title.enterTower">Enter Tower</span>
+        </span>
+      </button>
+      <button id="btn-continue-endless" class="title-mode-resume title-mode-resume--tower" style="display:none;" data-i18n="title.resumeTower">Resume Tower</button>
+    </div>
+    <div class="title-mode-col">
+      <button type="button" id="btn-challenges-run" class="title-mode-card title-mode-card--challenge">
+        <span class="title-mode-card-title" data-i18n="title.challenges">Challenges</span>
+        <span class="title-mode-card-figure">
+          <img class="title-mode-card-img" src="img/modeImages/challenges.png" alt="">
+          <span class="title-mode-card-action" data-i18n="title.takeChallenge">Take Challenge</span>
+        </span>
+      </button>
+      <button id="btn-continue-challenge" class="title-mode-resume title-mode-resume--challenge" style="display:none;" data-i18n="title.resumeChallenge">Resume Challenge</button>
+    </div>
+  </div>
+  <div class="title-pokechain-wrap">
+    <button type="button" id="btn-pokechain" class="title-pokechain-card">
+      <span class="title-pokechain-icon"><img src="img/sprites/pokemon/54.png" alt="" class="pixel-art" draggable="false"></span>
+      <span class="title-pokechain-text">
+        <span class="title-pokechain-name">Daily Pokésort</span>
+        <span class="title-pokechain-sub">Order 6 Pokémon so every link matches — one solution a day</span>
+      </span>
+      <span class="title-pokechain-meta">
+        <span class="title-pokechain-streak" id="title-pokechain-streak" style="display:none"></span>
+        <span class="title-pokechain-reward" id="title-pokechain-reward"></span>
+        <span class="title-pokechain-status" id="title-pokechain-status">Play ▸</span>
+      </span>
+    </button>
+  </div>
+  <footer class="title-legal-footer">
+    <div class="title-legal-footer-inner">
+      <a href="privacy.html" class="title-footer-link" data-i18n="title.privacy">Privacy Policy</a>
+      <p class="title-footer-legal" data-i18n="title.disclaimer">
+        Fan-made project. Not affiliated with, endorsed by, or sponsored by Nintendo, Game Freak, or The Pokémon Company. All Pokémon names and sprites are property of their respective owners.
+      </p>
+    </div>
+  </footer>
+</div>
+
+<!-- ===== TRAINER SELECT ===== -->
+<div id="trainer-screen" class="screen">
+  <header class="screen-intro">
+    <h2 data-i18n="trainer.who">Who are you?</h2>
+  </header>
+  <div id="trainer-choices">
+    <div class="trainer-card" id="trainer-boy" role="button" tabindex="0">
+      <div class="trainer-icon-wrap"></div>
+      <div class="trainer-label" style="color:#cc1111" data-i18n="trainer.boy">BOY</div>
+    </div>
+    <div class="trainer-card" id="trainer-girl" role="button" tabindex="0">
+      <div class="trainer-icon-wrap"></div>
+      <div class="trainer-label" style="color:#33aa33" data-i18n="trainer.girl">GIRL</div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== STARTER SELECT ===== -->
+<div id="starter-screen" class="screen">
+  <header class="screen-intro">
+    <h2 data-i18n="starter.choose">Choose Your Starter!</h2>
+  </header>
+  <div id="starter-layout">
+    <div id="starter-choices"></div>
+    <div id="starter-region-panel" style="display:none;"></div>
+  </div>
+</div>
+
+<!-- Map node tooltip -->
+<div id="map-node-tooltip"></div>
+<!-- Item tooltip -->
+<div id="item-tooltip"></div>
+<!-- Trait tooltip (tap on mobile) -->
+<div id="trait-tooltip"></div>
+
+<!-- App menu: sidebar (desktop) / bottom bar (mobile) -->
+<button type="button" id="run-menu-toggle" class="run-menu-toggle btn-primary btn-md btn-icon" aria-label="Open menu" aria-expanded="false" aria-controls="run-menu-bar"><span class="run-menu-toggle-bars" aria-hidden="true"></span></button>
+<nav id="run-menu-bar" aria-label="App menu">
+  <div class="run-menu-sidebar">
+    <div class="run-menu-brand">
+      <h1 class="run-menu-logo"><img src="img/logo.png" alt="Pokelike"></h1>
+    </div>
+    <div class="run-menu-nav">
+      <div class="run-menu-group run-menu-group--main">
+        <button type="button" data-menu="home" onclick="goHomeFromMenu()" class="run-menu-btn btn-primary btn-md" data-i18n="menu.home">Home</button>
+        <button type="button" data-menu="pokedex" onclick="openPokedexModal()" class="run-menu-btn btn-primary btn-md" data-i18n="menu.pokedex">Pokédex</button>
+        <button type="button" data-menu="achievements" onclick="openAchievementsModal()" class="run-menu-btn btn-primary btn-md" data-i18n="menu.achievements">Achievements</button>
+        <button type="button" data-menu="hof" onclick="openHallOfFameModal()" class="run-menu-btn btn-primary btn-md" data-i18n="menu.hallOfFame">Hall of Fame</button>
+      </div>
+      <div class="run-menu-group run-menu-group--run">
+        <button type="button" data-menu="reset" onclick="confirmResetRun()" class="run-menu-btn btn-primary btn-md run-menu-btn--reset" data-i18n="menu.resetRun">Reset Run</button>
+        <!-- Legendary reset-power pips (Dialga / Palkia / Giratina) — populated by
+             renderResetPowerIcons(); hidden when no power is live. -->
+        <div class="reset-power-pips" data-reset-powers style="display:none"></div>
+      </div>
+      <div class="run-menu-group run-menu-group--bottom">
+        <button type="button" id="btn-cloud-sync" data-menu="account" class="run-menu-btn btn-primary btn-md run-menu-btn--account"><span class="run-menu-account-label">Login / Signup</span></button>
+        <button type="button" data-menu="patch" onclick="openPatchNotesModal()" class="run-menu-btn btn-primary btn-md" data-i18n="menu.patchNotes">Patch Notes</button>
+        <button type="button" data-menu="settings" onclick="openSettingsModal()" class="run-menu-btn btn-primary btn-md" data-i18n="menu.settings">Settings</button>
+        <button type="button" data-menu="credits" onclick="openCreditsModal()" class="run-menu-btn btn-primary btn-md" data-i18n="menu.credits">Credits</button>
+        <a href="https://discord.gg/YsakfWStYq" data-menu="discord" class="run-menu-btn btn-primary btn-md run-menu-link" target="_blank" rel="noopener noreferrer" data-i18n="title.joinDiscord">Join Discord</a>
+      </div>
+    </div>
+  </div>
+  <div class="run-menu-mobile-bar" aria-label="Quick actions">
+    <button type="button" data-menu="menu" class="run-menu-btn btn-primary btn-md" onclick="openAppMenuModal()" aria-label="Open menu" data-i18n="menu.menu">Menu</button>
+    <button type="button" data-menu="reset" onclick="confirmResetRun()" class="run-menu-btn btn-primary btn-md" aria-label="Reset run" data-shortcut="R" data-i18n="menu.resetRun">Reset Run</button>
+    <button type="button" data-menu="account" class="run-menu-btn btn-primary btn-md run-menu-btn--account" aria-label="Account"><span class="run-menu-account-label">Login / Signup</span></button>
+  </div>
+</nav>
+
+<!-- Floating quick-nav: a top-level overlay (position:fixed), always visible
+     except during battle. Pokédex/Achievements/Settings are always shown;
+     Map/Reset/Exit (.nav-in-run) only during a run; Poké Mart (.nav-out-of-run)
+     only outside a run. Toggled by body.run-menu-in-run via CSS. -->
+<div class="map-menu-icons">
+  <div id="pokedollar-hud" class="pdollar-hud" aria-label="Pokédollars" title="Pokédollars"><span class="pdollar" aria-hidden="true"></span><span id="pokedollar-hud-amount">0</span></div>
+  <button onclick="openPokedexModal()" class="btn-icon-sm" data-shortcut="P" data-tip="Pokédex" aria-label="Pokédex" data-i18n-attr="data-tip:menu.pokedex;aria-label:menu.pokedex"><img src="img/menu/pokedex.png" alt=""></button>
+  <button onclick="openAchievementsModal()" class="btn-icon-sm" data-shortcut="A" data-tip="Achievements" aria-label="Achievements" data-i18n-attr="data-tip:menu.achievements;aria-label:menu.achievements"><img src="img/menu/achievements.png" alt=""></button>
+  <button onclick="openMegaStonesModal()" id="btn-mega-nav" class="btn-icon-sm" data-tip="Mega Bracelet" aria-label="Mega Bracelet" style="display:none"><img src="img/menu/mega.png" alt=""></button>
+  <button onclick="showLeagueModal()" class="btn-icon-sm nav-in-run" data-shortcut="M" data-tip="Map" aria-label="Map" data-i18n-attr="data-tip:menu.map;aria-label:menu.map"><img src="img/menu/map.png" alt=""></button>
+  <button onclick="openSettingsModal()" class="btn-icon-sm" data-shortcut="S" data-tip="Settings" aria-label="Settings" data-i18n-attr="data-tip:menu.settings;aria-label:menu.settings"><img src="img/menu/settings.png" alt=""></button>
+  <button onclick="toggleFullscreen()" id="btn-fullscreen" class="btn-icon-sm" data-shortcut="F" data-tip="Fullscreen" aria-label="Fullscreen" data-i18n-attr="data-tip:menu.fullscreen;aria-label:menu.fullscreen">
+    <svg class="map-menu-fs-icon fs-icon-expand" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M3 9V3h6M21 9V3h-6M3 15v6h6M21 15v6h-6" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="square"/></svg>
+    <svg class="map-menu-fs-icon fs-icon-compress" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M9 3v6H3M15 3v6h6M9 21v-6H3M15 21v-6h6" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="square"/></svg>
+  </button>
+  <button onclick="openShopModal()" id="btn-mart-nav" class="btn-icon-sm nav-out-of-run" data-tip="Poké Mart" aria-label="Poké Mart" data-i18n-attr="data-tip:menu.pokemart;aria-label:menu.pokemart"><img src="img/menu/pokemart.png" alt=""></button>
+  <button onclick="confirmResetRun()" class="btn-icon-sm nav-in-run" data-shortcut="R" data-tip="Reset Run" aria-label="Reset Run" data-i18n-attr="data-tip:menu.resetRun;aria-label:menu.resetRun"><img src="img/menu/reset.png" alt=""></button>
+  <button onclick="goHomeFromMenu()" class="btn-icon-sm nav-in-run" data-shortcut="H" data-tip="Home" aria-label="Home" data-i18n-attr="data-tip:menu.home;aria-label:menu.home"><img src="img/menu/exit.png" alt=""></button>
+</div>
+
+<!-- ===== MAP SCREEN ===== -->
+<div id="map-screen" class="screen">
+  <!-- Mobile-only header -->
+  <div class="map-header">
+    <div id="map-info"></div>
+    <div id="badge-count"></div>
+  </div>
+
+  <div class="map-panels">
+    <div id="endless-trait-panel" class="hud-box map-panel-traits" style="display:none;"></div>
+    <div class="hud-box map-panel-left">
+      <div class="hud-label">TEAM</div>
+      <div id="team-bar"></div>
+    </div>
+    <div class="hud-box map-panel-right">
+      <div class="hud-label">ITEMS</div>
+      <div id="item-bar"></div>
+      <div class="hud-label map-passives-label" id="map-passives-label" style="display:none;">PASSIVE ITEMS</div>
+      <div id="passive-badges"></div>
+      <div class="hud-label map-badges-label">BADGES</div>
+      <div id="badge-count-panel"></div>
+    </div>
+    <div id="endless-region-panel" class="hud-box map-panel-region" style="display:none;"></div>
+  </div>
+
+  <div id="map-container"></div>
+</div>
+
+<!-- ===== BATTLE SCREEN ===== -->
+<div id="battle-screen" class="screen">
+  <div class="battle-header screen-intro">
+    <h2 id="battle-title">Wild Battle!</h2>
+    <p id="battle-subtitle" class="screen-desc"></p>
+  </div>
+
+  <div class="battle-controls">
+    <button id="btn-auto-battle" class="btn-primary btn-md" data-i18n="common.skip">Skip</button>
+    <button id="btn-continue-battle" class="btn-primary btn-md" style="display:none" data-i18n="common.continue">Continue</button>
+  </div>
+
+  <!-- Owned passive items: a vertical strip on the LEFT of the fighting field. -->
+  <div class="battle-stage">
+  <div id="battle-passives-row" style="display:flex;flex-direction:column;gap:4px;align-items:center;"></div>
+
+  <div class="battle-field">
+    <div class="battle-side">
+      <div class="battle-trainer" id="player-trainer-icon"></div>
+      <div class="battle-side-label" data-i18n="battle.yourTeam">Your Team</div>
+      <div id="player-battle-traits" class="battle-trait-bar"></div>
+      <div id="player-side"></div>
+    </div>
+    <div class="battle-side">
+      <div class="battle-trainer" id="enemy-trainer-icon"></div>
+      <div class="battle-side-label" id="enemy-side-label" data-i18n="battle.enemy">Enemy</div>
+      <div id="enemy-battle-traits" class="battle-trait-bar battle-trait-bar-right"></div>
+      <div id="enemy-side"></div>
+    </div>
+  </div>
+  </div>
+</div>
+
+<!-- ===== CATCH SCREEN ===== -->
+<div id="catch-screen" class="screen">
+  <header class="screen-intro">
+    <h2 data-i18n="catch.title">Wild Pokemon Appeared!</h2>
+  </header>
+  <div id="catch-choices"></div>
+  <div style="text-align:center;margin-top:12px;">
+    <button id="btn-skip-catch" class="btn-run-panel btn-primary btn-md" data-i18n="catch.skipFlee">Skip (flee)</button>
+  </div>
+  <div id="catch-team-bar" class="screen-team-bar"></div>
+</div>
+
+<!-- ===== ITEM SCREEN ===== -->
+<div id="item-screen" class="screen">
+  <header class="screen-intro">
+    <h2 data-i18n="item.found">Item Found!</h2>
+    <p class="screen-desc" data-i18n="item.chooseOne">Choose one item to keep</p>
+  </header>
+  <div id="item-choices"></div>
+  <div style="text-align:center;margin-top:12px;">
+    <button id="btn-skip-item" class="btn-secondary choice-skip-btn" data-i18n="common.skip">Skip</button>
+  </div>
+  <div id="item-team-bar" class="screen-team-bar"></div>
+</div>
+
+<!-- ===== PASSIVE ITEM SCREEN (Battle Tower) ===== -->
+<div id="passive-screen" class="screen">
+  <header class="screen-intro">
+    <h2 data-i18n="item.passiveTitle">Passive Item!</h2>
+    <p class="screen-desc" data-i18n="item.pickOne">Pick one — it stays in your bag for the rest of the run</p>
+  </header>
+  <div id="passive-choices"></div>
+  <div id="passive-team-bar" class="screen-team-bar"></div>
+</div>
+
+<!-- ===== SWAP SCREEN ===== -->
+<div id="swap-screen" class="screen">
+  <header class="screen-intro">
+    <h2 data-i18n="team.full">Team Full!</h2>
+    <p id="swap-prompt" class="screen-desc"></p>
+  </header>
+  <div id="swap-incoming"></div>
+  <div id="swap-choices"></div>
+  <div style="text-align:center;margin-top:12px;">
+    <button id="btn-cancel-swap" class="btn-run-panel btn-primary btn-md" data-i18n="team.keepAsIs">Keep team as-is</button>
+  </div>
+</div>
+
+<!-- ===== TRADE SCREEN ===== -->
+<div id="trade-screen" class="screen">
+  <header class="screen-intro">
+    <h2 data-i18n="trade.offer">Trade Offer</h2>
+    <p id="trade-desc" class="screen-desc"></p>
+  </header>
+  <ul id="trade-team-list"></ul>
+  <div class="trade-footer">
+    <button id="btn-skip-trade" class="btn-run-panel btn-primary btn-md" data-i18n="trade.decline">Decline</button>
+  </div>
+</div>
+
+<!-- ===== SHINY SCREEN ===== -->
+<div id="shiny-screen" class="screen">
+  <div id="shiny-content"></div>
+</div>
+
+<!-- ===== BADGE SCREEN ===== -->
+<div id="badge-screen" class="screen">
+  <header class="screen-intro">
+    <h2 data-i18n="badge.title">Badge Earned!</h2>
+    <p id="badge-desc" class="screen-desc"></p>
+  </header>
+  <div class="badge-earn-body">
+    <div class="badge-earn-icon-wrap">
+      <img id="badge-icon-img" class="badge-earn-icon" src="" alt="Badge">
+    </div>
+    <p id="badge-count-display" class="badge-earn-count"></p>
+  </div>
+  <div class="badge-earn-footer">
+    <button id="btn-next-map" class="btn-primary btn-md" data-i18n="map.nextMap">Next Map →</button>
+  </div>
+</div>
+
+<!-- ===== TRANSITION SCREEN ===== -->
+<div id="transition-screen" class="screen">
+  <div id="transition-msg"></div>
+  <div id="transition-sub"></div>
+</div>
+
+<!-- ===== ELITE PREP SCREEN ===== -->
+<div id="elite-prep-screen" class="screen">
+  <header class="battle-header screen-intro">
+    <h2 id="elite-prep-title"></h2>
+    <p id="elite-prep-sub" class="screen-desc"></p>
+  </header>
+
+  <div class="elite-prep-order-banner" data-i18n="elite.chooseOrder">Choose Your Order</div>
+  <div class="elite-prep-hint" data-i18n="elite.hint">Drag your Pokémon to swap their battle order · hover for stats</div>
+
+  <!-- Bag sits next to your team (left), the FIGHT button next to the enemy
+       team (right); the field (both teams) is centered between them. -->
+  <div class="elite-prep-stage">
+    <aside class="elite-prep-bag" id="elite-prep-bag">
+      <div class="elite-prep-bag-title" data-i18n="elite.bag">Bag</div>
+      <div id="elite-prep-items"></div>
+    </aside>
+
+    <!-- Mirrors the battle field exactly: trainer, label, trait bar, team. -->
+    <div class="battle-field elite-prep-field">
+      <div class="battle-side">
+        <div class="battle-trainer" id="elite-prep-player-trainer"></div>
+        <div class="battle-side-label" data-i18n="battle.yourTeam">Your Team</div>
+        <div id="elite-prep-player-traits" class="battle-trait-bar"></div>
+        <div id="elite-prep-player-side"></div>
+      </div>
+      <div class="battle-side">
+        <div class="battle-trainer elite-prep-trainer-enemy" id="elite-prep-enemy-trainer"></div>
+        <div class="battle-side-label" id="elite-prep-enemy-name" data-i18n="elite.opponent">Opponent</div>
+        <div id="elite-prep-enemy-traits" class="battle-trait-bar battle-trait-bar-right"></div>
+        <div id="elite-prep-enemy-side"></div>
+      </div>
+    </div>
+
+    <button id="btn-elite-prep-continue" class="elite-prep-fight-btn" data-i18n="elite.fight">FIGHT!</button>
+  </div>
+</div>
+
+<!-- ===== GAME OVER ===== -->
+<div id="gameover-screen" class="screen">
+  <div class="gameover-title" data-i18n="gameover.title">GAME OVER</div>
+  <div id="gameover-badges"></div>
+  <div id="gameover-stats"></div>
+  <div id="gameover-team"></div>
+  <div id="gameover-actions" style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:4px;">
+    <button id="btn-retry" class="btn-primary btn-lg" data-i18n="common.playAgain">Play Again</button>
+    <button id="btn-gameover-menu" class="btn-secondary btn-lg" data-i18n="menu.mainMenu">Main Menu</button>
+  </div>
+  <a href="https://discord.gg/YsakfWStYq" target="_blank" rel="noopener noreferrer" class="discord-link">
+    <svg viewBox="0 0 24 24" xmlns="https://www.w3.org/2000/svg" aria-hidden="true"><path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028c.462-.63.874-1.295 1.226-1.994a.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z"/></svg>
+    <span data-i18n="title.joinDiscord">Discord</span>
+  </a>
+</div>
+
+<!-- ===== WIN SCREEN ===== -->
+<div id="win-screen" class="screen">
+  <div class="win-title">YOU ARE THE<br>CHAMPION!</div>
+  <p style="color:var(--text-dim);" data-i18n="win.congrats">Congratulations! You defeated the Elite Four!</p>
+  <div id="win-run-count" style="color:gold;font-size:13px;font-weight:bold;margin-bottom:8px;"></div>
+  <div id="win-team"></div>
+  <div style="display:flex;gap:8px;justify-content:center;margin-top:8px;flex-wrap:wrap;">
+    <button id="btn-play-again" class="btn-primary btn-md" data-i18n="common.playAgain">Play Again</button>
+    <button onclick="shareRun()" class="btn-secondary btn-md btn-secondary--purple" data-i18n="win.share">📤 Share</button>
+    <button onclick="showEndlessStageSelect()" class="btn-secondary btn-md btn-secondary--gold" data-i18n="win.climbTower">🗼 Climb the Tower</button>
+  </div>
+  <div style="display:flex;gap:8px;justify-content:center;margin-top:6px;">
+    <button onclick="openHallOfFameModal()" class="btn-secondary btn-md">🏛️ Hall of Fame</button>
+  </div>
+  <a href="https://discord.gg/YsakfWStYq" target="_blank" rel="noopener noreferrer" class="discord-link">
+    <svg viewBox="0 0 24 24" xmlns="https://www.w3.org/2000/svg" aria-hidden="true"><path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028c.462-.63.874-1.295 1.226-1.994a.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z"/></svg>
+    <span data-i18n="title.joinDiscord">Discord</span>
+  </a>
+</div>
+
+<!-- ===== STAT BUFF SCREEN ===== -->
+<div id="stat-buff-screen" class="screen">
+  <header class="screen-intro">
+    <h2 id="stat-buff-title"></h2>
+    <p id="stat-buff-subtitle" class="screen-desc"></p>
+  </header>
+  <div id="stat-buff-choices"></div>
+</div>
+
+<!-- ===== STORY REGION SELECT ===== -->
+<div id="history-region-select" class="screen">
+  <div class="history-select-panel">
+    <div class="history-select-topbar">
+      <button type="button" class="run-menu-btn btn-primary btn-md history-select-back" onclick="showScreen('title-screen')">Back</button>
+      <div class="run-menu-btn btn-primary btn-md history-select-logo" aria-hidden="true"><span class="run-menu-logo"><img src="img/logo.png" alt=""></span></div>
+    </div>
+    <header class="history-header">
+      <div class="history-header-text">
+        <h1 class="history-header-title history-header-title--story">Story</h1>
+        <p class="history-header-intro">Story mode is the main adventure — explore regions as they are in the main games, beat gyms, and conquer the Elite Four. Choose Classic or Nuzlocke, then pick a region to begin.</p>
+      </div>
+    </header>
+    <div class="history-mode-toggle-wrap">
+      <button type="button" id="btn-history-classic" class="btn-primary btn-md history-mode-btn history-mode-btn--classic history-mode-btn--selected">Classic</button>
+      <button type="button" id="btn-history-nuzlocke" class="btn-primary btn-md history-mode-btn history-mode-btn--nuzlocke">Nuzlocke</button>
+    </div>
+    <div id="history-region-list" class="history-region-list"></div>
+    <div id="history-more-regions" class="history-more-regions">
+      <p class="history-more-regions-text">More regions are on the way. In the meantime, try the Battle Tower!</p>
+      <button type="button" id="btn-history-battle-tower" class="btn-primary btn-md history-battle-tower-btn">Battle Tower</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== ENDLESS STAGE SELECT ===== -->
+<div id="endless-stage-select" class="screen">
+  <div class="history-select-panel">
+    <div class="history-select-topbar">
+      <button type="button" class="run-menu-btn btn-primary btn-md history-select-back" onclick="showScreen('title-screen')">Back</button>
+      <div class="run-menu-btn btn-primary btn-md history-select-logo" aria-hidden="true"><span class="run-menu-logo"><img src="img/logo.png" alt=""></span></div>
+    </div>
+    <header class="history-header">
+      <div class="history-header-text">
+        <h1 class="history-header-title history-header-title--tower">Battle Tower</h1>
+        <p class="history-header-intro">Staged maps across five regions — pick a starter from Pokémon you've caught, build type traits in battle, and defeat regional bosses.</p>
+      </div>
+    </header>
+    <div id="stage-select-list" class="history-region-list"></div>
+  </div>
+</div>
+
+<!-- ===== ENDLESS STAGE COMPLETE ===== -->
+<div id="endless-stage-complete" class="screen">
+  <div id="stage-complete-msg" class="win-title" style="font-size:14px;"></div>
+  <div id="stage-complete-unlock" style="font-size:8px;color:#c8a0ff;text-align:center;margin:6px 0;"></div>
+  <div id="stage-complete-stats"></div>
+  <div id="stage-complete-team" style="display:flex;flex-wrap:wrap;justify-content:center;gap:8px;margin:12px 0;"></div>
+  <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;">
+    <button id="btn-stage-again" class="btn-primary btn-md">Play Again</button>
+    <button id="btn-stage-continue" class="btn-primary btn-md">Stage Select →</button>
+    <button id="btn-stage-share" class="btn-secondary btn-md btn-secondary--purple">📤 Share</button>
+  </div>
+</div>
+
+<!-- ===== EVOLUTION OVERLAY ===== -->
+<div id="evo-overlay" style="display:none;position:fixed;inset:0;z-index:200;background:#000;
+     align-items:center;justify-content:center;flex-direction:column;gap:20px;">
+  <div id="evo-msg" style="font-size:11px;color:#fff;
+       text-align:center;line-height:1.8;max-width:280px;padding:0 16px;"></div>
+  <img id="evo-sprite" style="width:96px;height:96px;image-rendering:pixelated;">
+</div>
+
+<!-- ===== EEVEE CHOICE OVERLAY ===== -->
+<div id="eevee-choice-overlay" style="display:none;position:fixed;inset:0;z-index:201;background:rgba(0,0,0,0.88);
+     align-items:center;justify-content:center;flex-direction:column;gap:18px;">
+  <div id="evo-choice-title" style="font-size:10px;color:#fff;text-align:center;line-height:1.8;">
+    Choose its evolution:
+  </div>
+  <div id="eevee-choices" style="display:flex;flex-wrap:wrap;justify-content:center;gap:16px;max-width:min(90vw,700px);"></div>
+</div>
+
+<!-- Gen 3 weather: a color-grade/vignette tint (148) with the particle canvas
+     (#battle-weather-canvas, created by ui.js at z-index 149) drawn on top, both
+     below the attack canvas (150). -->
+<div id="battle-weather-overlay" style="position:fixed;inset:0;pointer-events:none;z-index:148;display:none;"></div>
+
+<!-- Attack animation canvas (fixed over viewport) -->
+<canvas id="battle-anim-canvas" style="position:fixed;inset:0;pointer-events:none;z-index:150;display:none;"></canvas>
+
+<!-- PREVIEW: a single Fuse ad fixed to the bottom-right of the screen (positioned
+     by CSS, #fuse-corner-ad). Reuses the configured Right_Sidebar_VREC unit. -->
+<!-- GAM 71161633/PKLK_pokelike/Right_Sidebar_VREC -->
+<div id="fuse-corner-ad" data-fuse="Right_Sidebar_VREC"></div>
+<script>
+  (function () {
+    // Visual placeholder for the corner ad when ?adpreview=1 is in the URL.
+    if (/[?&]adpreview=1\b/.test(location.search)) {
+      document.body.classList.add('ad-preview');
+      var el = document.getElementById('fuse-corner-ad');
+      if (el) {
+        var stub = document.createElement('div');
+        stub.className = 'ad-preview-stub';
+        el.appendChild(stub);
+      }
+    }
+    // Toggle body.in-battle while the battle screen is up (used by unrelated CSS,
+    // e.g. the floating map-menu icons).
+    var b = document.getElementById('battle-screen');
+    if (b) {
+      var sync = function () {
+        document.body.classList.toggle('in-battle', b.classList.contains('active'));
+      };
+      new MutationObserver(sync).observe(b, { attributes: true, attributeFilter: ['class'] });
+      sync();
+    }
+  })();
+</script>
+
+<!-- Keep game content clear of the bottom anchor ad. Fuse injects that anchor
+     itself (position:fixed, pinned to the viewport bottom) — it isn't one of our
+     slot divs, so we MEASURE whatever ad is docked at the bottom and expose its
+     height as --ad-foot on :root. Every screen already subtracts --ad-foot from
+     its height (see .screen in style/main.css), so content reserves exactly the
+     ad's height on ALL screens (title / menus / battle / hub / in-game) and can
+     never sit under it. It's 0px whenever no anchor is present, so there's no
+     empty gap or layout shift. -->
+<script>
+  (function reserveAdFooter() {
+    var root = document.documentElement, raf = 0;
+    function measure() {
+      raf = 0;
+      var h = 0, kids = document.body ? document.body.children : [];
+      for (var i = 0; i < kids.length; i++) {
+        var el = kids[i];
+        if (!el || el.id === 'perf-rig-overlay' || el.id === 'test-harness') continue;
+        var cs;
+        try { cs = getComputedStyle(el); } catch (e) { continue; }
+        if (cs.position !== 'fixed' || cs.display === 'none' || cs.visibility === 'hidden') continue;
+        // Ad guardrail: the element must BE or CONTAIN an ad iframe, so we never
+        // reserve space for our own fixed UI (run-menu, toasts, canvases, modals).
+        if (el.tagName !== 'IFRAME' && !el.querySelector('iframe')) continue;
+        var r = el.getBoundingClientRect();
+        if (r.width < window.innerWidth * 0.5) continue;                      // a wide banner/anchor
+        if (r.height < 16 || r.height > window.innerHeight * 0.5) continue;   // sane anchor height
+        if (r.bottom < window.innerHeight - Math.max(4, window.innerHeight * 0.12)) continue; // docked at bottom
+        if (r.height > h) h = r.height;
+      }
+      root.style.setProperty('--ad-foot', h ? Math.ceil(h) + 'px' : '0px');
+    }
+    function schedule() { if (!raf) raf = requestAnimationFrame(measure); }
+    function start() {
+      try { new MutationObserver(schedule).observe(document.body, { childList: true }); } catch (e) {}
+      window.addEventListener('resize', schedule, { passive: true });
+      window.addEventListener('orientationchange', schedule, { passive: true });
+      setInterval(measure, 1500); // catch late fills / anchor resizes Fuse does itself
+      measure();
+    }
+    if (document.body) start(); else window.addEventListener('DOMContentLoaded', start, { once: true });
+  })();
+</script>
+
+<!-- Scripts -->
+<script defer src="js/bundle.fef7c2f402.js"></script>
+<script defer src="fps-meter.js"></script>
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-7B6G2K0W0K"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+  gtag('config', 'G-7B6G2K0W0K');
+</script>
+</body>
+</html>
