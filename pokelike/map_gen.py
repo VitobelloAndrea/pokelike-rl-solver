@@ -18,17 +18,18 @@ than the legendary hash's DJB2-ish one, populating
 `resolve_evo_for_level`, `pick_wild_encounter`) is a faithful port of the
 STANDARD (non-Endless-buff-pool) path used by Story/Nuzlocke/Battle-Tower.
 
+**`generateSubMap` is now ported** (bundle.deobfuscated.js:53508-53632, see
+"Special submaps" section below, docs/logic-notes-submaps.md) -- the small
+side-map (start -> 1-2 boss(es) -> 2-3 reward(s) -> subexit) generated when a
+player visits an UNDERGROUND/DISTORTION node specifically. SILVER (Gen2) and
+MAGMA/AQUA (Gen3) do NOT use this system at all -- confirmed by direct trace
+of `onNodeClick`'s dispatch switch (bundle.deobfuscated.js:77364-77382):
+those three dispatch straight to `doSilverNode`/`doAdminNode` (already ported
+in `engine._visit_silver`/`_visit_admin`, CODEX.md P0.9), fixed-roster
+in-place boss fights on the PARENT map with no submap involved, while only
+`NODE_TYPES.UNDERGROUND`/`NODE_TYPES.DISTORTION` call `enterSubMap`.
+
 **Explicitly NOT ported here, flagged rather than guessed at:**
-- `generateSubMap` (bundle.deobfuscated.js:53508-53632) -- the small
-  side-map (start -> boss(es) -> reward(s) -> subexit) generated when a
-  player visits a SILVER/MAGMA/AQUA/UNDERGROUND/DISTORTION special node.
-  Its own boss/reward selection depends on four more not-yet-traced
-  functions (`rollUndergroundTrainers`, `distortionLegendary`,
-  `rollSubMapBoss`, `subMapBaseLevel`, `pickSubMapRewards`) -- a
-  Gen2/3/4-specific subsystem on the same scale as this module itself.
-  `generate_map()` still places these special node TYPES in the graph
-  (Silver/Magma-Aqua/Underground-Distortion), it just doesn't generate
-  what's behind them yet.
 - `getCatchChoicesForType` (line 49151) -- type-restricted encounter pools
   used inside Ghost/Underground submaps; depends on the submap system
   above, deferred with it.
@@ -133,6 +134,7 @@ class GeneratedMap:
     edges: list[tuple[str, str]]
     layers: list[list[MapNode]]
     map_index: int
+    is_sub_map: Optional[str] = None  # "underground"/"distortion"/None -- see generate_sub_map
 
 
 @dataclass
@@ -843,3 +845,301 @@ def min_level_for_species(species_id: int) -> int:
             if evo.into == species_id:
                 return evo.level
     return 1
+
+
+# ---------------------------------------------------------------------------
+# Special submaps -- Underground/Distortion World (docs/logic-notes-submaps.md,
+# bundle.deobfuscated.js:53508-53632 `generateSubMap`, 76399-76837
+# `distortionLegendary`/`subMapBaseLevel`/`rollSubMapBoss`/
+# `rollUndergroundTrainers`/`pickSubMapRewards`). Gen4/Sinnoh-only: SILVER/
+# MAGMA/AQUA do NOT use this system (see this module's own docstring).
+# Endless-mode branches throughout are excluded, same convention as the rest
+# of this module; every function here stays state-free (explicit params,
+# no hidden global `state`) -- `engine.py` owns `subMapReturn`/
+# `distortionWorldsEntered`/`distortionLegendaryClaimed` persistence.
+# ---------------------------------------------------------------------------
+
+
+def _fisher_yates(items: list) -> None:
+    """The same Fisher-Yates idiom used inline throughout this module
+    (`get_catch_choices`, `generate_map`'s trainerSprite candidates, ...) --
+    extracted as a helper here since `_roll_underground_trainers` alone
+    needs it 3 separate times."""
+    for i in range(len(items) - 1, 0, -1):
+        j = int(rng.rng() * (i + 1))
+        items[i], items[j] = items[j], items[i]
+
+
+def sub_map_level_cap(is_endless_mode: bool = False) -> float:
+    """Port of `subMapLevelCap` (bundle.deobfuscated.js:76410-76415) -- always
+    100 in this port's reachable (non-Endless) scope."""
+    return math.inf if is_endless_mode else 100
+
+
+def _sub_map_base_level(kind: str, map_index: int, parent_node_level: Optional[int]) -> int:
+    """Port of `subMapBaseLevel` (bundle.deobfuscated.js:76416-76452),
+    Endless-mode branch excluded. `parent_node_level` is
+    `get_level_for_node(...)` already computed by the CALLER for the node
+    the player is entering the submap FROM (`state.subMapReturn` in the
+    source, bundle.deobfuscated.js:76434-76442: `getLevelForNode(iS.map.
+    nodes[iS.nodeId]) + 1`) -- every reachable call site in this port
+    populates this (`engine.enter_sub_map` always sets it before generating
+    the submap), so the `None` fallback below (the source's OWN defensive
+    branch for when `state.subMapReturn` is unset -- unconditionally reads
+    `GEN4_MAP_LEVEL_RANGES` regardless of generation, since this whole
+    subsystem only exists in gen4Mode) is ported for completeness rather
+    than expected to actually run."""
+    if parent_node_level is not None:
+        return parent_node_level + 1
+    ranges = data.get_map_level_ranges(4)
+    idx = min(max(map_index, 0), len(ranges) - 1)
+    return ranges[idx].max + (-5 if kind == UNDERGROUND else 2)
+
+
+def _distortion_legendary(
+    distortion_worlds_entered_after: int, distortion_legendary_claimed: bool
+) -> Optional["data.DistortionLegendaryEntry"]:
+    """Port of `distortionLegendary` (bundle.deobfuscated.js:76399-76409).
+    `distortion_worlds_entered_after` is the counter value AFTER the current
+    visit's increment (see `generate_sub_map`'s docstring for the exact
+    increment-then-check order the source uses) -- only the player's
+    SECOND-EVER Distortion visit can roll a legendary, and only if it hasn't
+    already been claimed this run. Consumes exactly one `rng()` draw when
+    triggered, ZERO when short-circuited (matching the source's `cond ? null
+    : pool[floor(rng()*len)]` -- the `rng()` call is inside the untaken
+    branch when the guard fails)."""
+    if distortion_legendary_claimed or distortion_worlds_entered_after != 2:
+        return None
+    pool = data.get_distortion_legendary_pool()
+    return pool[int(rng.rng() * len(pool))]
+
+
+def _roll_sub_map_boss(kind: str, map_index: int, parent_node_level: Optional[int]) -> tuple[str, str, list[dict]]:
+    """Port of `rollSubMapBoss` (bundle.deobfuscated.js:76453-76470). Returns
+    `(name, sprite, team)`, `team` a list of `{"species_id":..., "level":...}`
+    dicts (source `id`/`level` keys renamed for this port's convention).
+    Consumes exactly one `rng()` draw (the fixed-team pick)."""
+    level = _sub_map_base_level(kind, map_index, parent_node_level)
+    bosses = data.get_submap_bosses()
+    boss = bosses.get(kind) or bosses[UNDERGROUND]
+    chosen_team = boss.teams[int(rng.rng() * len(boss.teams))]
+    team = [{"species_id": m.species_id, "level": min(100, max(5, level + m.level_offset))} for m in chosen_team]
+    return boss.name, boss.sprite, team
+
+
+def _roll_underground_trainers(map_index: int, parent_node_level: Optional[int], gen4_mode: bool = True) -> list[dict]:
+    """Port of `rollUndergroundTrainers`'s non-Endless path
+    (bundle.deobfuscated.js:76584-76669) -- the Endless-mode/`challengeGen4`
+    branch (76587-76615) is out of scope, same convention as the rest of
+    this module. `gen4_mode` selects `GEN4_TRAINER_KEYS` vs
+    `UNDERGROUND_TRAINER_KEYS` (bundle.deobfuscated.js:76616-76622) --
+    always `True` in this port's actual reachable scope, since an
+    UNDERGROUND-type node only ever exists when `gen4_mode=True`
+    (`generate_map`'s own node-placement gate) -- kept as a parameter for
+    citation fidelity, not because the `False` branch is reachable here.
+
+    Returns one `{"key":..., "name":..., "team": [{"species_id":...,
+    "level":...}, ...]}` dict per selected trainer -- always exactly 2 in
+    this (non-Endless) path. RNG draw order: shuffle the candidate
+    archetype-key list, THEN for each of the 2 selected trainers, shuffle
+    that trainer's own species pool -- exact source order, load-bearing for
+    RNG-draw-count parity (bundle.deobfuscated.js:76623-76657)."""
+    level = _sub_map_base_level(UNDERGROUND, map_index, parent_node_level)
+    keys = list(data.get_gen4_trainer_keys() if gen4_mode else data.get_underground_trainer_keys())
+    _fisher_yates(keys)
+
+    level_offsets = (-2, -1, 0)
+    level_cap = sub_map_level_cap()
+    used_species: set = set()
+    config = data.get_trainer_battle_config()
+
+    results = []
+    for trainer_key in keys[:2]:
+        archetype = config.get(trainer_key) or config["aceTrainer"]
+        pool = list(dict.fromkeys(archetype.gen4_pool or (0x183,)))
+        filtered = [sid for sid in pool if min_level_for_species(sid) <= level]
+        candidates = filtered if filtered else pool
+        _fisher_yates(candidates)
+
+        resolved: list[int] = []
+        seen: set = set()
+        for raw_id in candidates:
+            evo_id = resolve_evo_for_level(raw_id, level)
+            if evo_id not in seen:
+                seen.add(evo_id)
+                resolved.append(evo_id)
+
+        preferred = [sid for sid in resolved if sid not in used_species]
+        already_used = [sid for sid in resolved if sid in used_species]
+        team_species = (preferred + already_used)[:3]
+        for raw_id in candidates:
+            if len(team_species) >= 3:
+                break
+            if raw_id not in team_species:
+                team_species.append(raw_id)
+        while team_species and len(team_species) < 3:
+            team_species.append(team_species[-1])
+        used_species.update(team_species)
+
+        team = [
+            {"species_id": sid, "level": min(level_cap, max(5, level + level_offsets[i]))}
+            for i, sid in enumerate(team_species)
+        ]
+        results.append({"key": trainer_key, "name": archetype.name, "team": team})
+    return results
+
+
+def _pick_sub_map_rewards(kind: str, team_size: int, count: int = 2) -> list[str]:
+    """Port of `pickSubMapRewards` (bundle.deobfuscated.js:76671-76686).
+    "skip" is always excluded from this pool (`generate_sub_map` appends it
+    separately, unconditionally, as the submap's final reward node) and so
+    are the `DISTORTION_LEGEND_REWARDS` ids (`generate_sub_map` assigns
+    those directly only via `_distortion_legendary`, never through this
+    random pool). The Fisher-Yates shuffle runs over the FULL filtered
+    candidate pool regardless of `count` -- consumes `len(pool)-1` `rng()`
+    draws even when only 1 or 2 results are kept, a real RNG-order detail
+    (not just an implementation artifact), since it's interleaved with
+    every OTHER `rng()`-consuming step inside `generate_sub_map`."""
+    legend_rewards = data.get_distortion_legend_rewards()
+    pool = [
+        r.id
+        for r in data.get_submap_rewards()
+        if kind in r.kinds and r.id not in legend_rewards and r.id != "skip" and (r.min_team is None or team_size >= r.min_team)
+    ]
+    _fisher_yates(pool)
+    return pool[:count]
+
+
+@dataclass
+class SubMapResult:
+    """Return value of `generate_sub_map` -- the generated submap plus the
+    UPDATED `distortion_worlds_entered` counter. `generateSubMap` mutates
+    `state.distortionWorldsEntered` as a side effect in the source
+    (bundle.deobfuscated.js:53522-53527); this port returns the new value
+    instead of touching hidden state, matching every other function in this
+    module -- the caller (`engine.enter_sub_map`) is responsible for
+    persisting it back onto `RunState`."""
+
+    map: GeneratedMap
+    distortion_worlds_entered: int
+
+
+def generate_sub_map(
+    kind: str,
+    map_index: int,
+    parent_node_level: Optional[int],
+    team_size: int,
+    distortion_worlds_entered: int = 0,
+    distortion_legendary_claimed: bool = False,
+    gen4_mode: bool = True,
+) -> SubMapResult:
+    """Port of `generateSubMap` (bundle.deobfuscated.js:53508-53632) -- the
+    small side-map (start -> 1-2 boss node(s) -> 2-3 reward node(s) ->
+    subexit) generated when a player visits an UNDERGROUND/DISTORTION node.
+    `kind` is `"underground"` or `"distortion"` -- `generateSubMap`'s own two
+    real call sites (bundle.deobfuscated.js:77372/77375) never pass anything
+    else (`rollSubMapBoss`'s "underground" fallback for an unrecognized kind
+    is ported there for citation, not reachable from here).
+
+    Node/edge topology (exact, NOT `_connect_layers`'s proportional
+    distribution -- a genuinely different shape from the main map):
+    `n0_0` (start) connects to EVERY boss node; EVERY boss node connects to
+    EVERY reward node (a full bipartite graph, regardless of boss/reward
+    count); EVERY reward node connects to `n3_0` (the single subexit).
+    Boss count is 1 (ordinary underground/distortion) or 2 (underground
+    always rolls exactly 2 trainers; distortion rolls a 2nd, wild-legendary
+    boss node only on the legendary-eligible visit). Reward count is always
+    exactly 3: 2 "real" reward nodes (`n2_0`/`n2_1`) plus one more,
+    unconditionally appended with a hardcoded `"skip"` reward
+    (bundle.deobfuscated.js:53610-53614).
+
+    This function stays state-free: `parent_node_level` is the caller's
+    already-computed `get_level_for_node(...)` for the node being entered
+    FROM (see `_sub_map_base_level`), `team_size` is `len(state.team)` (for
+    `pickSubMapRewards`'s "sacrifice" `minTeam` gate), and
+    `distortion_worlds_entered`/`distortion_legendary_claimed` are the
+    CALLER's current values of those `RunState` fields -- this function does
+    the source's own +1 increment itself (matching the exact
+    increment-then-check order, bundle.deobfuscated.js:53522-53527) and
+    returns the incremented counter in `SubMapResult`, it does not mutate
+    anything.
+
+    RNG draw order (exact, load-bearing):
+    - `"underground"`: `_roll_underground_trainers` THEN
+      `_pick_sub_map_rewards`.
+    - `"distortion"`: `_distortion_legendary` (0 or 1 draws) THEN
+      `_roll_sub_map_boss` (1 draw) THEN `_pick_sub_map_rewards`.
+    """
+    entered = distortion_worlds_entered + 1 if kind == DISTORTION else distortion_worlds_entered
+
+    legendary_entry: Optional["data.DistortionLegendaryEntry"] = None
+    if kind == DISTORTION:
+        legendary_entry = _distortion_legendary(entered, distortion_legendary_claimed)
+
+    boss_nodes: list[MapNode] = []
+    if kind == UNDERGROUND:
+        trainers = _roll_underground_trainers(map_index, parent_node_level, gen4_mode=gen4_mode)
+        for i, trainer in enumerate(trainers):
+            boss_nodes.append(
+                _make_node(
+                    f"n1_{i}", BOSS, 1, i,
+                    subBoss=kind, trainerKey=trainer["key"], bossName=trainer["name"], bossTeam=trainer["team"],
+                )
+            )
+    else:
+        name, sprite, team = _roll_sub_map_boss(DISTORTION, map_index, parent_node_level)
+        if legendary_entry is not None:
+            wild_level = min(100, _sub_map_base_level(DISTORTION, map_index, parent_node_level) + 5)
+            boss_nodes.append(
+                _make_node("n1_0", BOSS, 1, 0, subBoss=kind, bossName=name, bossSprite=sprite, bossTeam=team)
+            )
+            boss_nodes.append(
+                _make_node(
+                    "n1_1", BOSS, 1, 1,
+                    subBoss=kind, wildBoss=True, bossName=legendary_entry.name, bossSprite=legendary_entry.sprite,
+                    bossTeam=[{"species_id": legendary_entry.boss_id, "level": wild_level}],
+                )
+            )
+        else:
+            boss_nodes.append(
+                _make_node("n1_0", BOSS, 1, 0, subBoss=kind, bossName=name, bossSprite=sprite, bossTeam=team)
+            )
+
+    reward_nodes: list[MapNode] = []
+    if legendary_entry is not None:
+        # bundle.deobfuscated.js:53585-53597: n2_0 is ALWAYS the legendary's
+        # own guaranteed reward; n2_1 is a random pick, falling back to that
+        # SAME legendary reward if the random pool came up empty.
+        picked = _pick_sub_map_rewards(kind, team_size, count=1)
+        second = picked[0] if picked else legendary_entry.reward
+        reward_nodes.append(_make_node("n2_0", REWARD, 2, 0, reward=legendary_entry.reward))
+        reward_nodes.append(_make_node("n2_1", REWARD, 2, 1, reward=second))
+    else:
+        picked = _pick_sub_map_rewards(kind, team_size, count=2)
+        first = picked[0] if len(picked) > 0 else None
+        second = picked[1] if len(picked) > 1 else first
+        reward_nodes.append(_make_node("n2_0", REWARD, 2, 0, reward=first))
+        reward_nodes.append(_make_node("n2_1", REWARD, 2, 1, reward=second))
+    reward_nodes.append(_make_node(f"n2_{len(reward_nodes)}", REWARD, 2, len(reward_nodes), reward="skip"))
+
+    subexit = _make_node("n3_0", SUBEXIT, 3, 0)
+    start = _make_node("n0_0", START, 0, 0)
+
+    layers = [[start], boss_nodes, reward_nodes, [subexit]]
+    edges: list[tuple[str, str]] = []
+    for boss in boss_nodes:
+        edges.append((start.id, boss.id))
+    for boss in boss_nodes:
+        for reward in reward_nodes:
+            edges.append((boss.id, reward.id))
+    for reward in reward_nodes:
+        edges.append((reward.id, subexit.id))
+
+    nodes: dict[str, MapNode] = {node.id: node for layer in layers for node in layer}
+    nodes["n0_0"].visited = True
+    for src, dst in edges:
+        if src == "n0_0":
+            nodes[dst].accessible = True
+
+    generated = GeneratedMap(nodes=nodes, edges=edges, layers=layers, map_index=map_index, is_sub_map=kind)
+    return SubMapResult(map=generated, distortion_worlds_entered=entered)

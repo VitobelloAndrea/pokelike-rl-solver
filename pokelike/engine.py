@@ -52,12 +52,24 @@ battle fits inside a single `step()` call and needs no suspension of its own.
   `trainerSprite` archetype-key assignment itself lives in
   `map_gen.generate_map` (`_assign_trainer_sprite`), since it's a
   map-generation-time deterministic hash, not a node-visit-time decision.
-- **The submap system** (`generateSubMap`/`UNDERGROUND`/`DISTORTION`/
-  `REWARD`/`SUBEXIT`) -- `map_gen.py` doesn't generate real submaps behind
-  these node types (they're placed in the graph but lead nowhere real).
-  This module resolves `UNDERGROUND`/`DISTORTION` as an ordinary wild battle
-  and `REWARD`/`SUBEXIT` as a no-op advance, per CLAUDE.md's own suggestion
-  ("can just be treated as ordinary battle/reward nodes for now").
+- **The submap system is now ported** (`generateSubMap`/`UNDERGROUND`/
+  `DISTORTION`/`REWARD`/`SUBEXIT`, docs/logic-notes-submaps.md). SILVER
+  (Gen2) and MAGMA/AQUA (Gen3) do NOT use this system at all -- confirmed by
+  direct trace of `onNodeClick`'s dispatch switch (bundle.deobfuscated.js:
+  77364-77382): only `NODE_TYPES.UNDERGROUND`/`NODE_TYPES.DISTORTION` (Gen4/
+  Sinnoh-only) ever call `enterSubMap`; SILVER/MAGMA/AQUA dispatch straight
+  to the already-ported `_visit_silver`/`_visit_admin` (fixed-roster,
+  in-place boss fights on the PARENT map, CODEX.md P0.9), untouched by this
+  session. `RunState.in_sub_map`/`sub_map_return`/
+  `distortion_worlds_entered`/`distortion_legendary_claimed` are the new
+  persistent fields this needs; `_enter_sub_map`/`_visit_sub_map_boss`/
+  `_visit_reward`/`_visit_subexit`/`_return_from_sub_map` are the new
+  handlers (see their own docstrings for citations). `Phase.ON_MAP` covers
+  submap navigation too (no new Phase for that) -- the new
+  `Phase.REWARD_TEAM_PICK` only covers the "sacrifice"/"stat10" submap
+  rewards' own team-picker UI, a genuinely new suspended-continuation shape
+  (`showTeamPickerModal`, no decline option, unlike every other pending
+  choice in this module).
 - **Trait/passive acquisition mid-run is genuinely NOT a Story/Nuzlocke
   mechanic -- traced and confirmed, not a gap.** `showPassiveItemChoice`
   (bundle.deobfuscated.js:84961-85049) -- the ONLY function in the entire
@@ -101,6 +113,7 @@ import dataclasses
 import math
 from dataclasses import dataclass, field
 from enum import Enum
+from functools import lru_cache
 from typing import Optional, Sequence, Union
 
 from pokelike import battle, battle_abilities, battle_loop, battle_traits, data, map_gen, rng
@@ -175,6 +188,7 @@ class Phase(str, Enum):
     ITEM_EQUIP_CHOICE = "item_equip_choice"
     TRADE_CHOICE = "trade_choice"
     ESCAPE_ROPE_CHOICE = "escape_rope_choice"
+    REWARD_TEAM_PICK = "reward_team_pick"
     NEXT_MAP_READY = "next_map_ready"
     GAME_OVER = "game_over"
     VICTORY = "victory"
@@ -331,6 +345,13 @@ class RunState:
     escaped_via_rope: bool = False  # `state._escapedViaRope` (bundle.deobfuscated.js:81412), CODEX.md P0.6
 
     question_cache: dict = field(default_factory=dict)  # node id -> resolved type string
+
+    # Special submap system (docs/logic-notes-submaps.md) -- Gen4/Sinnoh-only,
+    # UNDERGROUND/DISTORTION node types (SILVER/MAGMA/AQUA never touch these).
+    in_sub_map: Optional[str] = None  # "underground"/"distortion"/None -- `state.inSubMap`
+    sub_map_return: Optional[dict] = None  # {"kind","map","map_index","node_id","no_advance"} -- `state.subMapReturn`
+    distortion_worlds_entered: int = 0  # `state.distortionWorldsEntered`
+    distortion_legendary_claimed: bool = False  # `state.distortionLegendaryClaimed`
 
     phase: Phase = Phase.CHOOSE_STARTER
     pending: Optional[PendingChoice] = None
@@ -1997,7 +2018,17 @@ def _visit_boss(state: RunState, node: MapNode) -> None:
     """Port of `doBossNode` (docs/logic-notes-nodes.md section 2). Map
     index 8 IS the Elite Four gauntlet (docs/logic-notes-runlifecycle.md
     section 3) -- dispatched to the resumable `elite4_fight` step since a
-    branching evolution could interrupt the gauntlet mid-way."""
+    branching evolution could interrupt the gauntlet mid-way.
+
+    `node.extra["subBoss"]` (set by `map_gen.generate_sub_map`) means this
+    BOSS-type node lives INSIDE a submap, not the parent map's own final
+    boss layer -- `doBossNode`'s own very first check
+    (bundle.deobfuscated.js:77744-77747: `if (iu.subBoss) { doSubMapBoss(iu);
+    return; }`), ported here since `NODE_TYPES.BOSS` is shared between both
+    node kinds."""
+    if node.extra.get("subBoss"):
+        _visit_sub_map_boss(state, node)
+        return
     if state.current_map == 8:
         roster = _elite_four_roster(state)
         state._todo = [{"kind": "elite4_fight", "idx": state.elite_index, "roster": roster, "node_id": node.id}]
@@ -2346,13 +2377,386 @@ def _visit_trade(state: RunState, node: MapNode) -> None:
     state.phase = Phase.TRADE_CHOICE
 
 
-def _advance_only(state: RunState, node: MapNode) -> None:
-    """APPROXIMATION for `REWARD`/`SUBEXIT` nodes -- these belong to the
-    not-yet-ported submap system (`generateSubMap`); there is no real reward
-    or exit behavior to model without it, so visiting one is just a free
-    advance, per CLAUDE.md's own suggestion for deferred submap nodes."""
-    _advance(state, node.id)
+# ---------------------------------------------------------------------------
+# Special submaps -- Underground/Distortion World (docs/logic-notes-submaps.md,
+# bundle.deobfuscated.js:53508-53632, 76687-77107). Gen4/Sinnoh-only; SILVER/
+# MAGMA/AQUA never reach any of this (see module docstring).
+# ---------------------------------------------------------------------------
+
+
+def _resolve_sub_map_boss_species(species_id) -> int:
+    """`"giratina-origin"` (`data.DistortionLegendaryEntry.boss_id` for the
+    Giratina entry) is a live-PokeAPI-only alternate-forme lookup
+    (`fetchPokemonById` on a string id, bundle.deobfuscated.js:48620-48719)
+    -- out of this offline port's scope per CLAUDE.md's "Open points" item 2
+    (alternate-form mechanic), same documented deviation as every other
+    unreached alt-form code path in this port. Falls back to base Giratina's
+    own numeric dex id (487) for that one case; every other `bossId` in
+    `data.get_submap_bosses()`/`get_distortion_legendary_pool()` is already
+    a plain `int`."""
+    if species_id == "giratina-origin":
+        return 0x1E7
+    return species_id
+
+
+def _build_sub_map_boss_team(bag_team: Sequence[dict], gen2_mode: bool, gen4_mode: bool) -> list[Combatant]:
+    """Port of `doSubMapBoss`'s `fetchPokemonById`+`createInstance` loop
+    (bundle.deobfuscated.js:76767-76778) -- `moveTier` hardcoded to 2
+    REGARDLESS of map index (unlike ordinary wild/trainer encounters, which
+    use `map_gen.get_move_tier_for_map`), `heldItem` always `None`."""
+    return [
+        _make_wild_combatant(
+            _resolve_sub_map_boss_species(m["species_id"]), m["level"],
+            move_tier=2, gen2_mode=gen2_mode, gen4_mode=gen4_mode,
+        )
+        for m in bag_team
+    ]
+
+
+def _enter_sub_map(state: RunState, node: MapNode, kind: str) -> None:
+    """Port of `enterSubMap` (bundle.deobfuscated.js:76687-76706) -- the
+    UNDERGROUND/DISTORTION node click handler. Generates the submap
+    (`map_gen.generate_sub_map`) and swaps it in as `state.map`, saving
+    enough of the PARENT map/position in `state.sub_map_return` to restore
+    on `_visit_subexit`/`_return_from_sub_map`. Stays in `Phase.ON_MAP` --
+    the player keeps issuing ordinary `VisitNode` actions inside the submap,
+    no new Phase needed for navigation itself.
+
+    `parent_node_level` (`map_gen.get_level_for_node`'s gen2/3/4 branch,
+    ALWAYS taken here since UNDERGROUND/DISTORTION nodes only exist when
+    `gen4_mode=True`, `map_gen.generate_map`'s own node-placement gate) is
+    computed once here and threaded through -- that branch is deterministic
+    (zero `rng()` draws), unlike the gen1 branch, so this call site never
+    perturbs the RNG stream before `generate_sub_map`'s own draws begin."""
+    parent_level = map_gen.get_level_for_node(
+        node.layer, state.current_map, state.gen2_mode, state.gen3_mode, state.gen4_mode
+    )
+    result = map_gen.generate_sub_map(
+        kind,
+        state.current_map,
+        parent_level,
+        len(state.team),
+        distortion_worlds_entered=state.distortion_worlds_entered,
+        distortion_legendary_claimed=state.distortion_legendary_claimed,
+        gen4_mode=state.gen4_mode,
+    )
+    state.distortion_worlds_entered = result.distortion_worlds_entered
+    state.sub_map_return = {
+        "kind": kind,
+        "map": state.map,
+        "map_index": state.current_map,
+        "node_id": node.id,
+        "no_advance": False,
+    }
+    state.in_sub_map = kind
+    state.map = result.map
+    state.current_node_id = "n0_0"
     state.phase = Phase.ON_MAP
+    _log(state, "enter_sub_map", kind=kind, node_id=node.id)
+
+
+def _visit_underground(state: RunState, node: MapNode) -> None:
+    _enter_sub_map(state, node, map_gen.UNDERGROUND)
+
+
+def _visit_distortion(state: RunState, node: MapNode) -> None:
+    _enter_sub_map(state, node, map_gen.DISTORTION)
+
+
+def _return_from_sub_map(state: RunState) -> None:
+    """Port of `returnFromSubMap` (bundle.deobfuscated.js:76708-76730) --
+    restores the parent map/position, fully heals the team (unconditional in
+    Story/Nuzlocke -- the `challengeNoHeal` gate is Challenge-mode-only, out
+    of scope), and advances the originating node UNLESS `no_advance` is set
+    (only ever true for the "reset power" `useShadowForce` call site this
+    port doesn't model -- every `_enter_sub_map` call here sets it `False`).
+    A missing `sub_map_return` (defensive; can't happen via this port's own
+    `VisitNode`-driven flow, since `state.in_sub_map` is only ever set
+    alongside it) just returns to the map unchanged, matching the source's
+    own early-return guard."""
+    sub_map_return = state.sub_map_return
+    state.in_sub_map = None
+    state.sub_map_return = None
+    if sub_map_return is None:
+        state.phase = Phase.ON_MAP
+        return
+    state.map = sub_map_return["map"]
+    state.current_map = sub_map_return["map_index"]
+    for mon in state.team:
+        mon.current_hp = mon.max_hp
+    if not sub_map_return.get("no_advance"):
+        _advance(state, sub_map_return["node_id"])
+    state.current_node_id = sub_map_return["node_id"]
+    state.phase = Phase.ON_MAP
+    _log(state, "return_from_sub_map")
+
+
+def _visit_subexit(state: RunState, node: MapNode) -> None:
+    """Port of the `NODE_TYPES.SUBEXIT` click dispatch
+    (bundle.deobfuscated.js:77380-77382: `case SUBEXIT: returnFromSubMap();
+    break`)."""
+    _return_from_sub_map(state)
+
+
+def _visit_sub_map_boss(state: RunState, node: MapNode) -> None:
+    """Port of `doSubMapBoss` (bundle.deobfuscated.js:76752-76837) -- reached
+    only via `_visit_boss`'s own `subBoss` check, mirroring `doBossNode`'s
+    `if (iu.subBoss) { doSubMapBoss(iu); return; }`
+    (bundle.deobfuscated.js:77744-77747). The enemy team is ALREADY baked
+    into `node.extra["bossTeam"]` at submap-generation time
+    (`map_gen.generate_sub_map`) -- the source's own re-roll fallback for a
+    missing/empty `bossTeam` (bundle.deobfuscated.js:76756-76766) is
+    unreachable via this port's own generator (which always populates it),
+    ported here only as the defensive empty-team early-advance below.
+    `runBattleScreen`'s own call here passes `isBoss=true` explicitly
+    (bundle.deobfuscated.js:76816-76836, the 2nd positional arg `!0x0`) --
+    no Escape Rope recovery offer, same convention as every other boss-tier
+    fight (`_visit_silver`/`_visit_admin`/gym leader). Level gain is 2
+    (the 7th positional arg `0x2`), participants-only (NOT `all_team_xp`,
+    unlike Silver/Admin's whole-team-xp convention), and ordinary Nuzlocke
+    permadeath applies (no `no_permadeath` flag set in the source here,
+    unlike Silver/Admin's `_noPermaDeath` exemptions)."""
+    bag_team = node.extra.get("bossTeam") or []
+    enemy = _build_sub_map_boss_team(bag_team, state.gen2_mode, state.gen4_mode)
+    if not enemy:
+        _advance(state, node.id)
+        state.phase = Phase.ON_MAP
+        return
+    result = _run_battle(state, enemy)
+    if not _after_battle(state, result, level_gain=2):
+        return
+    state._todo = [{"kind": "evolve", "idx": 0}, {"kind": "advance", "node_id": node.id}]
+    _run_todo(state)
+
+
+# doSubMapReward's `B2y` gen4Mode-vs-Endless stat-buff multiplier
+# (bundle.deobfuscated.js:76920-76926) -- ALWAYS the gen4Mode branch (0.5)
+# here, since submaps only exist in gen4_mode and Endless mode is out of
+# scope throughout this module.
+_SUBMAP_REWARD_STAT_MULTIPLIER = 0.5
+
+# "fossil" reward candidate species -- Cranidos(408)/Shieldon(410),
+# bundle.deobfuscated.js:77066.
+_FOSSIL_SPECIES_IDS = (0x198, 0x19A)
+
+# distortion legendary reward -> fixed numeric dex id (bundle.deobfuscated.js:
+# 77083-77086) -- NOTE this is base Giratina (487), NOT the wild boss
+# encounter's "giratina-origin" alt forme (see `_resolve_sub_map_boss_species`).
+_DISTORTION_LEGEND_REWARD_SPECIES = {"giratina": 0x1E7, "dialga": 0x1E3, "palkia": 0x1E4}
+
+
+def _recompute_max_hp(mon: Combatant, gen4_mode: bool, *, full: bool) -> None:
+    """Port of `_recomputeMaxHp` (bundle.deobfuscated.js:76731-76751)."""
+    hp_buff = (mon.stat_buffs or {}).get("hp", 0)
+    computed = max(1, math.floor(map_gen.calc_hp(mon.base_stats.hp, mon.level) * (1 + 0.05 * hp_buff)))
+    mon.max_hp = _wg_max_hp(mon.species_id, gen4_mode, computed)
+    if full:
+        mon.current_hp = mon.max_hp
+    else:
+        mon.current_hp = min(mon.current_hp, mon.max_hp)
+
+
+def _apply_run_level_gain(team: Sequence[Combatant], amount: int, gen4_mode: bool) -> None:
+    """Port of `doSubMapReward`'s `B2Q` helper (bundle.deobfuscated.js:
+    76914-76919) -- flat, UNSCALED level gain (no `_SUBMAP_REWARD_STAT_
+    MULTIPLIER` scaling, unlike `_apply_run_stat_buff` below), used by the
+    "team_lvl2"/"sacrifice" rewards. Full-heals afterward (`_recomputeMaxHp`
+    called with its default `O=true`)."""
+    for mon in team:
+        mon.level = min(map_gen.sub_map_level_cap(), mon.level + amount)
+        _recompute_max_hp(mon, gen4_mode, full=True)
+
+
+def _apply_run_stat_buff(mon: Combatant, stat: str, amount: int) -> None:
+    """Port of `doSubMapReward`'s `B2d` helper (bundle.deobfuscated.js:
+    76927-76935) -- `amount` is halved+rounded (`_SUBMAP_REWARD_STAT_
+    MULTIPLIER`, always 0.5 here) before being added, clamped to the same
+    +-10 range `battle.apply_stage_change` uses for in-battle stages (a
+    SEPARATE, persistent field -- see `Combatant.stat_buffs`'s own
+    docstring)."""
+    scaled = max(1, map_gen._js_round(amount * _SUBMAP_REWARD_STAT_MULTIPLIER)) if amount > 0 else amount
+    mon.stat_buffs = dict(mon.stat_buffs or {})
+    mon.stat_buffs[stat] = max(-10, min(10, mon.stat_buffs.get(stat, 0) + scaled))
+
+
+def _sub_map_reward_level_basis(map_index: int) -> int:
+    """Port of `doSubMapReward`'s own `B2P` level basis
+    (bundle.deobfuscated.js:76900-76909, non-Endless branch) -- the PARENT
+    map's raw level-range MAX, distinct from `map_gen._sub_map_base_level`'s
+    BOSS formula (which adds +1 on top of the parent NODE's own level, not
+    the whole map range's max)."""
+    ranges = data.get_map_level_ranges(4)
+    idx = min(max(map_index, 0), len(ranges) - 1)
+    return ranges[idx].max
+
+
+@lru_cache(maxsize=1)
+def _transform_candidate_pool() -> tuple[int, ...]:
+    """Port of the "transform" reward's candidate-pool filter
+    (bundle.deobfuscated.js:76984-76992, `ALL_CATCHABLE_IDS` itself per
+    bundle.deobfuscated.js:48896-48900: every dex id 1-721 EXCLUDING
+    legendaries) -- evolution-line ROOTS only, Gen4-line-eligible,
+    non-legendary. Cached: depends on no per-call state."""
+    legendary_ids = data.get_legendary_ids()
+    return tuple(
+        sid
+        for sid in range(1, 0x2D2)
+        if sid not in legendary_ids and battle_abilities.get_evo_line_root(sid) == sid and map_gen.is_gen4_line_eligible(sid)
+    )
+
+
+def _apply_transform_reward(state: RunState, node: MapNode) -> None:
+    """Port of the "transform" reward (bundle.deobfuscated.js:76983-77020) --
+    re-rolls EVERY team member into an independently-random Gen4-eligible
+    non-legendary species (one `rng()` draw per member when the candidate
+    pool is non-empty), +4 levels. Level/HP-recompute apply UNCONDITIONALLY
+    per the source's own comma-expression (species/name/types/base_stats
+    swap only if the species resolves; here that's the whole of
+    `data.get_pokedex()`, so the defensive "didn't resolve" branch is
+    unreachable in practice, unlike the source's live-fetch failure mode)."""
+    pokedex = data.get_pokedex()
+    pool = _transform_candidate_pool()
+    for mon in state.team:
+        new_level = min(map_gen.sub_map_level_cap(), mon.level + 4)
+        chosen = pool[int(rng.rng() * len(pool))] if pool else mon.species_id
+        resolved = map_gen.resolve_evo_for_level(chosen, new_level)
+        entry = pokedex.get(resolved)
+        if entry is not None:
+            mon.species_id = resolved
+            mon.name = entry.name
+            mon.nickname = None
+            mon.types = entry.types
+            mon.base_stats = entry.base_stats
+            mon.flags = {**mon.flags, "_megaEvolved": False, "_baseForm": None}
+        mon.level = new_level
+        _recompute_max_hp(mon, state.gen4_mode, full=True)
+    _finish_reward(state, node.id)
+
+
+def _finish_reward(state: RunState, node_id: str) -> None:
+    """Port of `_finishReward` (bundle.deobfuscated.js:76838-76844)."""
+    _advance(state, node_id)
+    state.phase = Phase.ON_MAP
+
+
+def _visit_reward(state: RunState, node: MapNode) -> None:
+    """Port of `doSubMapReward` (bundle.deobfuscated.js:76885-77107) -- the
+    submap's REWARD-type node, dispatching on the reward id baked into
+    `node.extra["reward"]` at submap-generation time. A missing/unrecognized
+    reward id (`submapReward` returning `null`) is just a free advance
+    (bundle.deobfuscated.js:76888-76892), same as the explicit "skip" id and
+    any other unhandled id (bundle.deobfuscated.js:77099-77106)."""
+    reward_id = node.extra.get("reward")
+    reward = data.get_submap_reward_by_id().get(reward_id) if reward_id else None
+    if reward is None:
+        _finish_reward(state, node.id)
+        return
+
+    sub_map_return = state.sub_map_return or {}
+    map_index = sub_map_return.get("map_index", state.current_map)
+    level_basis = _sub_map_reward_level_basis(map_index)
+
+    if reward.id == "team_lvl2":
+        _apply_run_level_gain(state.team, 2, state.gen4_mode)
+        _finish_reward(state, node.id)
+        return
+    if reward.id == "rare_candy":
+        state.items.append("rare_candy")
+        _finish_reward(state, node.id)
+        return
+    if reward.id == "three_items":
+        # bundle.deobfuscated.js:76957-76970: sample WITHOUT replacement via
+        # repeated splice from `ITEM_POOL` (`data.get_passive_items()`, NOT
+        # the usable-items table), not a shuffle -- up to 3 draws, one
+        # `rng()` draw per successful pick, stopping early if the
+        # (bag-deduplicated) pool empties.
+        bag_ids = set(state.items)
+        pool = [item for item in data.get_passive_items() if item.id not in bag_ids]
+        for _ in range(3):
+            if not pool:
+                break
+            idx = int(rng.rng() * len(pool))
+            item = pool.pop(idx)
+            state.items.append(item.id)
+        _finish_reward(state, node.id)
+        return
+    if reward.id == "attack_up":
+        for mon in state.team:
+            _apply_run_stat_buff(mon, "atk", 2)
+            _apply_run_stat_buff(mon, "special", 2)
+        _finish_reward(state, node.id)
+        return
+    if reward.id == "transform":
+        _apply_transform_reward(state, node)
+        return
+    if reward.id == "sacrifice":
+        if len(state.team) < 2:
+            # bundle.deobfuscated.js:77027: re-checked at RESOLUTION time --
+            # `pickSubMapRewards`'s own `minTeam` gate only guaranteed >=2
+            # members at submap-GENERATION time; Nuzlocke's fainted-cull
+            # after the boss fight can shrink it before the player gets here.
+            _finish_reward(state, node.id)
+            return
+        state.pending = PendingChoice(
+            phase=Phase.REWARD_TEAM_PICK,
+            options=[_mon_summary(m) for m in state.team],
+            optional=False,
+            extra={"node_id": node.id, "kind": "sacrifice"},
+        )
+        state.phase = Phase.REWARD_TEAM_PICK
+        return
+    if reward.id == "stat10":
+        state.pending = PendingChoice(
+            phase=Phase.REWARD_TEAM_PICK,
+            options=[_mon_summary(m) for m in state.team],
+            optional=False,
+            extra={"node_id": node.id, "kind": "stat10"},
+        )
+        state.phase = Phase.REWARD_TEAM_PICK
+        return
+    if reward.id == "fossil":
+        species = _FOSSIL_SPECIES_IDS[int(rng.rng() * len(_FOSSIL_SPECIES_IDS))]
+        level = min(map_gen.sub_map_level_cap(), level_basis + 4)
+        resolved = map_gen.resolve_evo_for_level(species, level)
+        mon = _make_wild_combatant(resolved, level, move_tier=2, gen2_mode=state.gen2_mode, gen4_mode=state.gen4_mode)
+        state._todo = [{"kind": "evolve", "idx": 0}, {"kind": "offer_catch", "mon": mon, "node_id": node.id}]
+        _run_todo(state)
+        return
+    if reward.id in _DISTORTION_LEGEND_REWARD_SPECIES:
+        state.distortion_legendary_claimed = True
+        species = _DISTORTION_LEGEND_REWARD_SPECIES[reward.id]
+        level = min(map_gen.sub_map_level_cap(), max(1, level_basis + 1))
+        mon = _make_wild_combatant(species, level, move_tier=2, gen2_mode=state.gen2_mode, gen4_mode=state.gen4_mode)
+        state._todo = [{"kind": "evolve", "idx": 0}, {"kind": "offer_catch", "mon": mon, "node_id": node.id}]
+        _run_todo(state)
+        return
+    # "skip" and any unrecognized id -- bundle.deobfuscated.js:77099-77106.
+    _finish_reward(state, node.id)
+
+
+def _resolve_reward_team_pick(state: RunState, action: SelectOption) -> None:
+    """Resolves `Phase.REWARD_TEAM_PICK` -- the "sacrifice"/"stat10" submap
+    rewards, both driven by `showTeamPickerModal` in the source
+    (bundle.deobfuscated.js:76845-76884: only per-member click handlers, no
+    cancel/skip button, matching `PendingChoice.optional=False`)."""
+    extra = state.pending.extra
+    node_id = extra["node_id"]
+    kind = extra["kind"]
+    idx = action.index
+    if kind == "sacrifice":
+        # bundle.deobfuscated.js:77021-77039: re-checked here too (not just
+        # at `_visit_reward`'s offer-time gate) -- matches the source's own
+        # `if (Bci != null && B2n.length>=2 && B2n[Bci])` guard.
+        if len(state.team) >= 2 and idx is not None and 0 <= idx < len(state.team):
+            state.team.pop(idx)
+            _apply_run_level_gain(state.team, 4, state.gen4_mode)
+    elif kind == "stat10":
+        mon = state.team[idx]
+        for stat in ("hp", "atk", "def", "speed", "special", "spdef"):
+            _apply_run_stat_buff(mon, stat, 2)
+        _recompute_max_hp(mon, state.gen4_mode, full=False)
+    state.pending = None
+    _finish_reward(state, node_id)
 
 
 # ---------------------------------------------------------------------------
@@ -2572,6 +2976,7 @@ _PENDING_RESOLVERS = {
     Phase.ITEM_EQUIP_CHOICE: _resolve_item_equip_choice,
     Phase.TRADE_CHOICE: _resolve_trade_choice,
     Phase.ESCAPE_ROPE_CHOICE: _resolve_escape_rope_choice,
+    Phase.REWARD_TEAM_PICK: _resolve_reward_team_pick,
 }
 
 
@@ -2592,10 +2997,9 @@ _NODE_HANDLERS = {
     map_gen.SILVER: _visit_silver,
     map_gen.MAGMA: lambda state, node: _visit_admin(state, node, "magma"),
     map_gen.AQUA: lambda state, node: _visit_admin(state, node, "aqua"),
-    # Submap system not ported (map_gen.py's own scope note) -- approximated
-    # per CLAUDE.md's own suggestion.
-    map_gen.UNDERGROUND: _visit_battle,
-    map_gen.DISTORTION: _visit_battle,
-    map_gen.REWARD: _visit_item,
-    map_gen.SUBEXIT: _advance_only,
+    # Special submaps (docs/logic-notes-submaps.md) -- Gen4/Sinnoh-only.
+    map_gen.UNDERGROUND: _visit_underground,
+    map_gen.DISTORTION: _visit_distortion,
+    map_gen.REWARD: _visit_reward,
+    map_gen.SUBEXIT: _visit_subexit,
 }

@@ -683,6 +683,158 @@ def get_aqua_encounters() -> dict[int, AdminEncounter]:
 
 
 # ---------------------------------------------------------------------------
+# Special submaps -- Underground/Distortion World (docs/logic-notes-submaps.md,
+# bundle.deobfuscated.js:53508-53632, 76247-76837 `generateSubMap`/
+# `rollSubMapBoss`/`rollUndergroundTrainers`/`pickSubMapRewards`/
+# `distortionLegendary`). Gen4/Sinnoh-only -- `generate_map` only ever places
+# UNDERGROUND/DISTORTION node types when `gen4_mode=True` (map_gen.py), so
+# every table here is reached exclusively from that mode.
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class SubMapBossMember:
+    """One `SUBMAP_BOSSES[kind]["teams"][i]` entry -- a bare species id plus a
+    level OFFSET (added to `subMapBaseLevel(...)`, not a fixed level like the
+    hand-authored gym/Elite-Four/Silver/Magma/Aqua rosters). No name/types/
+    base_stats baked in -- `_roll_sub_map_boss`/`engine._visit_sub_map_boss`
+    resolve those from the ordinary Pokedex, same as any wild/trainer
+    encounter (`engine._make_wild_combatant`)."""
+
+    species_id: int
+    level_offset: int
+
+
+@dataclass(frozen=True)
+class SubMapBoss:
+    """One `SUBMAP_BOSSES[kind]` entry (bundle.deobfuscated.js:76265-76302) --
+    the fixed named trainer (Ruin Maniac for "underground", Cyrus for
+    "distortion") whose TEAM is randomly picked (one of 3 fixed 3-member
+    teams) per submap generation."""
+
+    name: str
+    sprite: str
+    teams: tuple[tuple[SubMapBossMember, ...], ...]
+
+
+@lru_cache(maxsize=1)
+def get_submap_bosses() -> dict[str, SubMapBoss]:
+    """`SUBMAP_BOSSES` (bundle.deobfuscated.js:76301-76302) -- keyed by
+    submap kind ("underground"/"distortion"). `rollSubMapBoss` falls back to
+    `SUBMAP_BOSSES["underground"]` for any OTHER kind string
+    (bundle.deobfuscated.js:76456) -- defensive in the source itself, since
+    `generateSubMap`'s own two call sites only ever pass "underground" or
+    "distortion" (see `docs/logic-notes-submaps.md` section 1)."""
+    raw = _load_json("submaps", "submap_bosses.json")
+    return {
+        kind: SubMapBoss(
+            name=entry["name"],
+            sprite=entry["sprite"],
+            teams=tuple(
+                tuple(SubMapBossMember(species_id=m["id"], level_offset=m["off"]) for m in team)
+                for team in entry["teams"]
+            ),
+        )
+        for kind, entry in raw.items()
+    }
+
+
+@dataclass(frozen=True)
+class SubMapReward:
+    """One `SUBMAP_REWARDS[i]` entry (bundle.deobfuscated.js:76303-76377) --
+    a reward a submap's REWARD-type node can be baked with at generation
+    time. `min_team` is only set on "sacrifice" (requires >=2 team members to
+    be offered at all, bundle.deobfuscated.js:76309); `kinds` restricts which
+    submap kind(s) can roll this reward ("fossil" is underground-only,
+    "giratina"/"dialga"/"palkia" are distortion-only, everything else is
+    shared)."""
+
+    id: str
+    label: str
+    desc: str
+    sprite: str
+    kinds: tuple[str, ...]
+    min_team: Optional[int] = None
+
+
+@lru_cache(maxsize=1)
+def get_submap_rewards() -> tuple[SubMapReward, ...]:
+    """`SUBMAP_REWARDS` -- 12 entries, source order preserved (matches
+    `pickSubMapRewards`'s own filter-then-shuffle order dependency)."""
+    raw = _load_json("submaps", "submap_rewards.json")
+    return tuple(
+        SubMapReward(
+            id=entry["id"],
+            label=entry["label"],
+            desc=entry["desc"],
+            sprite=entry["sprite"],
+            kinds=tuple(entry["kinds"]),
+            min_team=entry.get("minTeam"),
+        )
+        for entry in raw
+    )
+
+
+@lru_cache(maxsize=1)
+def get_submap_reward_by_id() -> dict[str, SubMapReward]:
+    """Port of `submapReward(id)`'s lookup table (bundle.deobfuscated.js:
+    76378-76381: `SUBMAP_REWARDS.find(o => o.id === id) || null`)."""
+    return {reward.id: reward for reward in get_submap_rewards()}
+
+
+@dataclass(frozen=True)
+class DistortionLegendaryEntry:
+    """One `DISTORTION_LEGENDARY_POOL[i]` entry (bundle.deobfuscated.js:
+    76382-76398) -- the WILD boss encountered (and the reward it unlocks) on
+    a player's second-ever Distortion World visit. `boss_id` is an `int`
+    dex id for dialga/palkia, but a STRING ("giratina-origin") for
+    giratina -- a live-PokeAPI-only alternate-forme lookup
+    (`fetchPokemonById`, bundle.deobfuscated.js:48620-48719 branches on
+    `typeof id=="string"`) outside this offline port's scope, per CLAUDE.md's
+    "Open points" item 2 (alternate-form mechanic). `engine._resolve_sub_map_boss_species`
+    falls back to base Giratina's own numeric dex id for that one case,
+    documented there, not silently guessed at."""
+
+    reward: str
+    boss_id: object  # int | str -- see docstring
+    sprite: str
+    name: str
+
+
+@lru_cache(maxsize=1)
+def get_distortion_legendary_pool() -> tuple[DistortionLegendaryEntry, ...]:
+    """`DISTORTION_LEGENDARY_POOL` -- 3 entries (dialga, palkia, giratina),
+    source order preserved (irrelevant to the uniform-random pick
+    `distortionLegendary()` makes, but kept for citation fidelity)."""
+    raw = _load_json("submaps", "distortion_legendary_pool.json")
+    return tuple(DistortionLegendaryEntry(reward=e["reward"], boss_id=e["bossId"], sprite=e["sprite"], name=e["name"]) for e in raw)
+
+
+@lru_cache(maxsize=1)
+def get_distortion_legend_rewards() -> frozenset[str]:
+    """`DISTORTION_LEGEND_REWARDS` (bundle.deobfuscated.js:76397) -- the
+    reward ids `pickSubMapRewards` excludes from its ordinary random pool
+    (they're only ever assigned directly by `generateSubMap` itself when a
+    distortion-legendary encounter is rolled, never handed out as a "normal"
+    random submap reward)."""
+    return frozenset(_load_json("submaps", "distortion_legend_rewards.json"))
+
+
+@lru_cache(maxsize=1)
+def get_underground_trainer_keys() -> tuple[str, ...]:
+    """`UNDERGROUND_TRAINER_KEYS` (bundle.deobfuscated.js:76551-76561) -- the
+    candidate archetype-id list `rollUndergroundTrainers` uses in place of
+    `GEN4_TRAINER_KEYS` when NEITHER `gen4Mode` NOR `challengeGen4` is active
+    (bundle.deobfuscated.js:76587-76621). **Dead in this port's actual
+    reachable scope**: `map_gen.generate_map` only ever places an
+    UNDERGROUND-type node when `gen4_mode=True` (see that module's own Gen4
+    node-placement block), so `map_gen._roll_underground_trainers` always
+    takes the `GEN4_TRAINER_KEYS` branch in practice. Ported for citation
+    completeness, not wired into that branch choice."""
+    return tuple(_load_json("submaps", "underground_trainer_keys.json"))
+
+
+# ---------------------------------------------------------------------------
 # Map generation ranges (docs/logic-notes.md section 4)
 # ---------------------------------------------------------------------------
 
