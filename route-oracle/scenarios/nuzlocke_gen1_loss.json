@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "scenario": "nuzlocke_gen1_loss",
+  "description": "Nuzlocke/Gen1. Short deterministic loss fork: layer-1 catch (Nuzlocke forces BOTH layer-1 nodes to CATCH, bundle.deobfuscated.js:53419-53427) is declined, then the run wipes. Covers Nuzlocke initialization, the Nuzlocke-only map shape, permadeath culling, and run termination after game over.",
+  "covers": [
+    "nuzlocke_init",
+    "nuzlocke_map_shape",
+    "catch_decline",
+    "permadeath",
+    "game_over",
+    "run_termination"
+  ],
+  "mode": {
+    "nuzlocke": true,
+    "gen2": false,
+    "gen3": false,
+    "gen4": false
+  },
+  "seed": 123456789,
+  "starter_index": 0,
+  "align_rng_after_starter_offer": 22222222,
+  "actions": [
+    {
+      "kind": "visit",
+      "node": "n1_0"
+    },
+    {
+      "kind": "choice",
+      "index": null
+    },
+    {
+      "kind": "visit",
+      "node": "n2_1"
+    },
+    {
+      "kind": "visit",
+      "node": "n3_1"
+    }
+  ]
+}

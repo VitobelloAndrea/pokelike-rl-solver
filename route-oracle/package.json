@@ -1,0 +1,12 @@
+{
+  "name": "pokelike-route-oracle",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Audit tooling for the M3 short-full-run route oracle. Only scan-toplevel-danger.js needs a dependency; extract-prefix.js and both runners are dependency-free on purpose.",
+  "scripts": {
+    "scan": "node scan-toplevel-danger.js out/route-prefix.js"
+  },
+  "dependencies": {
+    "acorn": "8.17.0"
+  }
+}

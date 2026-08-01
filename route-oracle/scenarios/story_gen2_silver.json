@@ -1,0 +1,77 @@
+{
+  "schema_version": 1,
+  "scenario": "story_gen2_silver",
+  "description": "Story/Gen2. Reaches map 1 and fights Silver at n4_1 (the Gen2-only rival placement, bundle.deobfuscated.js:53444-53450), then loses. Covers Silver, a boss win, a map transition, an evolution (Cyndaquil->Quilava), a pokecenter, and run termination on a non-Nuzlocke loss.",
+  "covers": [
+    "silver",
+    "boss_win",
+    "map_transition",
+    "evolution",
+    "pokecenter",
+    "ordinary_trainer",
+    "battle",
+    "run_termination"
+  ],
+  "mode": {
+    "nuzlocke": false,
+    "gen2": true,
+    "gen3": false,
+    "gen4": false
+  },
+  "seed": 123456789,
+  "starter_index": 1,
+  "align_rng_after_starter_offer": 31415926,
+  "actions": [
+    {
+      "kind": "visit",
+      "node": "n1_1"
+    },
+    {
+      "kind": "visit",
+      "node": "n2_1"
+    },
+    {
+      "kind": "visit",
+      "node": "n3_1"
+    },
+    {
+      "kind": "visit",
+      "node": "n4_0"
+    },
+    {
+      "kind": "visit",
+      "node": "n5_0"
+    },
+    {
+      "kind": "visit",
+      "node": "n6_0"
+    },
+    {
+      "kind": "visit",
+      "node": "n7_0"
+    },
+    {
+      "kind": "visit",
+      "node": "n8_0"
+    },
+    {
+      "kind": "advance_map"
+    },
+    {
+      "kind": "visit",
+      "node": "n1_1"
+    },
+    {
+      "kind": "visit",
+      "node": "n2_1"
+    },
+    {
+      "kind": "visit",
+      "node": "n3_1"
+    },
+    {
+      "kind": "visit",
+      "node": "n4_1"
+    }
+  ]
+}

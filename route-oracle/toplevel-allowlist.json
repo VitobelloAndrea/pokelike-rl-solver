@@ -1,0 +1,38 @@
+{
+  "_comment": [
+    "Exact allow-list for load-reachable risky-global references in the audited route prefix.",
+    "Pinned to `prefix_sha256`: if the prefix changes at all, scan-toplevel-danger.js rejects",
+    "this whole file rather than carrying stale approvals forward. Entries that match nothing",
+    "are also a hard failure, so a removed source site cannot leave a rotting approval behind.",
+    "",
+    "Only references that guard analysis CANNOT prove inert belong here. References dominated",
+    "by a real `typeof X === \"undefined\"` test are proved automatically and must NOT be listed",
+    "(the six storage-migration `localStorage` reads at prefix lines 38817-38861 are in that",
+    "category and are deliberately absent).",
+    "",
+    "Every `reason` below was re-read from route-oracle/out/route-prefix.js during M3.3.",
+    "Line numbers are 1-based lines of the PREFIX, not of the full bundle."
+  ],
+  "prefix_sha256": "92c82e6cdf4d36201d1143fa2802c3400af61e0e55268b45f236ba11465d102d",
+  "audited_by": "M3.3 tooling repair, 2026-08-01",
+  "reason_codes": {
+    "inert-dom-stub-listener": "A `document.addEventListener(...)` registration. run-scenario.js's `makeDom()` gives the document object a no-op `addEventListener`, so the handler is never even stored, never mind dispatched. The driver dispatches no events at the document level; it only invokes listeners the source attached to specific ELEMENTS it also created.",
+    "inert-dom-stub-read": "A read of `document.documentElement` / `document.getElementById(...)` that only decides a presentation attribute. The stub returns inert elements whose style/class writes go nowhere.",
+    "audited-try-catch-inert-when-absent": "Lexically inside a `try { ... } catch { }` whose handler swallows. With the global left undefined on the sandbox the very first reference throws a ReferenceError, the empty catch absorbs it, and the enclosing IIFE returns without side effects. Verified by reading the block, not inferred from the presence of a try."
+  },
+  "entries": [
+    { "name": "document", "line": 63649, "reach": "top", "reason": "inert-dom-stub-listener", "note": "document.addEventListener(\"mousemove\", ...) -- idle/pointer-activity tracking." },
+    { "name": "document", "line": 63656, "reach": "top", "reason": "inert-dom-stub-listener", "note": "document.addEventListener(\"touchstart\", ...) -- same activity tracker." },
+    { "name": "document", "line": 63693, "reach": "iife", "reason": "inert-dom-stub-listener", "note": "document.addEventListener(\"click\", ...) inside the audio-unlock IIFE." },
+    { "name": "document", "line": 63719, "reach": "top", "reason": "inert-dom-stub-listener", "note": "document.addEventListener(\"mouseover\", ...) -- hover-tooltip wiring." },
+    { "name": "document", "line": 63756, "reach": "top", "reason": "inert-dom-stub-listener", "note": "document.addEventListener(\"mouseout\", ...) -- hover-tooltip teardown." },
+    { "name": "document", "line": 63809, "reach": "top", "reason": "inert-dom-stub-listener", "note": "document.addEventListener(\"fullscreenchange\", _syncFullscreenUi)." },
+    { "name": "document", "line": 63810, "reach": "top", "reason": "inert-dom-stub-listener", "note": "document.addEventListener(\"webkitfullscreenchange\", _syncFullscreenUi)." },
+    { "name": "document", "line": 63813, "reach": "iife", "reason": "inert-dom-stub-read", "note": "Fullscreen-button visibility IIFE: reads document.documentElement, finds no requestFullscreen on the stub, and hides #btn-fullscreen. Presentation only." },
+    { "name": "document", "line": 63815, "reach": "iife", "reason": "inert-dom-stub-read", "note": "Same IIFE: document.getElementById(\"btn-fullscreen\") followed by a style write." },
+    { "name": "document", "line": 74780, "reach": "iife", "reason": "inert-dom-stub-listener", "note": "document.addEventListener(\"pointerdown\", ..., {capture,passive}) -- the UI click-sound rig. FOUND IN M3.3: this sits OUTSIDE the 63600-63900 window the previous scanner hard-coded as 'the audited DOM wiring', and the previous scanner waved it through only because it was inside an IIFE." },
+    { "name": "document", "line": 74799, "reach": "iife", "reason": "inert-dom-stub-listener", "note": "document.addEventListener(\"pointerover\", ..., {capture,passive}) -- hover-sound rig, same IIFE, same M3.3 finding." },
+    { "name": "localStorage", "line": 47541, "reach": "iife", "reason": "audited-try-catch-inert-when-absent", "note": "`for (const B of Object.keys(localStorage))` -- the cached-Pokemon schema sweep. localStorage is undefined on the sandbox, so Object.keys(localStorage) throws immediately into the empty catch and the IIFE ends. NOT typeof-guarded: the previous scanner's success message claimed every remaining IIFE hit was `typeof`-gated, which was false about exactly this site." },
+    { "name": "localStorage", "line": 47548, "reach": "iife", "reason": "audited-try-catch-inert-when-absent", "note": "`localStorage.removeItem(B)` in the body of the same swept loop; unreachable because the loop header above already threw." }
+  ]
+}

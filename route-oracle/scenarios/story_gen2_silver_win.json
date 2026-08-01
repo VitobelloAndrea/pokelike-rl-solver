@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "scenario": "story_gen2_silver_win",
+  "description": "Story/Gen2. BEATS Silver. Survives map 0, transitions to map 1 and defeats the Gen2-only Silver rival at n4_1 (the placement at bundle.deobfuscated.js:53444-53450), incrementing state.silverBeaten through doSilverNode's win branch, then continues on the parent map before the map-1 boss ends the run. The pre-existing `story_gen2_silver` scenario reaches Silver but LOSES there, so it proves the placement and the encounter but never the win branch -- this scenario is what actually earns the `silver` coverage tag. Also covers starter selection, a catch accept, ordinary trainers, wild battles, pokecenter, two boss encounters, a map transition and a non-Nuzlocke terminal loss. Route derived by a bounded deterministic search over real source runs -- see PLAN.md's M3.1 record.",
+  "covers": [
+    "starter_selection",
+    "map_generation",
+    "node_identity",
+    "silver_win",
+    "ordinary_trainer",
+    "battle",
+    "catch_accept",
+    "pokecenter",
+    "boss_win",
+    "map_transition",
+    "winning_progression",
+    "run_termination",
+    "terminal_loss"
+  ],
+  "mode": {
+    "nuzlocke": false,
+    "gen2": true,
+    "gen3": false,
+    "gen4": false
+  },
+  "seed": 36,
+  "starter_index": 2,
+  "align_rng_after_starter_offer": 26457513,
+  "actions": [
+    { "kind": "visit", "node": "n1_0" },
+    { "kind": "choice", "index": 2 },
+    { "kind": "visit", "node": "n2_1" },
+    { "kind": "visit", "node": "n3_2" },
+    { "kind": "visit", "node": "n4_1" },
+    { "kind": "visit", "node": "n5_1" },
+    { "kind": "visit", "node": "n6_1" },
+    { "kind": "visit", "node": "n7_0" },
+    { "kind": "visit", "node": "n8_0" },
+    { "kind": "advance_map" },
+    { "kind": "visit", "node": "n1_1" },
+    { "kind": "visit", "node": "n2_1" },
+    { "kind": "visit", "node": "n3_1" },
+    { "kind": "visit", "node": "n4_1" },
+    { "kind": "visit", "node": "n5_1" },
+    { "kind": "visit", "node": "n6_1" },
+    { "kind": "visit", "node": "n7_1" },
+    { "kind": "visit", "node": "n8_0" }
+  ]
+}

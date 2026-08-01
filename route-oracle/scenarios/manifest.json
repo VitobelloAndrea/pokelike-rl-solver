@@ -1,0 +1,352 @@
+{
+  "schema_version": 1,
+  "required_coverage": [
+    "starter_selection",
+    "ordinary_trainer",
+    "silver",
+    "admin",
+    "submap_entry",
+    "submap_boss_win",
+    "pending_submap_reward",
+    "resolved_submap_reward",
+    "subexit",
+    "exact_parent_return",
+    "evolution_or_reward_transition",
+    "map_transition",
+    "winning_progression",
+    "nuzlocke_permadeath",
+    "terminal_loss"
+  ],
+  "scenarios": [
+    {
+      "file": "story_gen1_map0_to_map1.json",
+      "covers": [
+        "init",
+        "starter_selection",
+        "map_generation",
+        "node_identity",
+        "ordinary_trainer",
+        "battle",
+        "catch_decline",
+        "evolution",
+        "boss_win",
+        "map_transition",
+        "winning_progression"
+      ],
+      "expected_coverage": {
+        "evolution_or_reward_transition": [
+          23
+        ],
+        "map_transition": [
+          29
+        ],
+        "ordinary_trainer": [
+          9,
+          12,
+          15,
+          18,
+          24,
+          51
+        ],
+        "starter_selection": [
+          3
+        ],
+        "winning_progression": [
+          26,
+          53
+        ]
+      }
+    },
+    {
+      "file": "story_gen2_silver.json",
+      "covers": [
+        "silver",
+        "boss_win",
+        "map_transition",
+        "evolution",
+        "pokecenter",
+        "ordinary_trainer",
+        "battle",
+        "run_termination"
+      ],
+      "expected_coverage": {
+        "evolution_or_reward_transition": [
+          20
+        ],
+        "map_transition": [
+          28
+        ],
+        "ordinary_trainer": [
+          12,
+          18,
+          21,
+          37
+        ],
+        "starter_selection": [
+          3
+        ],
+        "terminal_loss": [
+          41
+        ],
+        "winning_progression": [
+          25
+        ]
+      }
+    },
+    {
+      "file": "story_gen2_silver_win.json",
+      "covers": [
+        "starter_selection",
+        "map_generation",
+        "node_identity",
+        "silver_win",
+        "ordinary_trainer",
+        "battle",
+        "catch_accept",
+        "pokecenter",
+        "boss_win",
+        "map_transition",
+        "winning_progression",
+        "run_termination",
+        "terminal_loss"
+      ],
+      "expected_coverage": {
+        "evolution_or_reward_transition": [
+          34,
+          40
+        ],
+        "map_transition": [
+          29
+        ],
+        "ordinary_trainer": [
+          10,
+          16,
+          19,
+          35,
+          38
+        ],
+        "silver": [
+          41
+        ],
+        "starter_selection": [
+          3
+        ],
+        "winning_progression": [
+          26,
+          51
+        ]
+      }
+    },
+    {
+      "file": "nuzlocke_gen1_loss.json",
+      "covers": [
+        "nuzlocke_init",
+        "nuzlocke_map_shape",
+        "catch_decline",
+        "permadeath",
+        "game_over",
+        "run_termination"
+      ],
+      "expected_coverage": {
+        "starter_selection": [
+          3
+        ],
+        "terminal_loss": [
+          14
+        ]
+      }
+    },
+    {
+      "file": "nuzlocke_gen1_permadeath.json",
+      "covers": [
+        "nuzlocke_init",
+        "nuzlocke_map_shape",
+        "starter_selection",
+        "catch_accept",
+        "battle",
+        "item_decline",
+        "ordinary_trainer",
+        "nuzlocke_permadeath",
+        "game_over",
+        "run_termination",
+        "terminal_loss"
+      ],
+      "expected_coverage": {
+        "evolution_or_reward_transition": [
+          9
+        ],
+        "nuzlocke_permadeath": [
+          9
+        ],
+        "ordinary_trainer": [
+          17
+        ],
+        "starter_selection": [
+          3
+        ],
+        "terminal_loss": [
+          21
+        ]
+      }
+    },
+    {
+      "file": "story_gen4_underground.json",
+      "covers": [
+        "submap_entry",
+        "submap_generation",
+        "submap_boss",
+        "saved_parent_identity",
+        "boss_win",
+        "map_transition",
+        "battle",
+        "pokecenter",
+        "ordinary_trainer",
+        "run_termination"
+      ],
+      "expected_coverage": {
+        "evolution_or_reward_transition": [
+          25
+        ],
+        "map_transition": [
+          28
+        ],
+        "ordinary_trainer": [
+          9,
+          15,
+          18,
+          34,
+          37
+        ],
+        "starter_selection": [
+          3
+        ],
+        "submap_entry": [
+          39
+        ],
+        "terminal_loss": [
+          43
+        ],
+        "winning_progression": [
+          25
+        ]
+      }
+    },
+    {
+      "file": "story_gen4_submap_full.json",
+      "covers": [
+        "starter_selection",
+        "map_generation",
+        "node_identity",
+        "ordinary_trainer",
+        "battle",
+        "catch_accept",
+        "catch_decline",
+        "pokecenter",
+        "boss_win",
+        "map_transition",
+        "winning_progression",
+        "submap_entry",
+        "submap_generation",
+        "saved_parent_identity",
+        "submap_boss_win",
+        "pending_submap_reward",
+        "resolved_submap_reward",
+        "subexit",
+        "parent_return"
+      ],
+      "expected_coverage": {
+        "evolution_or_reward_transition": [
+          44
+        ],
+        "exact_parent_return": [
+          51
+        ],
+        "map_transition": [
+          29
+        ],
+        "ordinary_trainer": [
+          10,
+          16,
+          19,
+          36,
+          57
+        ],
+        "pending_submap_reward": [
+          47
+        ],
+        "resolved_submap_reward": [
+          49
+        ],
+        "starter_selection": [
+          3
+        ],
+        "subexit": [
+          51
+        ],
+        "submap_boss_win": [
+          45
+        ],
+        "submap_entry": [
+          42
+        ],
+        "winning_progression": [
+          26
+        ]
+      }
+    },
+    {
+      "file": "story_gen3_admin.json",
+      "covers": [
+        "starter_selection",
+        "map_generation",
+        "node_identity",
+        "ordinary_trainer",
+        "battle",
+        "catch_accept",
+        "catch_decline",
+        "item_decline",
+        "pokecenter",
+        "admin",
+        "boss_win",
+        "map_transition",
+        "winning_progression",
+        "run_termination",
+        "terminal_loss"
+      ],
+      "expected_coverage": {
+        "admin": [
+          71
+        ],
+        "evolution_or_reward_transition": [
+          37,
+          49,
+          65,
+          81
+        ],
+        "map_transition": [
+          31,
+          57
+        ],
+        "ordinary_trainer": [
+          10,
+          16,
+          26,
+          38,
+          41,
+          44,
+          50,
+          68,
+          74
+        ],
+        "starter_selection": [
+          3
+        ],
+        "winning_progression": [
+          28,
+          54,
+          81
+        ]
+      }
+    }
+  ]
+}

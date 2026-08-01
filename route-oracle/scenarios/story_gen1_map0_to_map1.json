@@ -1,0 +1,100 @@
+{
+  "schema_version": 1,
+  "scenario": "story_gen1_map0_to_map1",
+  "description": "Story/Gen1. Map 0 start->boss win->badge->map 1, continuing into map 1. Covers initialization, starter selection, map generation and node identity, ordinary trainers, wild battles, a catch-node decline, an evolution (Bulbasaur->Ivysaur), a boss win, a map transition, and a winning progression branch.",
+  "covers": [
+    "init",
+    "starter_selection",
+    "map_generation",
+    "node_identity",
+    "ordinary_trainer",
+    "battle",
+    "catch_decline",
+    "evolution",
+    "boss_win",
+    "map_transition",
+    "winning_progression"
+  ],
+  "mode": {
+    "nuzlocke": false,
+    "gen2": false,
+    "gen3": false,
+    "gen4": false
+  },
+  "seed": 123456789,
+  "starter_index": 0,
+  "align_rng_after_starter_offer": 88888888,
+  "actions": [
+    {
+      "kind": "visit",
+      "node": "n1_1"
+    },
+    {
+      "kind": "visit",
+      "node": "n2_1"
+    },
+    {
+      "kind": "visit",
+      "node": "n3_2"
+    },
+    {
+      "kind": "visit",
+      "node": "n4_1"
+    },
+    {
+      "kind": "visit",
+      "node": "n5_2"
+    },
+    {
+      "kind": "visit",
+      "node": "n6_1"
+    },
+    {
+      "kind": "visit",
+      "node": "n7_0"
+    },
+    {
+      "kind": "visit",
+      "node": "n8_0"
+    },
+    {
+      "kind": "advance_map"
+    },
+    {
+      "kind": "visit",
+      "node": "n1_1"
+    },
+    {
+      "kind": "visit",
+      "node": "n2_1"
+    },
+    {
+      "kind": "visit",
+      "node": "n3_1"
+    },
+    {
+      "kind": "visit",
+      "node": "n4_1"
+    },
+    {
+      "kind": "choice",
+      "index": null
+    },
+    {
+      "kind": "visit",
+      "node": "n5_2"
+    },
+    {
+      "kind": "visit",
+      "node": "n6_2"
+    },
+    {
+      "kind": "visit",
+      "node": "n7_1"
+    },
+    {
+      "kind": "visit",
+      "node": "n8_0"
+    }
+  ]
+}

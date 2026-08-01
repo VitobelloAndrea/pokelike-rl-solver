@@ -1,0 +1,83 @@
+{
+  "schema_version": 1,
+  "scenario": "story_gen4_underground",
+  "description": "Story/Gen4. Reaches map 1, enters the UNDERGROUND special submap at n4_0 (the Gen4-only placement, bundle.deobfuscated.js:53464-53474), fights the submap boss and loses there. Covers special-submap ENTRY and submap generation/topology, the saved parent identity and its locked flags, a submap boss battle, a boss win + map transition on the parent map, and loss inside a submap. It does NOT cover the submap reward choice, subexit, or parent return -- see README.md's coverage table.",
+  "covers": [
+    "submap_entry",
+    "submap_generation",
+    "submap_boss",
+    "saved_parent_identity",
+    "boss_win",
+    "map_transition",
+    "battle",
+    "pokecenter",
+    "ordinary_trainer",
+    "run_termination"
+  ],
+  "mode": {
+    "nuzlocke": false,
+    "gen2": false,
+    "gen3": false,
+    "gen4": true
+  },
+  "seed": 123456789,
+  "starter_index": 2,
+  "align_rng_after_starter_offer": 26457513,
+  "actions": [
+    {
+      "kind": "visit",
+      "node": "n1_1"
+    },
+    {
+      "kind": "visit",
+      "node": "n2_1"
+    },
+    {
+      "kind": "visit",
+      "node": "n3_1"
+    },
+    {
+      "kind": "visit",
+      "node": "n4_1"
+    },
+    {
+      "kind": "visit",
+      "node": "n5_1"
+    },
+    {
+      "kind": "visit",
+      "node": "n6_0"
+    },
+    {
+      "kind": "visit",
+      "node": "n7_0"
+    },
+    {
+      "kind": "visit",
+      "node": "n8_0"
+    },
+    {
+      "kind": "advance_map"
+    },
+    {
+      "kind": "visit",
+      "node": "n1_1"
+    },
+    {
+      "kind": "visit",
+      "node": "n2_1"
+    },
+    {
+      "kind": "visit",
+      "node": "n3_1"
+    },
+    {
+      "kind": "visit",
+      "node": "n4_0"
+    },
+    {
+      "kind": "visit",
+      "node": "n1_0"
+    }
+  ]
+}

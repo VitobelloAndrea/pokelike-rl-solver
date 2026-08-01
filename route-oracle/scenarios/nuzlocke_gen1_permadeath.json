@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "scenario": "nuzlocke_gen1_permadeath",
+  "description": "Nuzlocke/Gen1. A compact deterministic fork that demonstrates REAL permadeath culling. Accepts the forced layer-1 catch (Nuzlocke forces both layer-1 nodes to CATCH, bundle.deobfuscated.js:53419-53427) so the party is two strong, then WINS a battle in which a member faints -- which is the only branch that culls, since runBattleScreen's fainted-cull and held-item release sit inside the win branch opened at 81278 and the loss `else` (81388-81430) never touches state.team. The pre-existing `nuzlocke_gen1_loss` scenario wipes with a one-Pokemon party, so its team length never decreases and it can never earn the permadeath tag; this scenario is what does. It then loses and terminates. Also covers Nuzlocke init, the Nuzlocke-only layer-1 map shape, an item decline, and game over. Route derived by a bounded deterministic search over real source runs -- see PLAN.md's M3.1 record.",
+  "covers": [
+    "nuzlocke_init",
+    "nuzlocke_map_shape",
+    "starter_selection",
+    "catch_accept",
+    "battle",
+    "item_decline",
+    "ordinary_trainer",
+    "nuzlocke_permadeath",
+    "game_over",
+    "run_termination",
+    "terminal_loss"
+  ],
+  "mode": {
+    "nuzlocke": true,
+    "gen2": false,
+    "gen3": false,
+    "gen4": false
+  },
+  "seed": 1,
+  "starter_index": 0,
+  "align_rng_after_starter_offer": 26457513,
+  "actions": [
+    { "kind": "visit", "node": "n1_1" },
+    { "kind": "choice", "index": 0 },
+    { "kind": "visit", "node": "n2_2" },
+    { "kind": "visit", "node": "n3_3" },
+    { "kind": "choice", "index": null },
+    { "kind": "visit", "node": "n4_2" },
+    { "kind": "visit", "node": "n5_3" }
+  ]
+}
