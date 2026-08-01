@@ -2,6 +2,7 @@
 internal_docs*
 CLAUDE.md
 CODEX.md
+PLAN.md
 pokelike/data/*
 tools/
 

@@ -293,6 +293,11 @@ class NuzlockePermadeathTests(unittest.TestCase):
         self.assertIn("leftovers", state.items)
 
     def test_total_wipe_ends_run(self):
+        # bundle.deobfuscated.js:81358-81380: the fainted-cull only runs in
+        # `runBattleScreen`'s WIN branch -- an ordinary LOSS (this test)
+        # never touches `state["team"]` at all, so the fainted member stays
+        # in the roster (HP 0) rather than being filtered out. GAME_OVER
+        # still fires because `not result.player_won` alone triggers it.
         eng, state = _start(seed=6)
         state.nuzlocke_mode = True
         node = next(n for n in state.map.nodes.values() if n.accessible)
@@ -301,7 +306,8 @@ class NuzlockePermadeathTests(unittest.TestCase):
         with patch.object(engine.battle_loop, "run_battle", return_value=result):
             state = eng.step(engine.VisitNode(node_id=node.id))
         self.assertEqual(state.phase, engine.Phase.GAME_OVER)
-        self.assertEqual(state.team, [])
+        self.assertEqual(len(state.team), 1)  # NOT culled on loss -- fainted member preserved
+        self.assertEqual(state.team[0].current_hp, 0)
 
     def test_nuzlocke_loss_cannot_recover_even_with_rope(self):
         # P0.6: runBattleScreen's eligibility check is `!isBoss &&

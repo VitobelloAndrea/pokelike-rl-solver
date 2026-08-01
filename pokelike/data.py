@@ -122,6 +122,60 @@ def get_pokedex() -> dict[int, Pokemon]:
     return result
 
 
+# Origin Forme Giratina's own base stats (Atk/Def and Special/SpDef swapped
+# relative to the Altered Forme entry `get_pokedex()[0x1E7]` carries --
+# HP/Speed unchanged, same 680 BST). `fetchPokemonById("giratina-origin")`
+# (bundle.deobfuscated.js:48620-48719) is a LIVE-PokeAPI-only call this
+# offline port has no network access to replay byte-for-byte at extraction
+# time -- these are Origin Forme's well-established canonical stats (same
+# published numbers pokeapi.co/api/v2/pokemon/10007 and Bulbapedia both
+# carry), flagged as a residual verification risk in PLAN.md rather than
+# silently presented as a byte-identical extraction.
+_GIRATINA_ORIGIN_BASE_STATS = BaseStats(hp=150, atk=120, defense=100, speed=90, special=120, spdef=100)
+
+
+@lru_cache(maxsize=1)
+def get_giratina_origin_form() -> Pokemon:
+    """Port of `fetchPokemonById("giratina-origin")`'s actual return shape
+    (bundle.deobfuscated.js:48620-48719). Two source details make this NOT
+    a simple "different dex id" case:
+
+    - `POKEMON_FORM_SLUGS["giratina-origin"]` (`pP`, bundle.deobfuscated.js:
+      48016) is `0x1e7` -- the SAME numeric id as base/Altered Giratina, so
+      the `id` field `fetchPokemonById` returns for this string form is 487,
+      not a distinct dex slot (`B2d ? POKEMON_FORM_SLUGS[B] : B2P["id"]`,
+      bundle.deobfuscated.js:48698-48700). This matches how the live game
+      treats Origin/Altered as the same species for dex/achievement
+      purposes -- `species_id` here is deliberately `0x1E7`, identical to
+      `get_pokedex()[0x1E7]`.
+    - `name`/`types`/`baseStats` come from the ACTUAL PokeAPI `pokemon/
+      giratina-origin` response, not the id-487 static dex entry --
+      `formatFormName("giratina-origin")` (bundle.deobfuscated.js:48609-
+      48619) produces the display name "Giratina (Origin)" (matching
+      `DISTORTION_LEGENDARY_POOL`'s own hardcoded `name`, bundle.
+      deobfuscated.js:76393-76396), and Origin Forme's stats/types are its
+      own (types unchanged: Ghost/Dragon; base_stats swapped, see
+      `_GIRATINA_ORIGIN_BASE_STATS`).
+
+    Silently reusing `get_pokedex()[0x1E7]` wholesale for this encounter
+    (same numeric id, but ALSO the Altered Forme's stats) is the exact
+    source-vs-port discrepancy this function exists to close -- callers
+    that need a "giratina-origin" combatant must read stats/name from HERE,
+    not from a bare `get_pokedex()` lookup keyed by the shared id."""
+    base = get_pokedex()[0x1E7]
+    return Pokemon(
+        species_id=base.species_id,
+        name="Giratina (Origin)",
+        types=base.types,
+        base_stats=_GIRATINA_ORIGIN_BASE_STATS,
+        base_experience=base.base_experience,
+        sprite_url="img/sprites/pokemon/10007.png",
+        shiny_sprite_url="img/sprites/pokemon/shiny/10007.png",
+        growth_rate=base.growth_rate,
+        flavor_text=base.flavor_text,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Moves (docs/logic-notes.md section 5, row 2 + section 7.1)
 # ---------------------------------------------------------------------------
@@ -790,10 +844,13 @@ class DistortionLegendaryEntry:
     dex id for dialga/palkia, but a STRING ("giratina-origin") for
     giratina -- a live-PokeAPI-only alternate-forme lookup
     (`fetchPokemonById`, bundle.deobfuscated.js:48620-48719 branches on
-    `typeof id=="string"`) outside this offline port's scope, per CLAUDE.md's
-    "Open points" item 2 (alternate-form mechanic). `engine._resolve_sub_map_boss_species`
-    falls back to base Giratina's own numeric dex id for that one case,
-    documented there, not silently guessed at."""
+    `typeof id=="string"`). Unlike every OTHER alternate-form code path
+    (CLAUDE.md's "Open points" item 2, still out of scope), this one IS
+    reachable from the ordinary Story/Nuzlocke Distortion World encounter
+    loop, so it's in scope -- `engine._build_sub_map_boss_team` special-
+    cases this exact string id and builds the combatant from
+    `data.get_giratina_origin_form()`, not a bare numeric-id pokedex
+    lookup (see that function's own docstring)."""
 
     reward: str
     boss_id: object  # int | str -- see docstring

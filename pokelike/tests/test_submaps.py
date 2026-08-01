@@ -331,6 +331,75 @@ class SubMapEntryExitTests(unittest.TestCase):
         eng.step(engine.VisitNode(node_id=node.id))
         self.assertEqual(state.distortion_worlds_entered, 2)
 
+    def test_entering_submap_sets_entered_sub_map_flag(self):
+        # Repair for discrepancy #3 (bundle.deobfuscated.js:76696:
+        # `state["enteredSubMap"] = !0x0`, set unconditionally at
+        # `enterSubMap` time, gating the "g4_surface" achievement).
+        eng, state = _start(seed=13)
+        state.gen4_mode = True
+        state.current_map = 1
+        self.assertFalse(state.entered_sub_map)
+        node = _underground_node(state)
+        node.layer = 4
+        eng.step(engine.VisitNode(node_id=node.id))
+        self.assertTrue(state.entered_sub_map)
+
+    def test_entered_sub_map_flag_stays_true_after_return(self):
+        eng, state = _start(seed=14)
+        state.gen4_mode = True
+        state.current_map = 1
+        node = _underground_node(state)
+        node.layer = 4
+        eng.step(engine.VisitNode(node_id=node.id))
+        engine._visit_subexit(state, state.map.nodes["n3_0"])
+        self.assertTrue(state.entered_sub_map)  # never reset back to False
+
+    def test_entering_submap_locks_parent_layer_siblings_before_saving(self):
+        # Repair for discrepancy #4: `onNodeClick`'s own eager pre-dispatch
+        # sibling lock (bundle.deobfuscated.js:77312-77316) runs on the
+        # PARENT map before `enterSubMap` swaps `state.map` out -- so a
+        # same-layer sibling of the UNDERGROUND/DISTORTION node must already
+        # be locked in the SAVED `state.sub_map_return["map"]`, even though
+        # nothing ever calls `_advance` on the parent node itself until
+        # `_return_from_sub_map`.
+        state = engine.RunState(gen4_mode=True, current_map=1)
+        clicked = map_gen.MapNode(id="a", type=map_gen.UNDERGROUND, layer=2, col=0, accessible=True)
+        sibling = map_gen.MapNode(id="b", type=map_gen.BATTLE, layer=2, col=1, accessible=True)
+        other_layer = map_gen.MapNode(id="c", type=map_gen.BATTLE, layer=1, col=0, accessible=True)
+        parent_map = map_gen.GeneratedMap(
+            nodes={"a": clicked, "b": sibling, "c": other_layer}, edges=[], layers=[[other_layer], [clicked, sibling]], map_index=1,
+        )
+        state.map = parent_map
+        state.team = [_mon(1, level=20)]
+
+        engine._enter_sub_map(state, clicked, map_gen.UNDERGROUND)
+
+        saved_parent = state.sub_map_return["map"]
+        self.assertIs(saved_parent, parent_map)
+        self.assertFalse(saved_parent.nodes["b"].accessible)  # same-layer sibling: locked
+        self.assertFalse(saved_parent.nodes["b"].visited)  # eager lock never touches `visited`
+        self.assertTrue(saved_parent.nodes["a"].accessible)  # the clicked node itself: untouched
+        self.assertFalse(saved_parent.nodes["a"].visited)  # not yet -- only `_advance` on RETURN sets this
+        self.assertTrue(saved_parent.nodes["c"].accessible)  # different layer: untouched
+
+    def test_parent_siblings_stay_locked_while_inside_submap_and_after_a_loss(self):
+        # Since nothing calls `_advance` on the parent node until a
+        # SUCCESSFUL return, a submap-boss loss (no return at all) must
+        # still observe the sibling lock applied at entry -- it must not
+        # depend on ever reaching `_return_from_sub_map`.
+        state = engine.RunState(gen4_mode=True, current_map=1)
+        clicked = map_gen.MapNode(id="a", type=map_gen.DISTORTION, layer=2, col=0, accessible=True)
+        sibling = map_gen.MapNode(id="b", type=map_gen.BATTLE, layer=2, col=1, accessible=True)
+        parent_map = map_gen.GeneratedMap(nodes={"a": clicked, "b": sibling}, edges=[], layers=[[clicked, sibling]], map_index=1)
+        state.map = parent_map
+        state.team = [_mon(1, level=20)]
+
+        engine._enter_sub_map(state, clicked, map_gen.DISTORTION)
+        # Simulate a submap-boss loss: the player never returns, `state.map`
+        # stays on the submap, `state.sub_map_return` stays populated.
+        self.assertIsNotNone(state.sub_map_return)
+        self.assertFalse(state.sub_map_return["map"].nodes["b"].accessible)
+
 
 # ---------------------------------------------------------------------------
 # engine.py -- submap boss battles
@@ -442,16 +511,84 @@ class SubMapBossTests(unittest.TestCase):
         self.assertFalse(state.map.nodes["n3_0"].visited)
         self.assertEqual(state.phase, engine.Phase.ON_MAP)
 
-    def test_empty_boss_team_is_a_safe_advance(self):
+    def test_empty_boss_team_rerolls_via_roll_sub_map_boss_not_a_safe_advance(self):
+        # bundle.deobfuscated.js:76756-76766: `B["bossTeam"] && B["bossTeam"]
+        # ["length"] ? B["bossTeam"] : rollSubMapBoss(iS, mapIndex)["team"]`
+        # -- an empty `bossTeam` rerolls/rebuilds the encounter (consuming
+        # exactly the SAME single `rng()` draw `_roll_sub_map_boss` uses at
+        # generation time), it does NOT safe-advance past the node.
         state = engine.RunState(gen4_mode=True, current_map=1)
-        state.map = map_gen.GeneratedMap(nodes={}, edges=[], layers=[], map_index=1, is_sub_map="underground")
         node = _sub_boss_node(team=[])
-        state.map.nodes[node.id] = node
-        engine._visit_sub_map_boss(state, node)
+        state.map = _map_with_node(node, kind="underground")
+        state.sub_map_return = {"kind": "underground", "map": None, "map_index": 1, "node_id": "origin", "no_advance": False, "parent_node_level": 20}
+        state.team = [_mon(1, level=90)]
+
+        rng.seed_rng(7)
+        expected_name, expected_sprite, expected_team = map_gen._roll_sub_map_boss("underground", 1, 20)
+        captured = {}
+
+        def fake_run_battle(player_team, enemy_team, **kwargs):
+            captured["enemy"] = list(enemy_team)
+            return _distinct_win(player_team, enemy_team)
+
+        rng.seed_rng(7)
+        with patch.object(engine.battle_loop, "run_battle", side_effect=fake_run_battle):
+            engine._visit_sub_map_boss(state, node)
         self.assertTrue(node.visited)
         self.assertEqual(state.phase, engine.Phase.ON_MAP)
+        self.assertEqual([m.species_id for m in captured["enemy"]], [m["species_id"] for m in expected_team])
+        self.assertEqual([m.level for m in captured["enemy"]], [m["level"] for m in expected_team])
+        self.assertTrue(len(expected_team) > 0)  # the reroll table is never itself empty
 
-    def test_giratina_origin_wild_boss_falls_back_to_base_giratina_species(self):
+    def test_missing_boss_team_key_also_rerolls(self):
+        # Malformed/old-state recovery: `node.extra` with NO "bossTeam" key
+        # at all (not just an empty list) must take the same reroll path.
+        state = engine.RunState(gen4_mode=True, current_map=1)
+        node = map_gen.MapNode(id="n1_0", type=map_gen.BOSS, layer=1, col=0, accessible=True, extra={"subBoss": "underground"})
+        state.map = _map_with_node(node, kind="underground")
+        state.sub_map_return = {"kind": "underground", "map": None, "map_index": 1, "node_id": "origin", "no_advance": False, "parent_node_level": 20}
+        state.team = [_mon(1, level=90)]
+        captured = {}
+
+        def fake_run_battle(player_team, enemy_team, **kwargs):
+            captured["enemy"] = list(enemy_team)
+            return _distinct_win(player_team, enemy_team)
+
+        with patch.object(engine.battle_loop, "run_battle", side_effect=fake_run_battle):
+            engine._visit_sub_map_boss(state, node)
+        self.assertTrue(node.visited)
+        self.assertEqual(state.phase, engine.Phase.ON_MAP)
+        self.assertTrue(len(captured.get("enemy", [])) > 0)  # a real battle happened -- not a bare safe-advance
+
+    def test_empty_boss_team_reroll_falls_back_to_in_sub_map_kind_and_current_map(self):
+        # `iS = B["subBoss"] || state["inSubMap"]`, `mapIndex = subMapReturn
+        # ?.mapIndex ?? state.currentMap` (bundle.deobfuscated.js:76755-
+        # 76765) -- with no `subBoss` extra and no `sub_map_return` at all,
+        # the reroll must still work off `state.in_sub_map`/`state.
+        # current_map` rather than crashing or silently no-op'ing.
+        state = engine.RunState(gen4_mode=True, current_map=1, in_sub_map="underground")
+        node = map_gen.MapNode(id="n1_0", type=map_gen.BOSS, layer=1, col=0, accessible=True, extra={})
+        state.map = _map_with_node(node, kind="underground")
+        state.team = [_mon(1, level=90)]
+        captured = {}
+
+        def fake_run_battle(player_team, enemy_team, **kwargs):
+            captured["enemy"] = list(enemy_team)
+            return _distinct_win(player_team, enemy_team)
+
+        with patch.object(engine.battle_loop, "run_battle", side_effect=fake_run_battle):
+            engine._visit_sub_map_boss(state, node)
+        self.assertTrue(node.visited)
+        self.assertEqual(state.phase, engine.Phase.ON_MAP)
+        self.assertTrue(len(captured.get("enemy", [])) > 0)  # a real battle happened -- not a bare safe-advance
+
+    def test_giratina_origin_wild_boss_is_a_distinct_identity_not_base_giratina(self):
+        # `_resolve_sub_map_boss_species`'s old base-Giratina-substitution
+        # fallback is gone -- the combatant must carry Origin Forme's own
+        # (swapped) base stats and display name, even though `species_id`
+        # legitimately stays 487 (bundle.deobfuscated.js:48016:
+        # `POKEMON_FORM_SLUGS["giratina-origin"] = 0x1e7`, the SAME id the
+        # live PokeAPI-form lookup itself returns).
         state = engine.RunState(gen4_mode=True, current_map=3)
         state.team = [_mon(1, level=50)]
         node = _sub_boss_node(kind="distortion", wild=True, team=[{"species_id": "giratina-origin", "level": 40}])
@@ -464,7 +601,63 @@ class SubMapBossTests(unittest.TestCase):
 
         with patch.object(engine.battle_loop, "run_battle", side_effect=fake_run_battle):
             engine._visit_sub_map_boss(state, node)
-        self.assertEqual(captured["enemy"][0].species_id, 0x1E7)
+        origin = captured["enemy"][0]
+        base_giratina = data.get_pokedex()[0x1E7]
+        self.assertEqual(origin.species_id, 0x1E7)  # same dex id as base Giratina...
+        self.assertEqual(origin.name, "Giratina (Origin)")
+        self.assertNotEqual(origin.name, base_giratina.name)  # ...but NOT its display name
+        self.assertNotEqual(origin.base_stats, base_giratina.base_stats)  # ...or its stat spread
+        self.assertEqual(origin.base_stats.atk, base_giratina.base_stats.defense)  # atk/def swapped
+        self.assertEqual(origin.base_stats.defense, base_giratina.base_stats.atk)
+        self.assertEqual(origin.base_stats.special, base_giratina.base_stats.spdef)  # spa/spd swapped
+        self.assertEqual(origin.base_stats.spdef, base_giratina.base_stats.special)
+        self.assertEqual(origin.base_stats.hp, base_giratina.base_stats.hp)  # hp/speed unchanged
+        self.assertEqual(origin.base_stats.speed, base_giratina.base_stats.speed)
+        self.assertEqual(origin.types, base_giratina.types)  # Ghost/Dragon either way
+        self.assertEqual(origin.level, 40)
+        self.assertEqual(origin.move_tier, 2)
+        self.assertFalse(origin.is_shiny)
+
+    def test_nuzlocke_submap_boss_loss_preserves_fainted_roster_and_items(self):
+        # Repair for discrepancy #2 (bundle.deobfuscated.js:81358-81380 only
+        # runs in the WIN branch): a lost submap-boss fight must NOT cull
+        # the fainted team or release held items -- ordinary permadeath
+        # applies to `doSubMapBoss` (no `_noPermaDeath` exemption), but only
+        # once the run is confirmed to be CONTINUING (i.e. on a win).
+        state = engine.RunState(gen4_mode=True, current_map=1, nuzlocke_mode=True)
+        mon = _mon(1, level=5, held_item=battle.HeldItem(id="leftovers"))
+        state.team = [mon]
+        node = _sub_boss_node()
+        state.map = _map_with_node(node)
+        with patch.object(engine.battle_loop, "run_battle", side_effect=lambda p, e, **kw: _distinct_loss(p, e)):
+            engine._visit_sub_map_boss(state, node)
+        self.assertEqual(state.phase, engine.Phase.GAME_OVER)
+        self.assertEqual(len(state.team), 1)  # NOT culled
+        self.assertEqual(state.team[0].current_hp, 0)
+        self.assertEqual(state.items, [])  # held item NOT released to the bag
+
+    def test_nuzlocke_submap_boss_win_culls_fainted_and_releases_items(self):
+        # Win-side counterpart: a Nuzlocke win DOES cull a fainted bench
+        # member and release its held item, matching the ordinary (non-
+        # submap) Nuzlocke win path (`NuzlockePermadeathTests` in
+        # test_engine.py) -- the shared `_after_battle` lifecycle must not
+        # have regressed this while gating the cull to the win branch.
+        state = engine.RunState(gen4_mode=True, current_map=1, nuzlocke_mode=True)
+        survivor = _mon(1, level=5)
+        fainted = _mon(4, level=5, held_item=battle.HeldItem(id="leftovers"))
+        fainted.current_hp = 0
+        state.team = [survivor, fainted]
+        node = _sub_boss_node()
+        state.map = _map_with_node(node)
+
+        def fake_run_battle(player_team, enemy_team, **kwargs):
+            return _distinct_win(player_team, enemy_team, participants=[0])
+
+        with patch.object(engine.battle_loop, "run_battle", side_effect=fake_run_battle):
+            engine._visit_sub_map_boss(state, node)
+        self.assertEqual(state.phase, engine.Phase.ON_MAP)
+        self.assertEqual([m.species_id for m in state.team], [1])  # culled
+        self.assertEqual(state.items, ["leftovers"])  # released to the bag
 
 
 # ---------------------------------------------------------------------------
@@ -546,20 +739,50 @@ class RewardNodeTests(unittest.TestCase):
             self.assertEqual(mon.stat_buffs.get("special"), 1)
             self.assertNotIn("def", mon.stat_buffs)
 
-    def test_fossil_offers_cranidos_or_shieldon_catch_auto_added_room_on_team(self):
-        # team_size 1 < TEAM_CAP -- `_try_add_to_team` auto-adds directly
-        # (no SWAP_CHOICE/CATCH_CHOICE prompt needed, matching
-        # `_visit_legendary`'s own established convention for this port).
+    def test_fossil_with_room_offers_choice_not_auto_add(self):
+        # Repair for discrepancy #1 (bundle.deobfuscated.js:77065-77078 goes
+        # straight to `showSwapScreen`, never `catchPokemon`): even with
+        # team room, the reward must NOT be silently added -- it opens an
+        # explicit accept/decline SWAP_CHOICE, and the node is not yet
+        # visited/advanced while that choice is pending.
         rng.seed_rng(20)
         state = _reward_state()
         node = _reward_node("fossil")
         state.map.nodes[node.id] = node
         engine._visit_reward(state, node)
+        self.assertEqual(state.phase, engine.Phase.SWAP_CHOICE)
+        self.assertEqual(len(state.team), 1)  # NOT auto-added
+        self.assertFalse(node.visited)  # NOT advanced before resolution
+        self.assertTrue(node.accessible)
+        self.assertTrue(state.pending.extra["has_room"])
+        offered = state.pending.extra["incoming"]
+        self.assertIn(offered.species_id, (0x198, 0x19A))
+        self.assertEqual(offered.move_tier, 2)
+        self.assertEqual(len(state.pending.options), 1)  # only the incoming mon is clickable
+
+    def test_fossil_with_room_accept_adds_directly(self):
+        rng.seed_rng(20)
+        state = _reward_state()
+        node = _reward_node("fossil")
+        state.map.nodes[node.id] = node
+        engine._visit_reward(state, node)
+        offered_species = state.pending.extra["incoming"].species_id
+        engine._resolve_swap_choice(state, engine.SelectOption(index=0))
         self.assertEqual(state.phase, engine.Phase.ON_MAP)
         self.assertEqual(len(state.team), 2)
-        added = state.team[1]
-        self.assertIn(added.species_id, (0x198, 0x19A))
-        self.assertEqual(added.move_tier, 2)
+        self.assertEqual(state.team[1].species_id, offered_species)
+        self.assertTrue(node.visited)
+
+    def test_fossil_with_room_decline_leaves_team_unchanged_but_advances(self):
+        rng.seed_rng(20)
+        state = _reward_state()
+        node = _reward_node("fossil")
+        state.map.nodes[node.id] = node
+        engine._visit_reward(state, node)
+        engine._resolve_swap_choice(state, engine.SelectOption(index=None))
+        self.assertEqual(state.phase, engine.Phase.ON_MAP)
+        self.assertEqual(len(state.team), 1)  # declined -- not added
+        self.assertTrue(node.visited)  # but the node IS consumed, same as accepting
 
     def test_fossil_offers_swap_choice_when_team_full(self):
         rng.seed_rng(20)
@@ -568,20 +791,90 @@ class RewardNodeTests(unittest.TestCase):
         state.map.nodes[node.id] = node
         engine._visit_reward(state, node)
         self.assertEqual(state.phase, engine.Phase.SWAP_CHOICE)
+        self.assertFalse(state.pending.extra["has_room"])
+        self.assertEqual(len(state.pending.options), 6)
         offered = state.pending.extra["incoming"]
         self.assertIn(offered.species_id, (0x198, 0x19A))
 
-    def test_giratina_reward_uses_base_form_not_origin_and_sets_claimed(self):
+    def test_fossil_full_team_accept_releases_chosen_members_held_item(self):
+        rng.seed_rng(20)
+        team = [_mon(1, level=20 + i, held_item=battle.HeldItem(id="leftovers") if i == 2 else None) for i in range(6)]
+        state = _reward_state(team=team)
+        node = _reward_node("fossil")
+        state.map.nodes[node.id] = node
+        engine._visit_reward(state, node)
+        offered_species = state.pending.extra["incoming"].species_id
+        engine._resolve_swap_choice(state, engine.SelectOption(index=2))
+        self.assertEqual(len(state.team), 6)  # still 6, a swap not an add
+        self.assertEqual(state.team[2].species_id, offered_species)
+        self.assertEqual(state.items, ["leftovers"])  # released held item
+        self.assertTrue(node.visited)
+
+    def test_fossil_full_team_decline_leaves_team_unchanged(self):
+        rng.seed_rng(20)
+        original = [_mon(1, level=20 + i) for i in range(6)]
+        state = _reward_state(team=list(original))
+        node = _reward_node("fossil")
+        state.map.nodes[node.id] = node
+        engine._visit_reward(state, node)
+        engine._resolve_swap_choice(state, engine.SelectOption(index=None))
+        self.assertEqual([m.species_id for m in state.team], [m.species_id for m in original])
+        self.assertTrue(node.visited)
+
+    def test_fossil_reward_does_not_evolve_team_before_offering_choice(self):
+        # bundle.deobfuscated.js:77065-77078 has NO `checkAndEvolveTeam`
+        # call before `showSwapScreen` -- an eligible team member (species
+        # 1 Bulbasaur, evolves into species 2 at level 16 -- `_reward_state`
+        # 's own default team is already past that threshold) must stay
+        # UNEVOLVED through the offer, unlike a battle win's `_run_todo`/
+        # "evolve" step.
+        rng.seed_rng(20)
+        state = _reward_state(team=[_mon(1, level=20)])
+        node = _reward_node("fossil")
+        state.map.nodes[node.id] = node
+        engine._visit_reward(state, node)
+        self.assertEqual(state.team[0].species_id, 1)  # still Bulbasaur
+        self.assertEqual(state.phase, engine.Phase.SWAP_CHOICE)
+
+    def test_legendary_reward_does_not_evolve_team_before_offering_choice(self):
+        rng.seed_rng(21)
+        state = _reward_state(team=[_mon(1, level=20)])
+        node = _reward_node("giratina")
+        state.map.nodes[node.id] = node
+        engine._visit_reward(state, node)
+        self.assertEqual(state.team[0].species_id, 1)  # still Bulbasaur
+        self.assertEqual(state.phase, engine.Phase.SWAP_CHOICE)
+
+    def test_giratina_reward_offers_choice_and_sets_claimed_even_on_decline(self):
+        # `distortionLegendaryClaimed` is set at OFFER time in the source
+        # (bundle.deobfuscated.js:77082, before `showSwapScreen` even
+        # opens) -- it must stay set after a DECLINE, permanently
+        # foreclosing a second legendary roll this run (revisit/duplication
+        # protection), even though the player never actually took the mon.
         rng.seed_rng(21)
         state = _reward_state()
         node = _reward_node("giratina")
         state.map.nodes[node.id] = node
         self.assertFalse(state.distortion_legendary_claimed)
         engine._visit_reward(state, node)
-        self.assertTrue(state.distortion_legendary_claimed)
-        self.assertEqual(state.phase, engine.Phase.ON_MAP)
-        added = state.team[1]
-        self.assertEqual(added.species_id, 0x1E7)  # base Giratina, NOT "giratina-origin"
+        self.assertTrue(state.distortion_legendary_claimed)  # set at offer time
+        self.assertEqual(state.phase, engine.Phase.SWAP_CHOICE)
+        self.assertFalse(node.visited)
+        offered = state.pending.extra["incoming"]
+        self.assertEqual(offered.species_id, 0x1E7)  # base Giratina's numeric id (source-verified, not a port guess)
+        engine._resolve_swap_choice(state, engine.SelectOption(index=None))  # decline
+        self.assertEqual(len(state.team), 1)  # NOT added
+        self.assertTrue(state.distortion_legendary_claimed)  # still set after declining
+        self.assertTrue(node.visited)
+
+    def test_giratina_reward_accept_adds_base_form_species(self):
+        rng.seed_rng(21)
+        state = _reward_state()
+        node = _reward_node("giratina")
+        state.map.nodes[node.id] = node
+        engine._visit_reward(state, node)
+        engine._resolve_swap_choice(state, engine.SelectOption(index=0))
+        self.assertEqual(state.team[1].species_id, 0x1E7)  # base Giratina, NOT "giratina-origin"
 
     def test_dialga_and_palkia_reward_species(self):
         for reward_id, expected in (("dialga", 0x1E3), ("palkia", 0x1E4)):
@@ -591,8 +884,10 @@ class RewardNodeTests(unittest.TestCase):
                 node = _reward_node(reward_id)
                 state.map.nodes[node.id] = node
                 engine._visit_reward(state, node)
-                added = state.team[1]
-                self.assertEqual(added.species_id, expected)
+                self.assertEqual(state.phase, engine.Phase.SWAP_CHOICE)
+                self.assertEqual(state.pending.extra["incoming"].species_id, expected)
+                engine._resolve_swap_choice(state, engine.SelectOption(index=0))
+                self.assertEqual(state.team[1].species_id, expected)
 
     def test_transform_rerolls_every_member_and_adds_four_levels(self):
         rng.seed_rng(30)
@@ -679,6 +974,59 @@ class RewardTeamPickResolutionTests(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
+# data.get_giratina_origin_form() -- distinct source identity (discrepancy #5)
+# ---------------------------------------------------------------------------
+
+
+class GiratinaOriginFormDataTests(unittest.TestCase):
+    def test_identity_matches_source_pokemon_form_slugs_and_format_form_name(self):
+        # bundle.deobfuscated.js:48016 (`POKEMON_FORM_SLUGS["giratina-origin"]
+        # = 0x1e7`) + 48609-48619 (`formatFormName`) -- SAME numeric id as
+        # base Giratina, but a distinct "Giratina (Origin)" display name.
+        origin = data.get_giratina_origin_form()
+        self.assertEqual(origin.species_id, 0x1E7)
+        self.assertEqual(origin.name, "Giratina (Origin)")
+
+    def test_types_match_base_giratina(self):
+        origin = data.get_giratina_origin_form()
+        base = data.get_pokedex()[0x1E7]
+        self.assertEqual(origin.types, base.types)
+        self.assertEqual(set(origin.types), {"Ghost", "Dragon"})
+
+    def test_base_stats_are_swapped_relative_to_altered_forme(self):
+        origin = data.get_giratina_origin_form()
+        base = data.get_pokedex()[0x1E7]
+        self.assertEqual(origin.base_stats.hp, base.base_stats.hp)
+        self.assertEqual(origin.base_stats.speed, base.base_stats.speed)
+        self.assertEqual(origin.base_stats.atk, base.base_stats.defense)
+        self.assertEqual(origin.base_stats.defense, base.base_stats.atk)
+        self.assertEqual(origin.base_stats.special, base.base_stats.spdef)
+        self.assertEqual(origin.base_stats.spdef, base.base_stats.special)
+        # Same 680 base stat total either way.
+        base_total = base.base_stats.hp + base.base_stats.atk + base.base_stats.defense + base.base_stats.speed + base.base_stats.special + base.base_stats.spdef
+        origin_total = origin.base_stats.hp + origin.base_stats.atk + origin.base_stats.defense + origin.base_stats.speed + origin.base_stats.special + origin.base_stats.spdef
+        self.assertEqual(origin_total, base_total)
+
+    def test_result_is_cached_and_does_not_mutate_the_shared_pokedex_entry(self):
+        origin1 = data.get_giratina_origin_form()
+        origin2 = data.get_giratina_origin_form()
+        self.assertIs(origin1, origin2)
+        base = data.get_pokedex()[0x1E7]
+        self.assertNotEqual(base.name, origin1.name)
+        self.assertNotEqual(base.base_stats, origin1.base_stats)
+
+    def test_a_move_can_be_selected_for_the_origin_form(self):
+        # "moves" coverage: `battle.get_best_move` (the source's own
+        # per-species-type move generator, NOT a curated per-species
+        # moveset table) must resolve cleanly for Origin Forme's
+        # types/stats/species_id, same as it does for any other combatant.
+        origin = data.get_giratina_origin_form()
+        move = battle.get_best_move(origin.types, origin.base_stats, origin.species_id, move_tier=2)
+        self.assertIn(move.type, ("Ghost", "Dragon"))
+        self.assertGreater(move.power, 0)
+
+
+# ---------------------------------------------------------------------------
 # Full public-flow round trip (real battles, not mocked)
 # ---------------------------------------------------------------------------
 
@@ -724,6 +1072,36 @@ class SubMapFullRoundTripTests(unittest.TestCase):
         self.assertEqual(state.current_map, 1)
         self.assertTrue(parent_node.visited)
         self.assertEqual(state.phase, engine.Phase.ON_MAP)
+
+
+class TwoEngineAndMapIsolationTests(unittest.TestCase):
+    def test_entered_sub_map_and_return_state_do_not_leak_across_engine_instances(self):
+        eng_a, state_a = _start(seed=100)
+        state_a.gen4_mode = True
+        state_a.current_map = 1
+        eng_b, state_b = _start(seed=101)
+        state_b.gen4_mode = True
+        state_b.current_map = 1
+
+        node_a = _underground_node(state_a)
+        node_a.layer = 4
+        eng_a.step(engine.VisitNode(node_id=node_a.id))
+
+        self.assertTrue(state_a.entered_sub_map)
+        self.assertIsNotNone(state_a.sub_map_return)
+        self.assertFalse(state_b.entered_sub_map)  # untouched by eng_a's step
+        self.assertIsNone(state_b.sub_map_return)
+        self.assertIsNot(state_a.map, state_b.map)
+
+    def test_two_generated_sub_maps_do_not_share_node_objects(self):
+        rng.seed_rng(1)
+        result1 = map_gen.generate_sub_map("underground", 1, parent_node_level=20, team_size=3)
+        rng.seed_rng(1)
+        result2 = map_gen.generate_sub_map("underground", 1, parent_node_level=20, team_size=3)
+        self.assertIsNot(result1.map, result2.map)
+        self.assertIsNot(result1.map.nodes["n1_0"], result2.map.nodes["n1_0"])
+        result1.map.nodes["n1_0"].accessible = False
+        self.assertTrue(result2.map.nodes["n1_0"].accessible)  # independent mutation
 
 
 if __name__ == "__main__":

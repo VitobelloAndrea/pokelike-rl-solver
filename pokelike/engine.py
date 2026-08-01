@@ -352,6 +352,9 @@ class RunState:
     sub_map_return: Optional[dict] = None  # {"kind","map","map_index","node_id","no_advance"} -- `state.subMapReturn`
     distortion_worlds_entered: int = 0  # `state.distortionWorldsEntered`
     distortion_legendary_claimed: bool = False  # `state.distortionLegendaryClaimed`
+    entered_sub_map: bool = False  # `state.enteredSubMap` (bundle.deobfuscated.js:76696) -- gates the "g4_surface"
+    # achievement (bundle.deobfuscated.js:81933: awarded only if this is STILL false at run end); no achievement
+    # system exists yet in this port, so this just persists the source-equivalent flag for that future consumer.
 
     phase: Phase = Phase.CHOOSE_STARTER
     pending: Optional[PendingChoice] = None
@@ -728,6 +731,35 @@ def _try_add_to_team(state: RunState, mon: Combatant, node_id: str) -> None:
             extra={"incoming": mon, "node_id": node_id},
         )
         state.phase = Phase.SWAP_CHOICE
+
+
+def _offer_swap_screen(state: RunState, mon: Combatant, node_id: str) -> None:
+    """Port of `showSwapScreen` (bundle.deobfuscated.js:79141-79259) --
+    UNLIKE `_try_add_to_team`/`catchPokemon`'s room-based auto-add, this
+    ALWAYS presents an explicit accept/decline choice, whether or not the
+    team has room. With room, the only clickable option is the incoming
+    Pokemon itself (`iu` branch, bundle.deobfuscated.js:79171-79201: click
+    to add, no swap target needed); full, it's the ordinary per-member
+    release choice `_resolve_swap_choice` already models. Either way, the
+    cancel button ALWAYS advances the node without changing the team
+    (bundle.deobfuscated.js:79247-79258) -- declining consumes the node
+    visit exactly like accepting, matching `PendingChoice.optional=True`
+    with `action.index is None`.
+
+    Used by the submap fossil/Giratina/Dialga/Palkia rewards
+    (`doSubMapReward`'s `case "fossil"`/`case "giratina"`/... call
+    `showSwapScreen` directly, bundle.deobfuscated.js:77076/77096) -- NOT
+    `catchPokemon`'s room-based auto-add path, which only ordinary
+    catch/shiny/legendary/trade flows use."""
+    has_room = len(state.team) < TEAM_CAP
+    options = [_mon_summary(mon)] if has_room else [_mon_summary(m) for m in state.team]
+    state.pending = PendingChoice(
+        phase=Phase.SWAP_CHOICE,
+        options=options,
+        optional=True,
+        extra={"incoming": mon, "node_id": node_id, "has_room": has_room},
+    )
+    state.phase = Phase.SWAP_CHOICE
 
 
 def _shiny_chance(state: RunState) -> float:
@@ -1248,11 +1280,20 @@ def _after_battle(
         # CODEX P0.7: `grantPickupItem()` (source line 81331) runs right
         # after `applyLevelGain`, BEFORE the Nuzlocke fainted-cull below.
         _grant_pickup_item(state)
-    if state.nuzlocke_mode and not no_permadeath:
-        for mon in state.team:
-            if mon.current_hp <= 0 and mon.held_item is not None:
-                state.items.append(mon.held_item.id)
-        state.team = [m for m in state.team if m.current_hp > 0]
+        # bundle.deobfuscated.js:81358-81380: the fainted-cull/held-item
+        # release only exists inside `runBattleScreen`'s WIN branch (`if
+        # (..., BcF)` at line 81278, `BcF` = `playerWon`) -- the loss branch
+        # (`else`, line 81388) never touches `state["team"]`/`state["items"]`
+        # at all, so a Nuzlocke loss preserves the fainted roster and their
+        # held items untouched (they're only released once the run is
+        # actually continuing). Culling unconditionally (regardless of
+        # `result.player_won`) would silently strip a lost run's roster/
+        # items before `GAME_OVER` even has a chance to read them.
+        if state.nuzlocke_mode and not no_permadeath:
+            for mon in state.team:
+                if mon.current_hp <= 0 and mon.held_item is not None:
+                    state.items.append(mon.held_item.id)
+            state.team = [m for m in state.team if m.current_hp > 0]
     if not result.player_won and rope_eligible and not state.nuzlocke_mode:
         rope_index = next((i for i, item_id in enumerate(state.items) if item_id == _ESCAPE_ROPE_ITEM_ID), None)
         if rope_index is not None:
@@ -2384,33 +2425,72 @@ def _visit_trade(state: RunState, node: MapNode) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _resolve_sub_map_boss_species(species_id) -> int:
-    """`"giratina-origin"` (`data.DistortionLegendaryEntry.boss_id` for the
-    Giratina entry) is a live-PokeAPI-only alternate-forme lookup
-    (`fetchPokemonById` on a string id, bundle.deobfuscated.js:48620-48719)
-    -- out of this offline port's scope per CLAUDE.md's "Open points" item 2
-    (alternate-form mechanic), same documented deviation as every other
-    unreached alt-form code path in this port. Falls back to base Giratina's
-    own numeric dex id (487) for that one case; every other `bossId` in
-    `data.get_submap_bosses()`/`get_distortion_legendary_pool()` is already
-    a plain `int`."""
-    if species_id == "giratina-origin":
-        return 0x1E7
-    return species_id
+def _make_giratina_origin_combatant(level: int, *, gen4_mode: bool) -> Combatant:
+    """Builds the wild Distortion-World Giratina-Origin encounter from
+    `data.get_giratina_origin_form()` -- source-equivalent to
+    `createInstance(await fetchPokemonById("giratina-origin"), level, false,
+    2)` (bundle.deobfuscated.js:76767-76778), NOT `_make_wild_combatant`'s
+    ordinary `data.get_pokedex()[species_id]` lookup, which would silently
+    substitute base/Altered Giratina's stats (see that data function's own
+    docstring for exactly why the two diverge despite sharing `species_id`
+    487). Never shiny -- `doSubMapBoss` passes `isShiny=false` explicitly,
+    same as every other submap boss."""
+    mon_data = data.get_giratina_origin_form()
+    base_stats = mon_data.base_stats
+    ability = battle_abilities.get_gen3_ability(mon_data.species_id, gen4_mode)
+    max_hp = 1 if ability == "wonder_guard" else map_gen.calc_hp(base_stats.hp, level)
+    return Combatant(
+        species_id=mon_data.species_id,
+        level=level,
+        base_stats=base_stats,
+        types=mon_data.types,
+        max_hp=max_hp,
+        current_hp=max_hp,
+        name=mon_data.name,
+        move_tier=2,
+        is_shiny=False,
+    )
 
 
 def _build_sub_map_boss_team(bag_team: Sequence[dict], gen2_mode: bool, gen4_mode: bool) -> list[Combatant]:
     """Port of `doSubMapBoss`'s `fetchPokemonById`+`createInstance` loop
     (bundle.deobfuscated.js:76767-76778) -- `moveTier` hardcoded to 2
     REGARDLESS of map index (unlike ordinary wild/trainer encounters, which
-    use `map_gen.get_move_tier_for_map`), `heldItem` always `None`."""
+    use `map_gen.get_move_tier_for_map`), `heldItem` always `None`. The
+    `"giratina-origin"` string id (`data.DistortionLegendaryEntry.boss_id`
+    for the Giratina entry) is special-cased to
+    `_make_giratina_origin_combatant` rather than resolved to a plain int
+    and handed to the ordinary pokedex-lookup factory -- every other
+    `bossId` in `data.get_submap_bosses()`/`get_distortion_legendary_pool()`
+    is already a plain `int` and takes the ordinary path."""
     return [
-        _make_wild_combatant(
-            _resolve_sub_map_boss_species(m["species_id"]), m["level"],
-            move_tier=2, gen2_mode=gen2_mode, gen4_mode=gen4_mode,
-        )
+        _make_giratina_origin_combatant(m["level"], gen4_mode=gen4_mode)
+        if m["species_id"] == "giratina-origin"
+        else _make_wild_combatant(m["species_id"], m["level"], move_tier=2, gen2_mode=gen2_mode, gen4_mode=gen4_mode)
         for m in bag_team
     ]
+
+
+def _lock_same_layer_siblings(map_obj: map_gen.GeneratedMap, node_id: str) -> None:
+    """Port of `onNodeClick`'s eager pre-dispatch sibling lock
+    (bundle.deobfuscated.js:77312-77316) -- runs before EVERY node's own
+    dispatch, locking already-accessible same-layer siblings (NOT the
+    clicked node itself, and NOT `visited`/edge-reveal -- that's
+    `advanceFromNode`/`_advance`'s separate job once the node resolves).
+    Ordinary nodes never observe this eager lock separately from
+    `_advance`'s own (idempotent) sibling-lock loop once they resolve, which
+    is why `_advance` doesn't bother repeating it -- but `_enter_sub_map`
+    swaps `state.map` out to the generated submap without EVER calling
+    `_advance` on the parent UNDERGROUND/DISTORTION node (only
+    `_return_from_sub_map` does, on the way back out), so this eager lock is
+    the ONLY place parent siblings get locked before the parent map is
+    captured into `state.sub_map_return` -- without it, they'd stay
+    accessible for as long as the player remains inside the submap
+    (including across a loss that never returns)."""
+    node = map_obj.nodes[node_id]
+    for other in map_obj.nodes.values():
+        if other.layer == node.layer and other.id != node_id and other.accessible:
+            other.accessible = False
 
 
 def _enter_sub_map(state: RunState, node: MapNode, kind: str) -> None:
@@ -2427,7 +2507,15 @@ def _enter_sub_map(state: RunState, node: MapNode, kind: str) -> None:
     `gen4_mode=True`, `map_gen.generate_map`'s own node-placement gate) is
     computed once here and threaded through -- that branch is deterministic
     (zero `rng()` draws), unlike the gen1 branch, so this call site never
-    perturbs the RNG stream before `generate_sub_map`'s own draws begin."""
+    perturbs the RNG stream before `generate_sub_map`'s own draws begin. It's
+    ALSO saved onto `state.sub_map_return` -- `subMapBaseLevel` (bundle.
+    deobfuscated.js:76416-76452) always recomputes this same value live off
+    `state.subMapReturn` for as long as the player stays inside the submap
+    (used again by `doSubMapBoss`'s empty-`bossTeam` reroll path, see
+    `_visit_sub_map_boss`), so caching it here is value-equivalent, not an
+    approximation -- the source recomputation is itself RNG-free and
+    depends only on the (unchanged, already-saved) parent node."""
+    _lock_same_layer_siblings(state.map, node.id)
     parent_level = map_gen.get_level_for_node(
         node.layer, state.current_map, state.gen2_mode, state.gen3_mode, state.gen4_mode
     )
@@ -2447,8 +2535,10 @@ def _enter_sub_map(state: RunState, node: MapNode, kind: str) -> None:
         "map_index": state.current_map,
         "node_id": node.id,
         "no_advance": False,
+        "parent_node_level": parent_level,
     }
     state.in_sub_map = kind
+    state.entered_sub_map = True
     state.map = result.map
     state.current_node_id = "n0_0"
     state.phase = Phase.ON_MAP
@@ -2515,8 +2605,31 @@ def _visit_sub_map_boss(state: RunState, node: MapNode) -> None:
     (the 7th positional arg `0x2`), participants-only (NOT `all_team_xp`,
     unlike Silver/Admin's whole-team-xp convention), and ordinary Nuzlocke
     permadeath applies (no `no_permadeath` flag set in the source here,
-    unlike Silver/Admin's `_noPermaDeath` exemptions)."""
-    bag_team = node.extra.get("bossTeam") or []
+    unlike Silver/Admin's `_noPermaDeath` exemptions).
+
+    An absent/empty `node.extra["bossTeam"]` does NOT safe-advance --
+    source rerolls/rebuilds the encounter via `rollSubMapBoss` (bundle.
+    deobfuscated.js:76756-76766: `B["bossTeam"] && B["bossTeam"]["length"]
+    ? B["bossTeam"] : rollSubMapBoss(iS, mapIndex)["team"]`), consuming
+    exactly the same one `rng()` draw `_roll_sub_map_boss` uses at
+    generation time. The reroll result is NOT written back onto
+    `node.extra` (the source's `it` is a local, never assigned to
+    `B["bossTeam"]`) -- a later re-visit (a non-Nuzlocke loss that leaves
+    the node accessible again) would reroll AGAIN with fresh RNG draws, so
+    this port doesn't persist it either. The genuinely-defensive
+    `if not enemy` safe-advance below is `doSubMapBoss`'s OWN separate
+    guard for when even the (guaranteed non-empty, table-backed) rerolled
+    team fails to resolve to any combatant (bundle.deobfuscated.js:76779-
+    76785, the `fetchPokemonById` failure path) -- unreachable via this
+    port's offline data, kept for citation fidelity same as elsewhere in
+    this module."""
+    bag_team = node.extra.get("bossTeam")
+    if not bag_team:
+        sub_map_return = state.sub_map_return or {}
+        kind = node.extra.get("subBoss") or state.in_sub_map
+        map_index = sub_map_return.get("map_index", state.current_map)
+        parent_node_level = sub_map_return.get("parent_node_level")
+        _, _, bag_team = map_gen._roll_sub_map_boss(kind, map_index, parent_node_level)
     enemy = _build_sub_map_boss_team(bag_team, state.gen2_mode, state.gen4_mode)
     if not enemy:
         _advance(state, node.id)
@@ -2715,20 +2828,29 @@ def _visit_reward(state: RunState, node: MapNode) -> None:
         state.phase = Phase.REWARD_TEAM_PICK
         return
     if reward.id == "fossil":
+        # bundle.deobfuscated.js:77065-77078: straight into `showSwapScreen`
+        # -- NO `checkAndEvolveTeam` pre-choice scan (unlike a battle win's
+        # `_run_todo`/`evolve` step) and no room-based auto-add. `_offer_
+        # swap_screen` (not `_try_add_to_team`) is the exact match for that.
         species = _FOSSIL_SPECIES_IDS[int(rng.rng() * len(_FOSSIL_SPECIES_IDS))]
         level = min(map_gen.sub_map_level_cap(), level_basis + 4)
         resolved = map_gen.resolve_evo_for_level(species, level)
         mon = _make_wild_combatant(resolved, level, move_tier=2, gen2_mode=state.gen2_mode, gen4_mode=state.gen4_mode)
-        state._todo = [{"kind": "evolve", "idx": 0}, {"kind": "offer_catch", "mon": mon, "node_id": node.id}]
-        _run_todo(state)
+        _offer_swap_screen(state, mon, node.id)
         return
     if reward.id in _DISTORTION_LEGEND_REWARD_SPECIES:
+        # bundle.deobfuscated.js:77079-77097: `distortionLegendaryClaimed`
+        # is set at OFFER time (before `showSwapScreen`, i.e. regardless of
+        # the player's eventual accept/decline) -- `distortionLegendary()`
+        # (bundle.deobfuscated.js:76399-76409) reads this same flag to gate
+        # whether a FUTURE Distortion visit can roll another legendary at
+        # all, so a decline still permanently forecloses a second offer this
+        # run, same as an accept would.
         state.distortion_legendary_claimed = True
         species = _DISTORTION_LEGEND_REWARD_SPECIES[reward.id]
         level = min(map_gen.sub_map_level_cap(), max(1, level_basis + 1))
         mon = _make_wild_combatant(species, level, move_tier=2, gen2_mode=state.gen2_mode, gen4_mode=state.gen4_mode)
-        state._todo = [{"kind": "evolve", "idx": 0}, {"kind": "offer_catch", "mon": mon, "node_id": node.id}]
-        _run_todo(state)
+        _offer_swap_screen(state, mon, node.id)
         return
     # "skip" and any unrecognized id -- bundle.deobfuscated.js:77099-77106.
     _finish_reward(state, node.id)
@@ -2783,16 +2905,26 @@ def _resolve_catch_choice(state: RunState, action: SelectOption) -> None:
 
 
 def _resolve_swap_choice(state: RunState, action: SelectOption) -> None:
+    """`extra["has_room"]` (set only by `_offer_swap_screen`, never by
+    `_try_add_to_team`'s own team-full-only SWAP_CHOICE) selects between
+    `showSwapScreen`'s two accept handlers (bundle.deobfuscated.js:79171-
+    79201 with room / 79202-79246 full) -- clicking the single incoming-mon
+    option APPENDS rather than releasing a team member."""
     extra = state.pending.extra
     node_id = extra["node_id"]
     if action.index is not None:
-        released = state.team[action.index]
-        if released.held_item is not None:
-            state.items.append(released.held_item.id)
         incoming = extra["incoming"]
-        state.team[action.index] = incoming
-        state.max_team_size = max(state.max_team_size, len(state.team))
-        _log(state, "catch", species_id=incoming.species_id, name=incoming.name, is_shiny=incoming.is_shiny, released=released.name)
+        if extra.get("has_room"):
+            state.team.append(incoming)
+            state.max_team_size = max(state.max_team_size, len(state.team))
+            _log(state, "catch", species_id=incoming.species_id, name=incoming.name, is_shiny=incoming.is_shiny)
+        else:
+            released = state.team[action.index]
+            if released.held_item is not None:
+                state.items.append(released.held_item.id)
+            state.team[action.index] = incoming
+            state.max_team_size = max(state.max_team_size, len(state.team))
+            _log(state, "catch", species_id=incoming.species_id, name=incoming.name, is_shiny=incoming.is_shiny, released=released.name)
     state.pending = None
     _advance(state, node_id)
     state.phase = Phase.ON_MAP

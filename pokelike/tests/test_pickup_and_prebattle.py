@@ -452,7 +452,13 @@ class NoLeakThroughRealBattleTests(unittest.TestCase):
         self.assertEqual(state.team[0].current_hp, 11)
         self.assertEqual([(m.species_id, m.current_hp) for m in state.team[1:]], original_tail)
 
-    def test_short_loss_result_and_nuzlocke_cull_do_not_reindex_tail(self):
+    def test_short_loss_result_does_not_cull_or_reindex_tail(self):
+        # bundle.deobfuscated.js:81358-81380: the Nuzlocke fainted-cull only
+        # runs in `runBattleScreen`'s WIN branch (`if (..., BcF)` at line
+        # 81278) -- the loss branch (`else`, line 81388) never touches
+        # `state["team"]`/`state["items"]` at all, so a Nuzlocke LOSS leaves
+        # the whole roster (including the fainted member, at 0 HP) exactly
+        # as `_run_battle`'s own copy-back left it.
         team = [_mon(1, level=50), _mon(4, level=50), _mon(7, level=50)]
         state = _state(
             team=team,
@@ -466,7 +472,8 @@ class NoLeakThroughRealBattleTests(unittest.TestCase):
         self.assertEqual(state.team[1].current_hp, state.team[1].max_hp)
         self.assertEqual(state.team[2].current_hp, state.team[2].max_hp)
         engine._after_battle(state, result, level_gain=2)
-        self.assertEqual([m.species_id for m in state.team], [4, 7])
+        self.assertEqual([m.species_id for m in state.team], [1, 4, 7])  # loss: NOT culled
+        self.assertEqual(state.team[0].current_hp, 0)  # fainted member preserved, not removed
         self.assertTrue(state.game_over)
 
     def test_truncated_participants_limit_normal_xp_but_all_team_xp_uses_persistent_roster(self):
