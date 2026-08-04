@@ -1,0 +1,137 @@
+{
+  "schema_version": 1,
+  "scenario": "story_gen3_mirror_coat",
+  "description": "Story/Gen3. The matrix's MIRROR COAT observation. A Wynaut's `mirror_coat` ability fires its stored-damage counter-hit, which the source pushes onto its detailed log as a real `type: \"attack\"` entry (bundle.deobfuscated.js:58108-58142) -- an event of the same ordered attack family `event.battle.turns` already compares. The port applied the damage but logged nothing, so nine rounds showed `event.battle.turns[i].events[len]` js=2 / py=1 with rounds, RNG draws, winner and every final HP agreeing exactly. This is M4 repair 7, and this route is where the cross-runtime search gate first rejected it: nine admin candidates were turned away on this path before the cause was traced.",
+  "mode": {
+    "nuzlocke": false,
+    "gen2": false,
+    "gen3": true,
+    "gen4": false
+  },
+  "seed": 200,
+  "starter_index": 0,
+  "actions": [
+    {
+      "kind": "visit",
+      "node": "n1_0"
+    },
+    {
+      "kind": "choice",
+      "index": null
+    },
+    {
+      "kind": "visit",
+      "node": "n2_0"
+    },
+    {
+      "kind": "visit",
+      "node": "n3_1"
+    },
+    {
+      "kind": "choice",
+      "index": 2
+    },
+    {
+      "kind": "visit",
+      "node": "n4_0"
+    },
+    {
+      "kind": "choice",
+      "index": null
+    },
+    {
+      "kind": "visit",
+      "node": "n5_0"
+    },
+    {
+      "kind": "choice",
+      "index": null
+    },
+    {
+      "kind": "visit",
+      "node": "n6_0"
+    },
+    {
+      "kind": "visit",
+      "node": "n7_0"
+    },
+    {
+      "kind": "visit",
+      "node": "n8_0"
+    },
+    {
+      "kind": "advance_map"
+    },
+    {
+      "kind": "visit",
+      "node": "n1_0"
+    },
+    {
+      "kind": "choice",
+      "index": 0
+    },
+    {
+      "kind": "visit",
+      "node": "n2_0"
+    },
+    {
+      "kind": "choice",
+      "index": null
+    },
+    {
+      "kind": "visit",
+      "node": "n3_1"
+    },
+    {
+      "kind": "choice",
+      "index": null
+    },
+    {
+      "kind": "visit",
+      "node": "n4_1"
+    },
+    {
+      "kind": "choice",
+      "index": null
+    },
+    {
+      "kind": "visit",
+      "node": "n5_1"
+    },
+    {
+      "kind": "visit",
+      "node": "n6_1"
+    },
+    {
+      "kind": "visit",
+      "node": "n7_0"
+    },
+    {
+      "kind": "visit",
+      "node": "n8_0"
+    },
+    {
+      "kind": "advance_map"
+    },
+    {
+      "kind": "visit",
+      "node": "n1_0"
+    },
+    {
+      "kind": "choice",
+      "index": 0
+    },
+    {
+      "kind": "visit",
+      "node": "n2_0"
+    },
+    {
+      "kind": "visit",
+      "node": "n3_0"
+    },
+    {
+      "kind": "visit",
+      "node": "n4_0"
+    }
+  ]
+}

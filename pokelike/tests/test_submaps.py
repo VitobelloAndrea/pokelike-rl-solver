@@ -354,14 +354,30 @@ class SubMapEntryExitTests(unittest.TestCase):
         engine._visit_subexit(state, state.map.nodes["n3_0"])
         self.assertTrue(state.entered_sub_map)  # never reset back to False
 
+    @staticmethod
+    def _engine_on(state):
+        """Drive the real public action, not the private handler.
+
+        `onNodeClick`'s eager sibling lock (bundle.deobfuscated.js:
+        77312-77316) belongs to the node-CLICK path, not to `enterSubMap`
+        (76687-76706), which has no lock of its own. Since M4 repair 2 the
+        port matches that: the single lock site is `_visit_node`. These tests
+        therefore have to go through `Engine.step(VisitNode(...))` -- calling
+        `_enter_sub_map` directly would skip the very statement under test
+        and prove nothing about what a player actually reaches.
+        """
+        eng = engine.Engine()
+        state.phase = engine.Phase.ON_MAP
+        eng.state = state
+        return eng
+
     def test_entering_submap_locks_parent_layer_siblings_before_saving(self):
-        # Repair for discrepancy #4: `onNodeClick`'s own eager pre-dispatch
-        # sibling lock (bundle.deobfuscated.js:77312-77316) runs on the
-        # PARENT map before `enterSubMap` swaps `state.map` out -- so a
-        # same-layer sibling of the UNDERGROUND/DISTORTION node must already
-        # be locked in the SAVED `state.sub_map_return["map"]`, even though
-        # nothing ever calls `_advance` on the parent node itself until
-        # `_return_from_sub_map`.
+        # `onNodeClick`'s own eager pre-dispatch sibling lock
+        # (bundle.deobfuscated.js:77312-77316) runs on the PARENT map before
+        # `enterSubMap` swaps `state.map` out -- so a same-layer sibling of
+        # the UNDERGROUND/DISTORTION node must already be locked in the SAVED
+        # `state.sub_map_return["map"]`, even though nothing ever calls
+        # `_advance` on the parent node itself until `_return_from_sub_map`.
         state = engine.RunState(gen4_mode=True, current_map=1)
         clicked = map_gen.MapNode(id="a", type=map_gen.UNDERGROUND, layer=2, col=0, accessible=True)
         sibling = map_gen.MapNode(id="b", type=map_gen.BATTLE, layer=2, col=1, accessible=True)
@@ -372,7 +388,7 @@ class SubMapEntryExitTests(unittest.TestCase):
         state.map = parent_map
         state.team = [_mon(1, level=20)]
 
-        engine._enter_sub_map(state, clicked, map_gen.UNDERGROUND)
+        self._engine_on(state).step(engine.VisitNode(node_id="a"))
 
         saved_parent = state.sub_map_return["map"]
         self.assertIs(saved_parent, parent_map)
@@ -394,7 +410,7 @@ class SubMapEntryExitTests(unittest.TestCase):
         state.map = parent_map
         state.team = [_mon(1, level=20)]
 
-        engine._enter_sub_map(state, clicked, map_gen.DISTORTION)
+        self._engine_on(state).step(engine.VisitNode(node_id="a"))
         # Simulate a submap-boss loss: the player never returns, `state.map`
         # stays on the submap, `state.sub_map_return` stays populated.
         self.assertIsNotNone(state.sub_map_return)

@@ -90,6 +90,95 @@ class ResetAndStarterTests(unittest.TestCase):
         self.assertEqual(state.current_node_id, "n0_0")
         self.assertIsNotNone(state.map)
 
+    def test_starter_offer_materialises_three_real_instances_and_draws_three(self):
+        # `showStarterSelect`'s Story branch (bundle.deobfuscated.js:76175-76194)
+        # runs `rollShiny()` then `createInstance(entry, 5, shiny, 0)` once per
+        # offered starter, BEFORE the click. Three offers, three draws.
+        eng = engine.Engine()
+        eng.reset(seed=1)
+        drawn = eng._rng_stream  # the run's own stream
+        instances = eng.state.pending.extra["instances"]
+        self.assertEqual(len(instances), 3)
+        self.assertEqual(
+            [m.species_id for m in instances],
+            list(data.get_starter_ids(1)),
+            "offers must be in the source's own STARTER_IDS order",
+        )
+        for mon in instances:
+            self.assertEqual(mon.level, 5)          # `B2l = 0x5` at 75648
+            self.assertEqual(mon.move_tier, 0)      # `createInstance(..., 0x0)`
+            self.assertEqual(mon.current_hp, mon.max_hp)
+        self.assertEqual(
+            [o["species_id"] for o in eng.state.pending.options],
+            [m.species_id for m in instances],
+            "the public option list must stay in the offered order",
+        )
+        self.assertIsNotNone(drawn)
+
+    def test_starter_offer_consumes_exactly_three_draws(self):
+        from pokelike import rng as rng_mod
+
+        eng = engine.Engine()
+        eng.reset(seed=1)
+        previous = rng_mod.set_active_stream(eng._rng_stream)
+        try:
+            after_offer = rng_mod.get_rng_seed()
+        finally:
+            rng_mod.set_active_stream(previous)
+        # Reproduce the same three draws independently, on a separate stream,
+        # straight from the raw seed: exactly three and no more.
+        previous = rng_mod.set_active_stream(engine.Engine()._rng_stream)
+        try:
+            rng_mod.seed_rng(1)
+            for _ in range(3):
+                rng_mod.rng()
+            expected = rng_mod.get_rng_seed()
+        finally:
+            rng_mod.set_active_stream(previous)
+        self.assertEqual(after_offer, expected, "the offer must consume exactly three draws")
+
+    def test_selected_starter_is_the_offered_object_not_a_rebuild(self):
+        # `selectStarter(BIv)` installs the very instance the clicked card
+        # closed over: `state["team"] = [B]` at 76206. Identity, not equality.
+        eng = engine.Engine()
+        eng.reset(seed=1)
+        offered = list(eng.state.pending.extra["instances"])
+        chosen = offered[1]
+        state = eng.step(engine.ChooseStarter(species_id=chosen.species_id))
+        self.assertIs(state.team[0], chosen)
+
+    def test_selected_starter_keeps_its_offer_time_shininess(self):
+        # The port used to force `is_shiny = False` on the chosen starter,
+        # making a shiny starter unreachable (frozen blocker 1). The offered
+        # instance's own roll is what counts.
+        eng = engine.Engine()
+        eng.reset(seed=1)
+        offered = eng.state.pending.extra["instances"]
+        offered[2].is_shiny = True
+        state = eng.step(engine.ChooseStarter(species_id=offered[2].species_id))
+        self.assertTrue(state.team[0].is_shiny)
+
+    def test_unselected_starter_offers_do_not_reach_the_team(self):
+        eng = engine.Engine()
+        eng.reset(seed=1)
+        offered = list(eng.state.pending.extra["instances"])
+        state = eng.step(engine.ChooseStarter(species_id=offered[0].species_id))
+        self.assertEqual(len(state.team), 1)
+        self.assertIs(state.team[0], offered[0])
+        for other in offered[1:]:
+            self.assertNotIn(other, state.team)
+
+    def test_two_engines_offer_independently_from_the_same_seed(self):
+        a, b = engine.Engine(), engine.Engine()
+        a.reset(seed=7)
+        b.reset(seed=7)
+        self.assertEqual(
+            [(m.species_id, m.is_shiny, m.max_hp) for m in a.state.pending.extra["instances"]],
+            [(m.species_id, m.is_shiny, m.max_hp) for m in b.state.pending.extra["instances"]],
+        )
+        self.assertIsNot(a.state.pending.extra["instances"][0],
+                         b.state.pending.extra["instances"][0])
+
     def test_choose_invalid_starter_raises(self):
         eng = engine.Engine()
         eng.reset(seed=1)
@@ -408,10 +497,14 @@ class EscapeRopeRecoveryTests(unittest.TestCase):
             state = eng.step(engine.VisitNode(node_id=node.id))
         self.assertEqual(state.phase, engine.Phase.ESCAPE_ROPE_CHOICE)
         state = eng.step(engine.SelectOption(index=0))
-        # `offer_catch` ran (not GAME_OVER) -- team had room, so `_try_add_to_team`
-        # auto-adds the legendary and returns straight to ON_MAP, matching an
-        # actual win's same continuation (`test_legendary_node_uses_preassigned_
-        # species_and_autocatches` in TradeAndLegendaryAndShinyTests).
+        # The rope continuation is the SAME callback a win would have run, and
+        # since M4 repair 6 that callback is `offer_swap` -- `showSwapScreen`
+        # unconditionally (80457), not `catchPokemon`'s room-based auto-add. So
+        # the legendary is pending, not yet on the team.
+        self.assertEqual(state.phase, engine.Phase.SWAP_CHOICE)
+        self.assertEqual(len(state.team), 1)
+        self.assertEqual(state.pending.extra["incoming"].species_id, 144)
+        state = eng.step(engine.SelectOption(index=0))
         self.assertEqual(state.phase, engine.Phase.ON_MAP)
         self.assertEqual(len(state.team), 2)
         self.assertEqual(state.team[1].species_id, 144)
@@ -973,10 +1066,20 @@ class MoveTutorAndItemTests(unittest.TestCase):
         self.assertEqual(state.team[0].move_tier, 2)
         self.assertTrue(state.used_tm)
 
-        # Visiting again with everyone already at tier 2 should skip straight through.
+        # Visiting again with the WHOLE team at tier 2: doMoveTutorNode has no
+        # early-bail (bundle.deobfuscated.js:80464-80563) -- the modal still
+        # opens, with zero [data-tutor] buttons and only the skip control, so
+        # this raises MOVE_TUTOR_CHOICE with an empty (decline-only) options
+        # list rather than skipping straight to ON_MAP.
+        for mon in state.team:
+            mon.move_tier = 2
         node2 = next(n for n in state.map.nodes.values() if n.accessible and n.id != node.id)
         node2.type = map_gen.MOVE_TUTOR
         state = eng.step(engine.VisitNode(node_id=node2.id))
+        self.assertEqual(state.phase, engine.Phase.MOVE_TUTOR_CHOICE)
+        self.assertEqual(state.pending.options, [])
+        self.assertTrue(state.pending.optional)
+        state = eng.step(engine.SelectOption(index=None))
         self.assertEqual(state.phase, engine.Phase.ON_MAP)
 
     def test_item_choice_usable_goes_straight_to_bag(self):
@@ -1006,18 +1109,48 @@ class MoveTutorAndItemTests(unittest.TestCase):
         item_id = state.pending.options[passive_idx]["id"]
         state = eng.step(engine.SelectOption(index=passive_idx))
         self.assertEqual(state.phase, engine.Phase.ITEM_EQUIP_CHOICE)
-        with self.assertRaises(ValueError):
-            eng.step(engine.SelectOption(index=None))  # equip target is not optional
         state = eng.step(engine.SelectOption(index=0))
         self.assertEqual(state.team[0].held_item.id, item_id)
         self.assertEqual(state.phase, engine.Phase.ON_MAP)
+
+    def test_item_equip_decline_keeps_item_in_bag(self):
+        """`openItemEquipModal`'s `#btn-equip-to-bag` (79552-79562), the
+        source's real decline exit for the reachable `fromBagIdx=-1,
+        fromPokemonIdx=-1` configuration `doItemNode` always uses
+        (79423-79429): banks the item instead of losing it. Found while
+        tracing the exact source for the M4 route-oracle item-equip bridge --
+        a prior version of this resolver had no decline branch at all and
+        `PendingChoice.optional` was `False`, which was a real gap, not a
+        simplification."""
+        eng, state = _start(seed=12)
+        node = next(n for n in state.map.nodes.values() if n.accessible)
+        node.type = map_gen.ITEM
+        state = eng.step(engine.VisitNode(node_id=node.id))
+        passive_idx = next(i for i, o in enumerate(state.pending.options) if not o["usable"])
+        item_id = state.pending.options[passive_idx]["id"]
+        state = eng.step(engine.SelectOption(index=passive_idx))
+        self.assertEqual(state.phase, engine.Phase.ITEM_EQUIP_CHOICE)
+        self.assertTrue(state.pending.optional)
+        state = eng.step(engine.SelectOption(index=None))
+        self.assertEqual(state.phase, engine.Phase.ON_MAP)
+        self.assertIn(item_id, state.items)
+        self.assertIsNone(state.team[0].held_item)
 
     def test_mega_question_resolution_reuses_item_handler(self):
         eng, state = _start(seed=12)
         node = next(n for n in state.map.nodes.values() if n.accessible)
         node.type = map_gen.QUESTION
-        state.question_cache[node.id] = "mega"
+        # The cache key is map-qualified (`_resolve_question`, CODEX.md issue
+        # 9). Seeding the bare node id never hit it, so this test used to fall
+        # through to a live `rng()` roll and merely assert that whatever came
+        # back was one of two phases -- it was passing on the roll, not on the
+        # "mega" dispatch it names. Seed the real key so the pinned type is
+        # actually used and no RNG is consumed.
+        state.question_cache[f"m{state.current_map}:{node.id}"] = "mega"
         state = eng.step(engine.VisitNode(node_id=node.id))
+        # `case "mega": doItemNode(B)` (77385-77386) -- the item handler
+        # verbatim, so either an item offer or, with nothing offerable, a
+        # straight advance.
         self.assertIn(state.phase, (engine.Phase.ITEM_CHOICE, engine.Phase.ON_MAP))
 
 
@@ -1120,17 +1253,116 @@ class TradeAndLegendaryAndShinyTests(unittest.TestCase):
         self.assertEqual(state.phase, engine.Phase.ON_MAP)
         self.assertTrue(state.got_via_question)
 
-    def test_legendary_node_uses_preassigned_species_and_autocatches(self):
+    def test_legendary_node_uses_preassigned_species_and_offers_swap_with_room(self):
+        # M4 repair 6: `doLegendaryNode`'s win callback ends in a bare
+        # `showSwapScreen(B2P, B)` (bundle.deobfuscated.js:80457) with NO
+        # `team.length < 6` test, so with room the legendary stays PENDING
+        # until the player clicks its card. It does NOT auto-add the way
+        # `catchPokemon` (79036) and `doShinyNode` (80962) do.
         eng, state = _start(seed=14)
         node = next(n for n in state.map.nodes.values() if n.accessible)
         node.type = map_gen.LEGENDARY
         node.extra["legendarySpeciesId"] = 144  # Articuno
         with patch.object(engine.battle_loop, "run_battle", return_value=_win(state.team)):
             state = eng.step(engine.VisitNode(node_id=node.id))
+        self.assertEqual(state.phase, engine.Phase.SWAP_CHOICE)
+        self.assertEqual(len(state.team), 1)  # still pending, nothing added yet
+        self.assertTrue(state.pending.optional)
+        self.assertEqual(len(state.pending.options), 1)  # the incoming card only
+        self.assertTrue(state.pending.extra["has_room"])
+        self.assertEqual(state.pending.extra["incoming"].species_id, 144)
+        state = eng.step(engine.SelectOption(index=0))
         self.assertEqual(state.phase, engine.Phase.ON_MAP)
         self.assertEqual(len(state.team), 2)
         self.assertEqual(state.team[1].species_id, 144)
         self.assertEqual(state.team[1].current_hp, state.team[1].max_hp)  # caught at full HP, not the fainted battle instance
+        # All three `showSwapScreen` exits clear `currentNode` (79186/79231/79256).
+        self.assertIsNone(state.current_node_id)
+
+    def test_legendary_node_room_decline_advances_without_changing_team(self):
+        # `#btn-cancel-swap` (79249-79258): advance the node, change nothing.
+        eng, state = _start(seed=14)
+        node = next(n for n in state.map.nodes.values() if n.accessible)
+        node.type = map_gen.LEGENDARY
+        node.extra["legendarySpeciesId"] = 144
+        before = [m.species_id for m in state.team]
+        with patch.object(engine.battle_loop, "run_battle", return_value=_win(state.team)):
+            state = eng.step(engine.VisitNode(node_id=node.id))
+        self.assertEqual(state.phase, engine.Phase.SWAP_CHOICE)
+        state = eng.step(engine.SelectOption(index=None))
+        self.assertEqual(state.phase, engine.Phase.ON_MAP)
+        self.assertEqual([m.species_id for m in state.team], before)
+        self.assertTrue(state.map.nodes[node.id].visited)
+        self.assertIsNone(state.current_node_id)
+
+    def test_legendary_node_full_team_offers_ordered_release_choices(self):
+        eng, state = _start(seed=14)
+        node = next(n for n in state.map.nodes.values() if n.accessible)
+        node.type = map_gen.LEGENDARY
+        node.extra["legendarySpeciesId"] = 144
+        # Species chosen so none of them evolves at or below level 10 -- the
+        # post-battle `evolve` todo step runs over the whole team before the
+        # swap offer, and an evolving member would change the ids under test
+        # for a reason unrelated to the swap lifecycle.
+        roster = (1, 4, 7, 16, 19, 23)
+        state.team = [engine._make_wild_combatant(sid, 10) for sid in roster]
+        with patch.object(engine.battle_loop, "run_battle", return_value=_win(state.team)):
+            state = eng.step(engine.VisitNode(node_id=node.id))
+        self.assertEqual(state.phase, engine.Phase.SWAP_CHOICE)
+        self.assertFalse(state.pending.extra["has_room"])
+        # One card per team member, in `state.team` order (79202-79246).
+        self.assertEqual([o["species_id"] for o in state.pending.options], list(roster))
+        state = eng.step(engine.SelectOption(index=2))
+        self.assertEqual(state.phase, engine.Phase.ON_MAP)
+        # `state.team.splice(B2j, 1, incoming)` at 79230: released in place.
+        self.assertEqual([m.species_id for m in state.team], [1, 4, 144, 16, 19, 23])
+        self.assertIsNone(state.current_node_id)
+
+    def test_legendary_node_full_team_decline_keeps_team(self):
+        eng, state = _start(seed=14)
+        node = next(n for n in state.map.nodes.values() if n.accessible)
+        node.type = map_gen.LEGENDARY
+        node.extra["legendarySpeciesId"] = 144
+        roster = (1, 4, 7, 16, 19, 23)  # see the replace test: none evolves by level 10
+        state.team = [engine._make_wild_combatant(sid, 10) for sid in roster]
+        with patch.object(engine.battle_loop, "run_battle", return_value=_win(state.team)):
+            state = eng.step(engine.VisitNode(node_id=node.id))
+        state = eng.step(engine.SelectOption(index=None))
+        self.assertEqual(state.phase, engine.Phase.ON_MAP)
+        self.assertEqual([m.species_id for m in state.team], list(roster))
+        self.assertIsNone(state.current_node_id)
+
+    def test_ordinary_catch_still_auto_adds_with_room(self):
+        # Regression control for repair 6: `catchPokemon`'s room branch
+        # (79036-79044) really does auto-add, and unlike `showSwapScreen` it
+        # leaves `currentNode` SET. Legendary's lifecycle must not be copied
+        # onto it.
+        eng, state = _start(seed=14)
+        node = next(n for n in state.map.nodes.values() if n.accessible)
+        node.type = map_gen.CATCH
+        state = eng.step(engine.VisitNode(node_id=node.id))
+        self.assertEqual(state.phase, engine.Phase.CATCH_CHOICE)
+        state = eng.step(engine.SelectOption(index=0))
+        self.assertEqual(state.phase, engine.Phase.ON_MAP)
+        self.assertEqual(len(state.team), 2)
+        self.assertEqual(state.current_node_id, node.id)
+
+    def test_shiny_node_still_auto_adds_with_room(self):
+        # Regression control: `doShinyNode` inlines the same
+        # `team.length < 6 ? push : showSwapScreen` test (80962-80970).
+        eng, state = _start(seed=15)
+        node = next(n for n in state.map.nodes.values() if n.accessible)
+        # `"shiny"` is a resolved QUESTION type, not a generated node type --
+        # `onNodeClick`'s `case "shiny": doShinyNode(B)` (77383-77384), which
+        # `_NODE_HANDLERS` mirrors with the same bare string key.
+        node.type = "shiny"
+        state = eng.step(engine.VisitNode(node_id=node.id))
+        self.assertEqual(state.phase, engine.Phase.CATCH_CHOICE)
+        state = eng.step(engine.SelectOption(index=0))
+        self.assertEqual(state.phase, engine.Phase.ON_MAP)
+        self.assertEqual(len(state.team), 2)
+        self.assertTrue(state.team[1].is_shiny)
+        self.assertEqual(state.current_node_id, node.id)
 
     def test_legendary_node_without_species_is_a_safe_noop(self):
         eng, state = _start(seed=14)
@@ -1149,7 +1381,15 @@ class TradeAndLegendaryAndShinyTests(unittest.TestCase):
         self.assertTrue(state.pending.options[0]["is_shiny"])
         state = eng.step(engine.SelectOption(index=0))
         self.assertTrue(state.team[-1].is_shiny)
-        self.assertTrue(state.got_via_question)
+        # `doShinyNode`'s accept handler (bundle.deobfuscated.js:80947-80970)
+        # never calls `catchPokemon`/`recordMonOrigin` -- it inlines its own
+        # team push -- so `gotViaQuestion` is NEVER set for a shiny catch,
+        # unlike an ordinary question-resolved catch (which DOES go through
+        # `catchPokemon`). Found tracing the exact source for the M4
+        # route-oracle shiny-screen bridge: a prior version of this test
+        # asserted the opposite, matching a real bug where `_visit_shiny`
+        # shared its origin tag with the ordinary question-catch path.
+        self.assertFalse(state.got_via_question)
 
     def test_shiny_node_uses_move_tier_for_map_and_does_not_evolve(self):
         # CODEX.md issues 9-10: `doShinyNode` passes `getMoveTierForMap`
@@ -1206,6 +1446,104 @@ class TradeAndLegendaryAndShinyTests(unittest.TestCase):
         state = eng.step(engine.VisitNode(node_id=node.id))
         state = eng.step(engine.SelectOption(index=0))
         self.assertIn("leftovers", state.items)
+
+
+class M4BoundaryCaseTests(unittest.TestCase):
+    """M4 repair item 5: source-to-Python boundary cases for the newly
+    bridged lifecycle families (legendary/shiny/move-tutor/trade/item-equip/
+    submap-reward team-picker). Cases already covered elsewhere are not
+    duplicated here -- see `RewardTeamPickResolutionTests` (test_submaps.py)
+    for empty/partial-party sacrifice gating, and
+    `MoveTutorAndItemTests.test_move_tutor_bumps_tier_capped_at_two` for the
+    move-tutor repeated-transition/mastered-tier case."""
+
+    def test_js_round_rounds_exact_half_up_not_to_even(self):
+        # map_gen._js_round's own docstring cites this as "load-bearing" for
+        # `_trainer_fight_level` (58.5 -> 59) but had no direct test anywhere
+        # -- Python's builtin round() would give 58 (banker's rounding to
+        # even), diverging from the source's Math.round (half away from
+        # zero). Also covers the plain 0.5 boundary the M4 stat10 reward
+        # path (_apply_run_stat_buff) shares the same helper with.
+        self.assertEqual(map_gen._js_round(58.5), 59)
+        self.assertEqual(round(58.5), 58)  # documents the Python builtin's divergence
+        self.assertEqual(map_gen._js_round(0.5), 1)
+        self.assertEqual(map_gen._js_round(1.5), 2)
+        self.assertEqual(map_gen._js_round(2.5), 3)
+
+    def test_stat10_reward_rounds_odd_buff_amount_half_up(self):
+        # The one real call site (`_resolve_reward_team_pick`'s "stat10"
+        # branch) always passes amount=2 -> 2*0.5=1.0, never landing on the
+        # exact .5 boundary through ordinary play. `_apply_run_stat_buff`
+        # itself is exercised directly here with an odd amount to prove the
+        # JS-round semantics are actually wired through this M4 code path,
+        # not just decoratively imported.
+        mon = _mon(1, level=20)
+        engine._apply_run_stat_buff(mon, "atk", 1)  # 1*0.5=0.5 -> js_round rounds UP to 1
+        self.assertEqual(mon.stat_buffs.get("atk"), 1)
+
+    def test_move_tutor_and_trade_options_include_fainted_bench_members(self):
+        # Neither doMoveTutorNode nor doTradeNode gates its member list on
+        # HP -- that's a battle-only concept. A fainted bench member (0 HP,
+        # not yet culled -- e.g. non-Nuzlocke, or Nuzlocke pre-cull) must
+        # still be offered.
+        eng, state = _start(seed=11)
+        state.team.append(_mon(4, level=20))
+        state.team[1].current_hp = 0
+        node = next(n for n in state.map.nodes.values() if n.accessible)
+        node.type = map_gen.MOVE_TUTOR
+        state = eng.step(engine.VisitNode(node_id=node.id))
+        self.assertEqual(state.phase, engine.Phase.MOVE_TUTOR_CHOICE)
+        self.assertEqual({o["team_index"] for o in state.pending.options}, {0, 1})
+
+        eng2, state2 = _start(seed=13)
+        state2.team.append(_mon(4, level=20))
+        state2.team[1].current_hp = 0
+        node2 = next(n for n in state2.map.nodes.values() if n.accessible)
+        node2.type = map_gen.TRADE
+        state2 = eng2.step(engine.VisitNode(node_id=node2.id))
+        self.assertEqual(state2.phase, engine.Phase.TRADE_CHOICE)
+        self.assertEqual(len(state2.pending.options), 2)
+
+    def test_trade_resolves_by_index_despite_duplicate_species_in_team(self):
+        # Two identically-speciesed team members must not be confused with
+        # each other -- resolution is strictly by list index, matching the
+        # source's own array-index click handlers.
+        eng, state = _start(seed=13)
+        state.team.append(_mon(state.team[0].species_id, level=state.team[0].level))
+        self.assertEqual(state.team[0].species_id, state.team[1].species_id)
+        node = next(n for n in state.map.nodes.values() if n.accessible)
+        node.type = map_gen.TRADE
+        state = eng.step(engine.VisitNode(node_id=node.id))
+        self.assertEqual(len(state.pending.options), 2)
+        kept_id = id(state.team[0])
+        state = eng.step(engine.SelectOption(index=1))
+        self.assertEqual(state.phase, engine.Phase.ON_MAP)
+        # Slot 0 (identity-checked, not species-checked) is untouched; only
+        # slot 1 -- the index actually selected -- was replaced.
+        self.assertEqual(id(state.team[0]), kept_id)
+
+    def test_repeated_trade_visits_across_maps_leave_no_stale_pending_state(self):
+        # A second TRADE node visited on a later map must not inherit any
+        # stale `pending.extra`/`got_via_question` bookkeeping from the
+        # first -- proving the M4 trade bridge's state is per-visit, not
+        # leaking across the repeated transition.
+        eng, state = _start(seed=13)
+        node = next(n for n in state.map.nodes.values() if n.accessible)
+        node.type = map_gen.TRADE
+        state = eng.step(engine.VisitNode(node_id=node.id))
+        first_node_id = state.pending.extra["node_id"]
+        state = eng.step(engine.SelectOption(index=None))  # decline
+        self.assertIsNone(state.pending)
+        self.assertFalse(state.got_via_question)
+
+        node2 = next(n for n in state.map.nodes.values() if n.accessible and n.id != node.id)
+        node2.type = map_gen.TRADE
+        state = eng.step(engine.VisitNode(node_id=node2.id))
+        self.assertEqual(state.phase, engine.Phase.TRADE_CHOICE)
+        self.assertNotEqual(state.pending.extra["node_id"], first_node_id)
+        state = eng.step(engine.SelectOption(index=0))
+        self.assertEqual(state.phase, engine.Phase.ON_MAP)
+        self.assertTrue(state.got_via_question)
 
 
 class ShinyFormulaTests(unittest.TestCase):

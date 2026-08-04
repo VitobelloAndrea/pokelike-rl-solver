@@ -342,6 +342,15 @@ class RunState:
     used_tm: bool = False
     used_ball_catch: bool = False
     got_via_question: bool = False
+    any_fainted: bool = False  # `state.anyFainted`, initialized false in `startNewRun`
+    # (bundle.deobfuscated.js:75478) and set true ONLY by `runBattleScreen`'s Nuzlocke
+    # cull (81371-81372) when that cull actually removed at least one member (`BI1.length
+    # > 0`). It is NOT "a team member fainted during a battle": an ordinary-mode faint, a
+    # Nuzlocke loss/wipe (the cull lives inside the WIN branch opened at 81278), a
+    # `no_permadeath` fight and a win with nothing to cull all leave it false. Its only
+    # source consumer is the `_no_tombstone` achievement check (81971); no achievement
+    # system exists in this port yet, so this persists the source-equivalent flag for
+    # that future consumer, exactly like `entered_sub_map` below. Never reset once set.
     escaped_via_rope: bool = False  # `state._escapedViaRope` (bundle.deobfuscated.js:81412), CODEX.md P0.6
 
     question_cache: dict = field(default_factory=dict)  # node id -> resolved type string
@@ -533,13 +542,50 @@ class Engine:
                 passives=list(passives),
             )
             generation = _generation(state)
+            # `showStarterSelect`'s Story/Nuzlocke branch, bundle.deobfuscated.js:
+            # 76175-76194. It materialises the offer BEFORE the player clicks:
+            # for each fetched starter entry, in the fixed order of
+            # `STARTER_IDS`/`GEN2_`/`GEN3_`/`GEN4_STARTER_IDS` (75649-75655), it
+            # runs `const BIV = rollShiny(), BIv = createInstance(BIj, B2l, BIV,
+            # 0x0)` and closes the card's own click listener over that exact
+            # instance (`addEventListener("click", () => selectStarter(BIv))`,
+            # 76186). `rollShiny` (74912-74923) ends in an unconditional `rng() <
+            # O`, so THREE draws are consumed here, before any input, and each
+            # offered starter carries whatever shininess its own roll produced.
+            # `B2l` is the literal starter level 5 (75648) and the `0x0` is
+            # `createInstance`'s `moveTier` argument.
+            #
+            # This is the whole of blocker 1/1(b): the port used to offer
+            # species metadata, draw nothing, build the chosen starter at click
+            # time and force `is_shiny = False`, which both made a shiny starter
+            # unreachable and offset every later Stream-B draw by three.
+            starter_offers = []
+            for sid in data.get_starter_ids(generation):
+                is_shiny = roll_shiny(state)
+                starter_offers.append(
+                    _make_wild_combatant(
+                        sid,
+                        _STARTER_LEVEL,
+                        is_shiny=is_shiny,
+                        move_tier=0,
+                        gen2_mode=state.gen2_mode,
+                        gen4_mode=state.gen4_mode,
+                    )
+                )
             state.pending = PendingChoice(
                 phase=Phase.CHOOSE_STARTER,
-                options=[
-                    {"species_id": sid, "name": data.get_pokedex()[sid].name}
-                    for sid in data.get_starter_ids(generation)
-                ],
+                options=[{"species_id": m.species_id, "name": m.name} for m in starter_offers],
                 optional=False,
+                # The real pending instances, in displayed order. `step(
+                # ChooseStarter(...))` hands back the object at the matching
+                # index rather than building a fresh one, so the starter that
+                # enters the team is the same object the offer screen showed --
+                # including its already-rolled `is_shiny` and its offer-time
+                # level/base stats/HP. The two non-selected instances are
+                # discarded on selection and have no gameplay effect beyond the
+                # RNG draws their `rollShiny` calls already consumed, exactly
+                # like the source's two unclicked cards.
+                extra={"instances": starter_offers},
             )
             state.phase = Phase.CHOOSE_STARTER
             self.state = state
@@ -577,8 +623,15 @@ def _dispatch_action(state: RunState, action: Action) -> None:
         generation = _generation(state)
         if action.species_id not in data.get_starter_ids(generation):
             raise ValueError(f"{action.species_id} is not a valid starter for this run")
-        mon = _make_wild_combatant(action.species_id, _STARTER_LEVEL, move_tier=0, gen2_mode=state.gen2_mode, gen4_mode=state.gen4_mode)
-        mon.is_shiny = False
+        # `selectStarter(BIv)` (bundle.deobfuscated.js:76194-76210) receives the
+        # exact instance its own card closed over, and `state["team"] = [B]`
+        # (76206) installs THAT object. So this picks the already-built,
+        # already-shiny-rolled offer at the clicked index; it does NOT rebuild
+        # the species, and it does not overwrite `is_shiny`. Offered species are
+        # distinct by construction (three different starter ids), so the id
+        # identifies the clicked card unambiguously.
+        instances = state.pending.extra["instances"]
+        mon = next(m for m in instances if m.species_id == action.species_id)
         state.team = [mon]
         state.starter_species_id = action.species_id
         state.max_team_size = 1
@@ -694,10 +747,16 @@ def _shuffle(items: list) -> None:
 
 
 def _advance(state: RunState, node_id: str) -> None:
-    """Port of `advanceFromNode` (docs/logic-notes-nodes.md section 12).
-    `onNodeClick`'s own eager pre-dispatch lockout is provably idempotent
-    with this (per that doc's analysis), so it's only done once, here,
-    after the node resolves."""
+    """Port of `advanceFromNode` (docs/logic-notes-nodes.md section 12) --
+    marks the node visited, locks its same-layer siblings, and reveals its
+    successors, once the node RESOLVES.
+
+    Its sibling-lock loop duplicates `onNodeClick`'s eager pre-dispatch one
+    (`_lock_same_layer_siblings`, run from `_visit_node`) and the two are
+    idempotent, exactly as they are in the source, which also carries both.
+    The duplication is deliberate and is kept: `advanceFromNode` is called
+    from paths that never went through a node click at all (submap return,
+    reward resolution), so it cannot rely on the eager lock having run."""
     assert state.map is not None
     node = state.map.nodes[node_id]
     node.visited = True
@@ -712,13 +771,27 @@ def _advance(state: RunState, node_id: str) -> None:
             dst_node.accessible = True
 
 
-def _try_add_to_team(state: RunState, mon: Combatant, node_id: str) -> None:
-    """Port of `catchPokemon`'s team-full branch (docs/logic-notes-nodes.md
-    section 4): add directly if there's room, else prompt a swap/release
-    choice. Shared by catch/shiny/legendary/trade-adjacent flows."""
+def _try_add_to_team(state: RunState, mon: Combatant, node_id: str, origin: Optional[str] = None) -> None:
+    """Port of `catchPokemon` (bundle.deobfuscated.js:79026-79046): add
+    directly if there's room, else prompt a swap/release choice.
+
+    `origin` mirrors `recordMonOrigin`'s node-type check (79047-79063),
+    called ONLY from `catchPokemon`'s ROOM branch (79040) -- the full-team
+    branch calls `showSwapScreen` directly (79045) and never reaches
+    `recordMonOrigin` at all. So `used_ball_catch`/`got_via_question` must be
+    set here, in the room branch only, never on the swap-offer branch below.
+    Found tracing the exact source for the M4 route-oracle catch/shiny
+    bridge work: a prior version set these flags unconditionally at CHOICE
+    time (in `_resolve_catch_choice`, before this function even ran), which
+    was a real divergence for a question/shiny catch with a full team, not a
+    simplification."""
     if len(state.team) < TEAM_CAP:
         state.team.append(mon)
         state.max_team_size = max(state.max_team_size, len(state.team))
+        if origin == "catch":
+            state.used_ball_catch = True
+        elif origin == "question":
+            state.got_via_question = True
         _log(state, "catch", species_id=mon.species_id, name=mon.name, is_shiny=mon.is_shiny)
         _advance(state, node_id)
         state.phase = Phase.ON_MAP
@@ -1290,10 +1363,17 @@ def _after_battle(
         # `result.player_won`) would silently strip a lost run's roster/
         # items before `GAME_OVER` even has a chance to read them.
         if state.nuzlocke_mode and not no_permadeath:
-            for mon in state.team:
-                if mon.current_hp <= 0 and mon.held_item is not None:
+            culled = [m for m in state.team if m.current_hp <= 0]
+            for mon in culled:
+                if mon.held_item is not None:
                     state.items.append(mon.held_item.id)
             state.team = [m for m in state.team if m.current_hp > 0]
+            # bundle.deobfuscated.js:81371-81372: `BI1["length"] > 0x0 &&
+            # ((state["anyFainted"] = !0x0), ...)`. Gated on the cull having
+            # actually removed something, inside the win branch -- NOT on merely
+            # observing a faint during the battle.
+            if culled:
+                state.any_fainted = True
     if not result.player_won and rope_eligible and not state.nuzlocke_mode:
         rope_index = next((i for i, item_id in enumerate(state.items) if item_id == _ESCAPE_ROPE_ITEM_ID), None)
         if rope_index is not None:
@@ -1661,9 +1741,11 @@ def _run_todo(state: RunState) -> None:
             _advance(state, step["node_id"])
             state.phase = Phase.ON_MAP
             state._todo.pop(0)
-        elif kind == "offer_catch":
+        elif kind == "offer_swap":
+            # `showSwapScreen` called unconditionally, whether or not the team
+            # has room -- `doLegendaryNode`'s win callback (80454-80457).
             state._todo.pop(0)
-            _try_add_to_team(state, step["mon"], step["node_id"])
+            _offer_swap_screen(state, step["mon"], step["node_id"])
             return
         elif kind == "elite4_fight":
             _elite4_fight_step(state, step)
@@ -1765,7 +1847,17 @@ def _visit_node(state: RunState, node_id: str) -> None:
         raise ValueError(f"no such node: {node_id}")
     if not node.accessible:
         raise ValueError(f"node {node_id} is not accessible")
+    # `onNodeClick` (bundle.deobfuscated.js:77305-77396) in exact statement
+    # order: set `state.currentNode` (77311), then lock the already-accessible
+    # same-layer siblings (77312-77316), THEN resolve a QUESTION node's real
+    # type (77318-77333), THEN dispatch on it (the switch at 77334). The lock
+    # is eager -- it has already happened while a catch/item/swap screen is up
+    # and it survives a battle that ends the run, neither of which ever reaches
+    # `_advance`. `_advance`'s own sibling-lock loop is idempotent with this
+    # one, so an ordinary node that resolves immediately observes no
+    # difference; a node that SUSPENDS or LOSES does.
     state.current_node_id = node_id
+    _lock_same_layer_siblings(state.map, node_id)
     node_type = node.type
     if node_type == map_gen.QUESTION:
         node_type = _resolve_question(state, node)
@@ -2256,6 +2348,21 @@ def _visit_shiny(state: RunState, node: MapNode) -> None:
     call site: none are inside `doShinyNode`), so an evolution-eligible
     candidate is NOT auto-evolved here the way catch/battle candidates
     elsewhere are.
+
+    `extra["origin"]` is `"shiny_node"`, deliberately NOT `"question"` even
+    though a shiny encounter is only ever reached via a resolved QUESTION
+    node: `doShinyNode`'s accept handler (80947-80970) never calls
+    `catchPokemon`/`recordMonOrigin` at all (it inlines its own
+    `state.team.push`/`showSwapScreen`), so `used_ball_catch`/
+    `got_via_question` must NOT be set for a shiny catch -- unlike an
+    ordinary question-resolved catch, which DOES go through `catchPokemon`
+    via `_visit_catch`'s own `"question"` origin. Sharing one origin string
+    for both was a real, previously undiscovered divergence (found tracing
+    the exact source for the M4 route-oracle shiny-screen bridge): a route
+    that took a shiny catch would incorrectly show `got_via_question=True`
+    on the Python side. The distinct value also lets `run_scenario.py`'s
+    `_is_shiny_origin` tell a shiny offer apart from an ordinary
+    question-resolved catch, which both use `Phase.CATCH_CHOICE`.
     """
     level = map_gen.get_level_for_node(node.layer, state.current_map, state.gen2_mode, state.gen3_mode, state.gen4_mode)
     min_dex, max_dex = map_gen.get_catch_gen_range(state.gen2_mode, state.gen3_mode, state.gen4_mode)
@@ -2280,7 +2387,7 @@ def _visit_shiny(state: RunState, node: MapNode) -> None:
         phase=Phase.CATCH_CHOICE,
         options=[_mon_summary(mon)],
         optional=True,
-        extra={"candidates": [mon], "node_id": node.id, "origin": "question"},
+        extra={"candidates": [mon], "node_id": node.id, "origin": "shiny_node"},
     )
     state.phase = Phase.CATCH_CHOICE
 
@@ -2288,22 +2395,38 @@ def _visit_shiny(state: RunState, node: MapNode) -> None:
 def _visit_legendary(state: RunState, node: MapNode) -> None:
     """Port of `doLegendaryNode` (docs/logic-notes-nodes.md section 9).
     `node.extra["legendarySpeciesId"]` is already populated at map-
-    generation time by `map_gen.generate_map`. A single-mon battle; winning
-    auto-adds the (freshly-instantiated, full-HP) legendary via the same
-    catch-or-swap flow as any other catch, matching the source's
-    `showSwapScreen` call from the win callback -- there is no separate
-    catch-rate roll. Shiny chance uses `roll_shiny` (`legendaryShinyChanceFlat`
-    plus its own inline roll at the doLegendaryNode call site are the same
-    formula/RNG draw as `rollShiny`, CODEX.md issue 5).
+    generation time by `map_gen.generate_map`. A single-mon battle; there is
+    no separate catch-rate roll. Shiny chance uses `roll_shiny`
+    (`legendaryShinyChanceFlat` plus its own inline roll at the
+    `doLegendaryNode` call site are the same formula/RNG draw as `rollShiny`,
+    CODEX.md issue 5).
+
+    **Winning ALWAYS presents the swap screen.** The win callback
+    (bundle.deobfuscated.js:80446-80458) ends in a bare
+    `showSwapScreen(B2P, B)` at 80457 -- there is no `state.team.length < 6`
+    test anywhere in it. So with room the incoming legendary stays PENDING
+    until the player explicitly clicks its card (accept, 79171-79201) or
+    cancels (decline, 79249-79258); with a full team the ordered per-member
+    release cards are presented. This is `offer_swap`, and it is a different
+    lifecycle from `offer_catch`.
+
+    That distinction is real source behavior, not a simplification: the
+    ordinary CATCH path (`catchPokemon`, 79026-79046) and the SHINY path
+    (`doShinyNode`'s inlined accept handler, 80962-80970) BOTH test
+    `state.team.length < 6` and auto-add with room, reaching `showSwapScreen`
+    only when full. Legendary is the one ordinary-map node that does not.
+    Before M4 this path used `offer_catch` and auto-added with room, which
+    was the M2.4 audit's carried finding.
 
     CODEX.md P0.6: `doLegendaryNode`'s own `runBattleScreen` call passes
     isBoss=false (bundle.deobfuscated.js:80439-80446) -- confirmed by direct
     read despite reading as an unusual case for a boss-tier fight -- so an
     eligible loss here offers Escape Rope recovery same as a wild/trainer
-    battle. Accepting re-enters the same success callback a win would have
-    (`offer_catch`), which is the source's actual behavior: the win
-    callback here is "mark caught, show the swap screen", called
-    regardless of which path (win or accepted rope) reached it.
+    battle. Accepting re-enters the same success callback a win would have,
+    which is the source's actual behavior: the win callback here is "mark
+    caught, show the swap screen", called regardless of which path (win or
+    accepted rope) reached it -- so the rope continuation is `offer_swap`
+    too.
     """
     species_id = node.extra.get("legendarySpeciesId")
     if species_id is None:
@@ -2318,28 +2441,43 @@ def _visit_legendary(state: RunState, node: MapNode) -> None:
     if not _after_battle(
         state,
         result,
-        level_gain=1,
+        # `doLegendaryNode`'s own `runBattleScreen` call passes its 7th
+        # (level-gain) argument as the literal `0x0` (bundle.deobfuscated.js:
+        # 80439-80462), not `null`/omitted -- winning a legendary battle
+        # grants NO levels at all, unlike every other `_visit_*` battle site.
+        # Found and repaired during the M4 route-oracle work tracing a real
+        # cross-runtime level divergence: a prior version passed
+        # `level_gain=1` here, which was invisible until a route actually
+        # WON a legendary encounter cross-runtime for the first time.
+        level_gain=0,
         rope_eligible=True,
-        rope_continuation=[{"kind": "offer_catch", "mon": caught, "node_id": node.id}],
+        rope_continuation=[{"kind": "offer_swap", "mon": caught, "node_id": node.id}],
     ):
         return
-    state._todo = [{"kind": "evolve", "idx": 0}, {"kind": "offer_catch", "mon": caught, "node_id": node.id}]
+    state._todo = [{"kind": "evolve", "idx": 0}, {"kind": "offer_swap", "mon": caught, "node_id": node.id}]
     _run_todo(state)
 
 
 def _visit_move_tutor(state: RunState, node: MapNode) -> None:
-    """Port of `doMoveTutorNode` (docs/logic-notes-nodes.md section 7) --
+    """Port of `doMoveTutorNode` (bundle.deobfuscated.js:80464-80563) --
     bumps one chosen team member's `move_tier` by 1 (cap 2); mons already at
-    tier 2 aren't offered."""
+    tier 2 aren't offered a button (80474-80492, 80507-80515 -- a mastered
+    row renders a plain "Already mastered!" span instead).
+
+    The source has NO early-bail: unlike `doShinyNode`/`doLegendaryNode`
+    (which really do skip the node when nothing can be offered), the
+    move-tutor modal always opens, even with the whole team at tier 2 --
+    that case just means zero `[data-tutor]` buttons and only
+    `#btn-skip-tutor` (80531-80534). A prior version of this function bailed
+    straight to `Phase.ON_MAP` whenever `eligible` was empty, which was a
+    real divergence from the source, not a simplification -- fixed here so a
+    fully-mastered team still raises `MOVE_TUTOR_CHOICE` with an empty
+    (but real, decline-only) options list."""
     # `move_tier` is a plain `int` field (never `None`, default 1) -- `or 1`
     # would wrongly treat a valid tier-0 mon (maps 0-2) as tier 1 (CODEX.md
     # issue 11: tier 0 is a real, nullish-vs-falsy-sensitive value, not an
     # "unset" sentinel).
     eligible = [(i, m) for i, m in enumerate(state.team) if m.move_tier < 2]
-    if not eligible:
-        _advance(state, node.id)
-        state.phase = Phase.ON_MAP
-        return
     options = [
         {"team_index": i, "species_id": m.species_id, "name": m.name, "move_tier": m.move_tier} for i, m in eligible
     ]
@@ -2477,16 +2615,26 @@ def _lock_same_layer_siblings(map_obj: map_gen.GeneratedMap, node_id: str) -> No
     dispatch, locking already-accessible same-layer siblings (NOT the
     clicked node itself, and NOT `visited`/edge-reveal -- that's
     `advanceFromNode`/`_advance`'s separate job once the node resolves).
-    Ordinary nodes never observe this eager lock separately from
-    `_advance`'s own (idempotent) sibling-lock loop once they resolve, which
-    is why `_advance` doesn't bother repeating it -- but `_enter_sub_map`
-    swaps `state.map` out to the generated submap without EVER calling
-    `_advance` on the parent UNDERGROUND/DISTORTION node (only
-    `_return_from_sub_map` does, on the way back out), so this eager lock is
-    the ONLY place parent siblings get locked before the parent map is
-    captured into `state.sub_map_return` -- without it, they'd stay
-    accessible for as long as the player remains inside the submap
-    (including across a loss that never returns)."""
+
+    Called from exactly one place, `_visit_node`, at the same point
+    `onNodeClick` does it: after `state.currentNode` is set and before the
+    node type is resolved or dispatched. That single site covers every node
+    type, which is what the source's own single site does.
+
+    An ordinary node that resolves immediately cannot observe this
+    separately from `_advance`'s own (idempotent) sibling-lock loop. Three
+    families CAN, and are why the eager placement matters:
+
+    - a node that SUSPENDS on a choice screen (catch/item/swap) -- the
+      siblings are locked while the screen is up, long before the choice
+      resolves and reaches `_advance`;
+    - a battle that ENDS THE RUN -- `_advance` is never reached at all, yet
+      the source has still locked the siblings;
+    - `_enter_sub_map`, which swaps `state.map` out to the generated submap
+      without ever calling `_advance` on the parent UNDERGROUND/DISTORTION
+      node (only `_return_from_sub_map` does, on the way back out), so
+      without the eager lock the parent siblings would be captured into
+      `state.sub_map_return` still accessible."""
     node = map_obj.nodes[node_id]
     for other in map_obj.nodes.values():
         if other.layer == node.layer and other.id != node_id and other.accessible:
@@ -2514,8 +2662,17 @@ def _enter_sub_map(state: RunState, node: MapNode, kind: str) -> None:
     (used again by `doSubMapBoss`'s empty-`bossTeam` reroll path, see
     `_visit_sub_map_boss`), so caching it here is value-equivalent, not an
     approximation -- the source recomputation is itself RNG-free and
-    depends only on the (unchanged, already-saved) parent node."""
-    _lock_same_layer_siblings(state.map, node.id)
+    depends only on the (unchanged, already-saved) parent node.
+
+    No sibling lock happens here. The source's `enterSubMap` has none either
+    (76687-76706) -- it relies wholly on `onNodeClick`'s eager pre-dispatch
+    lock, which `_visit_node` now performs for EVERY node type, so the parent
+    siblings are already locked before the parent map is captured into
+    `state.sub_map_return`. The private call this function used to make (added
+    by the M2.1-M2.3 repair, when `_visit_node` still had no lock) would now be
+    a second, redundant application; removing it keeps one lock site, matching
+    the source, so a mutation that deletes the eager lock cannot be masked here
+    for submap routes only."""
     parent_level = map_gen.get_level_for_node(
         node.layer, state.current_map, state.gen2_mode, state.gen3_mode, state.gen4_mode
     )
@@ -2896,12 +3053,8 @@ def _resolve_catch_choice(state: RunState, action: SelectOption) -> None:
         return
     mon = extra["candidates"][action.index]
     origin = extra.get("origin")
-    if origin == "catch":
-        state.used_ball_catch = True
-    elif origin == "question":
-        state.got_via_question = True
     state.pending = None
-    _try_add_to_team(state, mon, node_id)
+    _try_add_to_team(state, mon, node_id, origin=origin)
 
 
 def _resolve_swap_choice(state: RunState, action: SelectOption) -> None:
@@ -2909,7 +3062,22 @@ def _resolve_swap_choice(state: RunState, action: SelectOption) -> None:
     `_try_add_to_team`'s own team-full-only SWAP_CHOICE) selects between
     `showSwapScreen`'s two accept handlers (bundle.deobfuscated.js:79171-
     79201 with room / 79202-79246 full) -- clicking the single incoming-mon
-    option APPENDS rather than releasing a team member."""
+    option APPENDS rather than releasing a team member.
+
+    All THREE of `showSwapScreen`'s exits clear `state.currentNode` right
+    after `advanceFromNode` -- the accept-with-room handler (79185-79186),
+    the release-and-replace handler (79230-79231) and the cancel button
+    (79255-79256) each read `advanceFromNode(state["map"], O["id"]),
+    (state["currentNode"] = null),`. Every SWAP_CHOICE this port raises is a
+    real `showSwapScreen` (`_offer_swap_screen`, plus `_try_add_to_team`'s
+    team-full branch, which is exactly `catchPokemon`'s own
+    `: showSwapScreen(B, O)` fallthrough at 79045), so the clear is
+    unconditional here.
+
+    It is deliberately NOT copied to `catchPokemon`'s room path
+    (79036-79044) -- that branch calls `advanceFromNode` and `showMapScreen`
+    and leaves `currentNode` set. The asymmetry is source behavior, not a
+    typo; `_try_add_to_team`'s own room branch matches it."""
     extra = state.pending.extra
     node_id = extra["node_id"]
     if action.index is not None:
@@ -2927,6 +3095,7 @@ def _resolve_swap_choice(state: RunState, action: SelectOption) -> None:
             _log(state, "catch", species_id=incoming.species_id, name=incoming.name, is_shiny=incoming.is_shiny, released=released.name)
     state.pending = None
     _advance(state, node_id)
+    state.current_node_id = None
     state.phase = Phase.ON_MAP
 
 
@@ -2981,21 +3150,41 @@ def _resolve_item_choice(state: RunState, action: SelectOption) -> None:
     state.pending = PendingChoice(
         phase=Phase.ITEM_EQUIP_CHOICE,
         options=[_mon_summary(m) for m in state.team],
-        optional=False,
+        optional=True,
         extra={"item_id": item.id, "node_id": node_id},
     )
     state.phase = Phase.ITEM_EQUIP_CHOICE
 
 
 def _resolve_item_equip_choice(state: RunState, action: SelectOption) -> None:
+    """`openItemEquipModal`'s `#btn-equip-to-bag` button (79552-79562) is a
+    real decline: `doItemNode`'s non-usable branch always calls it with
+    `fromBagIdx=-1, fromPokemonIdx=-1` (79423-79429, the only configuration
+    reachable from an ordinary node visit), so `O < 0 && state.items.push(B)`
+    is the live branch -- clicking it banks the item instead of equipping it,
+    then advances exactly like an equip would. Found tracing the exact
+    source for the M4 route-oracle bridge work: `PendingChoice.optional` was
+    `False` and this resolver had no `action.index is None` branch at all, a
+    real gap since the source always offers this exit, not a simplification.
+    `#btn-equip-cancel` (79563-79569) is deliberately NOT modelled: it
+    neither equips nor banks the item nor calls `onComplete`, so nothing in
+    the source advances either -- a genuine dead end, not a decline."""
     extra = state.pending.extra
+    node_id = extra["node_id"]
+    if action.index is None:
+        state.items.append(extra["item_id"])
+        _log(state, "item", name=extra["item_id"], usable=False, kept_in_bag=True)
+        state.pending = None
+        _advance(state, node_id)
+        state.phase = Phase.ON_MAP
+        return
     mon = state.team[action.index]
     if mon.held_item is not None:
         state.items.append(mon.held_item.id)
     mon.held_item = HeldItem(id=extra["item_id"])
     _log(state, "item", name=extra["item_id"], usable=False, equipped_on=mon.name)
     state.pending = None
-    _advance(state, extra["node_id"])
+    _advance(state, node_id)
     state.phase = Phase.ON_MAP
 
 

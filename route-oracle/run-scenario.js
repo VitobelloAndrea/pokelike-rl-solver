@@ -131,6 +131,16 @@ const rawPrefix = fs.readFileSync(prefixPath, 'utf8');
 // run-fixture.js: an exact, assertion-guarded source edit. If the needle
 // stops matching exactly once the runner fails loudly rather than silently
 // reporting `rounds: 0` for every battle.
+//
+// M3.3b workstream 5 extends the SAME site with a turn-boundary mark. The
+// source's `detailedLog` is a flat stream with no per-round delimiter -- the
+// only `overtime_start` marker is pushed once, at the overtime threshold
+// (bundle.deobfuscated.js:55418-55422) -- so an ordered PER-TURN projection
+// needs to know where each round begins. `BI4++` is the round counter's own
+// increment at the very top of the round loop (55415-55418), before any of
+// that round's events exist, and `BcM` (the detailed log) is in scope there.
+// Recording `BcM.length` at that instant yields the exact turn boundaries
+// without touching the log, the loop, any source state, or the RNG.
 const ROUND_COUNTER_NEEDLE = '(BI4++,\n      BI4 === BI6 + 0x1 &&';
 const roundNeedleCount = rawPrefix.split(ROUND_COUNTER_NEEDLE).length - 1;
 if (roundNeedleCount !== 1) {
@@ -139,7 +149,7 @@ if (roundNeedleCount !== 1) {
 }
 const prefix = rawPrefix.replace(
   ROUND_COUNTER_NEEDLE,
-  '(BI4++, globalThis.__ROUND_COUNT__ = BI4,\n      BI4 === BI6 + 0x1 &&',
+  '(BI4++, globalThis.__ROUND_COUNT__ = BI4, globalThis.__ROUND_MARKS__.push(BcM.length),\n      BI4 === BI6 + 0x1 &&',
 );
 
 // Same two decoder shims tools/extract-data and tools/battle-oracle install:
@@ -164,6 +174,32 @@ function makeDom() {
   const byId = new Map();
   const bySelector = new Map();
 
+  // M4 repair item 1: the real button-attribute-selector shape used by the
+  // three showScreen-less overlays (`openItemEquipModal`/`doMoveTutorNode`,
+  // which share the literal id `item-equip-modal`, and
+  // `showTeamPickerModal`'s `submap-pick-modal`) -- `button[data-idx]`,
+  // `button[data-tutor]`, `[data-unequip]`. All three build their rows via a
+  // single raw `innerHTML =` assignment (not `createElement`+`appendChild`),
+  // so the existing `.__children` tracking never sees the buttons at all --
+  // WITHOUT this, the source's own `el.querySelectorAll(sel).forEach(fn =>
+  // el.addEventListener('click', fn))` wiring (bundle.deobfuscated.js:
+  // 79522, 79534, 80535, 76876) attaches ZERO listeners, so these buttons
+  // are inert in this harness regardless of what the driver does.
+  const ATTR_SELECTOR_RE = /^([a-zA-Z][a-zA-Z0-9]*)?\[data-([a-zA-Z0-9_-]+)\]$/;
+
+  function scanAttrMatches(html, tag, attr) {
+    const tagPart = tag ? tag : '[a-zA-Z][a-zA-Z0-9]*';
+    const tagRe = new RegExp('<(' + tagPart + ')\\b([^>]*)>', 'gi');
+    const attrRe = new RegExp('data-' + attr + '\\s*=\\s*"([^"]*)"', 'i');
+    const values = [];
+    let m;
+    while ((m = tagRe.exec(html)) !== null) {
+      const am = attrRe.exec(m[2]);
+      if (am) values.push(am[1]);
+    }
+    return values;
+  }
+
   function makeEl(tag) {
     const el = {
       tagName: String(tag || 'div').toUpperCase(),
@@ -171,6 +207,7 @@ function makeDom() {
       __listeners: Object.create(null),
       __attrs: Object.create(null),
       __selectorCache: new Map(),
+      __selectorAllCache: new Map(),
       onclick: null,
       onkeydown: null,
       disabled: false,
@@ -195,6 +232,15 @@ function makeDom() {
         if (child) { el.__children.push(child); child.parentElement = el; }
         return child;
       },
+      // `Element.append(...nodes)` -- unlike `appendChild`, takes any number
+      // of arguments. `showBranchingChoice` (bundle.deobfuscated.js:70604:
+      // `B2e["append"](B2D, B2P, B2a)`) is the only M4-reachable caller; a
+      // real DOM also accepts plain strings as text, which nothing here
+      // needs. Missing entirely until the M4 branching-evolution route
+      // actually exercised this overlay for the first time.
+      append(...children) {
+        for (const child of children) el.appendChild(child);
+      },
       insertBefore(child) { return el.appendChild(child); },
       insertAdjacentHTML() {},
       removeChild(child) { el.__children = el.__children.filter((c) => c !== child); return child; },
@@ -217,7 +263,35 @@ function makeDom() {
         }
         return el.__selectorCache.get(sel);
       },
-      querySelectorAll() { return []; },
+      // Scoped NARROWLY to the two dynamically-built overlay containers that
+      // actually need it (by their literal, fixed id) -- every other
+      // `querySelectorAll` call site in the whole bundle (battle rendering,
+      // settings, dex, team-bar drag/drop, ...) keeps returning `[]`
+      // UNCHANGED, exactly as before this fix. Widening it to every element
+      // would have risked silently activating some other, already-exercised
+      // `.forEach` that previously ran zero times across the 11 existing
+      // scenarios -- unaudited and unrelated to this repair.
+      querySelectorAll(sel) {
+        if (el.id !== 'item-equip-modal' && el.id !== 'submap-pick-modal') return [];
+        const key = String(sel);
+        if (!el.__selectorAllCache.has(key)) {
+          const parsed = ATTR_SELECTOR_RE.exec(key.trim());
+          let made = [];
+          if (parsed) {
+            const tag = parsed[1] ? parsed[1].toLowerCase() : null;
+            const attr = parsed[2];
+            made = scanAttrMatches(html, tag, attr).map((value) => {
+              const child = makeEl(tag || 'div');
+              child.parentElement = el;
+              child.setAttribute('data-' + attr, value);
+              child.dataset[attr] = value;
+              return child;
+            });
+          }
+          el.__selectorAllCache.set(key, made);
+        }
+        return el.__selectorAllCache.get(key);
+      },
       getBoundingClientRect() { return { top: 0, left: 0, right: 0, bottom: 0, width: 0, height: 0 }; },
       focus() {}, blur() {}, scrollIntoView() {}, click() {},
     };
@@ -240,6 +314,7 @@ function makeDom() {
         html = String(v === undefined || v === null ? '' : v);
         el.__children = [];
         el.__selectorCache = new Map();
+        el.__selectorAllCache = new Map();
       },
       enumerable: true,
       configurable: true,
@@ -255,6 +330,25 @@ function makeDom() {
         return parent;
       },
       set(v) { parent = v; },
+      enumerable: true,
+      configurable: true,
+    });
+    // M4 repair item 1: `openItemEquipModal`/`doMoveTutorNode` (both reuse
+    // the literal id `item-equip-modal`) and `showTeamPickerModal`'s
+    // `submap-pick-modal` are `document.createElement`d and only get their
+    // id assigned AFTERWARD (`B2O.id = "item-equip-modal"`), never fetched
+    // by id themselves. Without this, `document.getElementById(...)` -- the
+    // ONLY way the driver can ever get a handle on them -- would keep
+    // returning the unrelated auto-vivified stub `getElementById` fabricates
+    // for any never-before-seen id, forever disconnected from the real
+    // element the source built and attached listeners to.
+    let idValue = '';
+    Object.defineProperty(el, 'id', {
+      get() { return idValue; },
+      set(v) {
+        idValue = String(v === undefined || v === null ? '' : v);
+        if (idValue) byId.set(idValue, el);
+      },
       enumerable: true,
       configurable: true,
     });

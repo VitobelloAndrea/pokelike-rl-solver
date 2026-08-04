@@ -107,7 +107,8 @@ Fields:
               "types", "move_tier", "held_item", "is_shiny", "status", "burned",
               "paralyzed", "poison_stacks", "base_stats", "stat_buffs" } ],
   "items": [ "escape_rope", … ],                  // bag order preserved
-  "game_over": false
+  "game_over": false,
+  "pending": { … see "Pending-choice option identity" … } | null
 }
 ```
 
@@ -117,8 +118,176 @@ Fields:
 { "player_won", "rounds", "rng_draws",
   "player_team": [ …normalized mon… ], "enemy_team": [ … ],
   "player_participants": [0, 1],
-  "status_events": [ { "type": "status_tick"|"poison_drain"|"faint", … } ] }
+  "status_events": [ { "type": "status_tick"|"poison_drain"|"faint", … } ],
+  "turns": [ … see "Ordered per-turn battle events" … ] }
 ```
+
+## Pending-choice option identity
+
+**Added in M3.3b (workstream 3).** Before it, `pending` carried only
+`{phase, optional, option_count}`: the schema proved a choice screen existed
+and how many affordances it had, but nothing about *which* objects were
+offered or in what order, so a mutation that kept the count constant while
+substituting or reordering an option was invisible.
+
+```jsonc
+"pending": {
+  "phase": "choose_starter" | "catch_choice" | "item_choice" | "swap_choice",
+  "optional": true,
+  "option_count": 3,
+  "options": [                        // ORDERED; index N is the `choice` index
+    { "role": "starter" | "catch" | "item" | "swap_accept" | "swap_release"
+              | "incoming" | "team",
+      "kind": "mon" | "item",
+      "species_id": 408, "form_id": null, "name": "Cranidos",
+      "item_id": null,                // items only
+      "slot": null,                   // team position, for options naming a
+                                      // CURRENT team member
+      "instance": { …normalized mon… } | null }
+  ],
+  "context": {                        // swap screens only, else null
+    "incoming": { …option… },
+    "team":     [ { …option…, "slot": 0 }, … ]
+  }
+}
+```
+
+Both runners read the offer from state the **source itself owns and orders**,
+at build time and strictly before any listener can resolve it:
+
+| screen | JavaScript | Python |
+|---|---|---|
+| starter | the per-card `renderPokemonCard(instance, …)` argument, cross-checked against the `#starter-choices` child count (76175-76194) | `PendingChoice.extra["instances"]` — the three real `Combatant`s `Engine.reset` builds from the same loop |
+| catch | `state.savedCatch.instances` (78765; replaced in place on a reroll at 78896) | `PendingChoice.extra["candidates"]` |
+| item | `state.itemOffer.ids` (79372), resolved through the source's own `ITEM_POOL`/`USABLE_ITEM_POOL` lookup (79348-79358) | `PendingChoice.extra["items"]` |
+| swap | `showSwapScreen(incoming, node)`'s own arguments, captured by a delegating wrapper before it runs (79141), plus `state.team` | `extra["incoming"]` plus `RunState.team` |
+
+Each side independently cross-checks its projection against the other
+cardinality it can observe — the JavaScript side against the DOM cards the
+source actually appended, the Python side against `PendingChoice.options` —
+and a disagreement is a hard error, never a silently preferred side.
+
+**`instance` is reported, not omitted, when a runtime built none.** Under M3
+the source's starter screen materialised three `createInstance` objects before
+the click while the port offered species ids and instantiated on click, so the
+Python projection reported `null` — a *compared* difference rather than a
+silent exclusion, frozen as blocker 1(b). **M4 repaired it**: the port now
+builds the three instances at offer time, the projection reads them, and the
+species-only helper that produced the `null` was deleted so the old shape
+cannot return. The projection now raises if a starter offer carries no
+instances.
+
+Deliberately **not** in the projection: DOM text, css classes, element or
+object identity, closure identity, and any opaque hash. `attackerName`-style
+display strings are excluded for the same reason they are excluded everywhere
+else in this schema.
+
+### The swap screen's three branches, and one declared asymmetry
+
+`showSwapScreen(incoming, node)` (bundle.deobfuscated.js:79141) computes two
+flags at 79143-79145 and everything below follows from them:
+
+```js
+iu = state.team.length < 6                 // "has room"
+ip = state.challengeNoReplace && !iu       // "Ride or Die", team already full
+```
+
+| state | source | `options` |
+|---|---|---|
+| `iu` (room) | one clickable incoming card, 79171-79201; the click **appends** | exactly one `swap_accept` |
+| `!iu && !ip` (full) | one card per `state.team[i]`, 79202-79246; clicking *i* runs `state.team.splice(i, 1, incoming)` at 79230, so `team[i]` is **released** and the incoming takes its slot | one `swap_release` per team member, in `state.team` order, each carrying its `slot` |
+| `!iu && ip` | the loop's guard `B2a < state.team.length && !(iu || ip)` is false immediately: **no cards at all**, and the prompt reads "Ride or Die — your team is full and can't be changed" | see below |
+
+Cancel (`#btn-cancel-swap`, 79249-79258) is always present, which is why
+`optional` is `true` in all three.
+
+**Declared JS/Python asymmetry — `challengeNoReplace` (M3.4 Defect B).** The
+two runners do *not* behave identically in the third row, and this is recorded
+rather than repaired:
+
+* **JavaScript** (`driver.js`) mirrors the source exactly. It reads
+  `state.challengeNoReplace` and, with a full team, projects **zero** options —
+  matching the zero cards the source builds. Its DOM cross-check
+  (`#swap-choices` child count) then agrees at 0.
+* **Python** (`run_scenario.py`) has **no counterpart** and always projects the
+  full release list. The reason is not an oversight in the projection: the
+  ported engine has no `challenge_no_replace` field *at all*. The flag is set
+  in exactly one place in the source — `case "noreplace"` of the challenge
+  setup switch at 82796 — and **Challenges mode is out of M3 scope**. Story and
+  Nuzlocke, the only modes the route matrix runs, never set it.
+
+So under `challengeNoReplace` with a full team the two projections would
+disagree in cardinality (0 vs 6) for a reason that belongs to the *projection*,
+not to the port. That configuration is **unreachable** in this matrix, so it is
+latent, not active. To stop it becoming a silent trap if Challenges mode is
+ever ported, `run_scenario.py` carries a tripwire: it raises if the engine ever
+grows a truthy `challenge_no_replace` on a full-team swap, pointing here. The
+correct repair at that point is to port the flag and give the Python
+projection the same `ip` guard — not to relax the tripwire.
+
+## Ordered per-turn battle events
+
+**Added in M3.3b (workstream 5).** `event.battle.turns` partitions the battle
+into its rounds and lists the ordered attack events inside each:
+
+```jsonc
+"turns": [
+  { "turn": 1,
+    "events": [
+      { "type": "attack", "side": "player", "attacker_idx": 0,
+        "target_side": "enemy", "target_idx": 0,
+        "move_name": "Vine Whip", "move_type": "Grass",
+        "damage": 9, "type_eff": 2, "crit": false, "is_special": false,
+        "attacker_hp_after": 19, "target_hp_after": 4,
+        "extra_attack": false } ] } ]
+```
+
+**Family.** `type === "attack"` and nothing else. Every source attack site
+emits that one shape: the ordinary hit (55979-55995), the `noDamage` "nothing
+happened" hit (55774-55801), and both extra-attack hits (56240-56255,
+56322-56338, which additionally set `isExtraAttack`).
+
+**Turn boundaries.** The source's `detailedLog` is one flat stream with no
+per-round delimiter — its only `overtime_start` marker is pushed once, at the
+overtime threshold (55418-55422). `run-scenario.js` therefore extends its
+existing, assertion-guarded round-counter edit at `BI4++` (55415-55418, the
+top of the round loop, before any of that round's events exist) to also record
+`BcM.length` at that instant. That is a read of a length plus a push onto a
+driver-owned array: no source state, no control flow and no RNG draw is
+touched. The Python side emits `{"type": "turn_start", "round": n}` at the
+matching point and both runners fold their flat stream into the shape above.
+An event of the compared family occurring before the first turn boundary is a
+hard error on both sides, not a silently dropped event.
+
+**Why the Python side needed a behavior-file change.** Runner-only observation
+was attempted first and is insufficient: `battle_loop.run_battle` is a single
+function whose round counter and per-hit values are locals, `BattleResult`
+exposed only `status_events`/`hook_trace` (neither carries an attack or a
+round boundary), and the only module-level callables a runner could patch that
+run once per attack are `battle.calc_damage` (pre-modifier-chain, so it cannot
+report applied damage or post-hit HP) and the private `_handle_faint` (faints
+only, no round boundary). `battle_loop.py` therefore gained one field,
+`BattleResult.battle_events`, written only by `append` at three points. It was
+proved behavior-neutral by stripping the M3.3b fields from both runners'
+streams and confirming all sixteen stream hashes equal the pre-change
+baselines byte for byte, plus 29/29 battle-oracle fixtures and full suite
+discovery.
+
+**Excluded from the events, and why.** `attackerName`/`targetName` —
+presentation; `side` plus the index identifies the combatant exactly and the
+teams themselves are compared field by field in the same checkpoint, and the
+source's names go through `nickname || name`, which the port does not model.
+`extra_attack` is always `false` on the Python side: the half_twice /
+dragon_first_double follow-up hits live in helpers that are not instrumented
+and require a passive the Story/Nuzlocke matrix never grants. If one ever
+fired, the two projections would disagree in length rather than silently
+agree.
+
+**What this does NOT cover.** Status ticks, effects, faints, send-outs,
+transforms and trait/ability triggers are still outside the projection.
+`status_events` continues to carry the status-tick subset (untouched, and the
+sleep-logging gap remains frozen as blocker 4). Producing a complete
+cross-runtime event log remains renderer-track (R4) work.
 
 `map_topology` inside `sub_map_return` is deliberately the **complete**
 normalized parent map, not a count and not a flags-only summary. The parent's
@@ -164,8 +333,9 @@ on the other side, so both are projected onto one `screen` string:
 | `CHOOSE_STARTER` | `starter-screen` |
 | `ON_MAP` | `map-screen` |
 | `SWAP_CHOICE` | `swap-screen` |
-| `CATCH_CHOICE` | `catch-screen` |
+| `CATCH_CHOICE` | `catch-screen`, or `shiny-screen` -- see below |
 | `ITEM_CHOICE` | `item-screen` |
+| `TRADE_CHOICE` | `trade-screen` |
 | `NEXT_MAP_READY` | `badge-screen` |
 | `GAME_OVER` | `gameover-screen` |
 | `VICTORY` | `win-screen` |
@@ -173,64 +343,62 @@ on the other side, so both are projected onto one `screen` string:
 Any phase without a mapping is reported verbatim as `<unmapped:NAME>` so a
 surprise is visible rather than silently coerced onto a plausible screen.
 
-The unmapped phases are unmapped **on purpose**, because their source
-counterparts are overlays that never call `showScreen` at all and so have no
-screen id to project onto: `ITEM_EQUIP_CHOICE` →`openItemEquipModal` (79419),
-`EVOLUTION_CHOICE` → `showBranchingChoice`'s `#eevee-choice-overlay` (70560),
-`REWARD_TEAM_PICK` → `showTeamPickerModal`'s `#submap-pick-modal` (76845).
-`MOVE_TUTOR_CHOICE`, `TRADE_CHOICE` and `ESCAPE_ROPE_CHOICE` have screens but
-no `choice` bridge and no route through them. `ITEM_CHOICE` was added in M3.1
-because `doItemNode` does open with `showScreen("item-screen")` (79261) and
-two of the new routes decline an item.
+**`CATCH_CHOICE` is not one screen.** `_visit_shiny` (engine.py:2340-2377)
+reuses `Phase.CATCH_CHOICE` wholesale rather than a dedicated phase, but the
+source's `doShinyNode` (bundle.deobfuscated.js:80872-80990) uses its own
+`showScreen("shiny-screen")`, never `catch-screen`. `run_scenario.py`'s
+`_screen_for`/`_is_shiny_origin` (M4 repair) tell the two apart by
+`pending.extra["origin"]`: `"shiny_node"` for a real shiny offer,
+`"catch"`/`"question"` for an ordinary (possibly question-resolved) catch --
+**not** a shared `"question"` value, which was a real bug this repair found
+(a shiny catch was indistinguishable from an ordinary question-resolved catch
+by origin alone, and also incorrectly set `got_via_question`, which the
+source's `doShinyNode` never does -- it never calls
+`catchPokemon`/`recordMonOrigin` at all).
 
-## RNG alignment (`align_rng_after_starter_offer`)
+The remaining unmapped phases are unmapped **on purpose**, because their
+source counterparts are overlays that never call `showScreen` at all and so
+have no screen id to project onto: `ITEM_EQUIP_CHOICE` →`openItemEquipModal`
+(79442), which `doMoveTutorNode` (80464) also reuses the same
+`#item-equip-modal` id/class for; `EVOLUTION_CHOICE` →
+`showBranchingChoice`'s `#eevee-choice-overlay` (70560); `REWARD_TEAM_PICK` →
+`showTeamPickerModal`'s `#submap-pick-modal` (76845) -- the `sacrifice`/
+`stat10` submap rewards. **All four now have real `choice` bridges** (M4
+repair item 1): `driver.js`'s `detectOverlay()` finds them directly from the
+DOM the source built (mounted-in-`document.body` state, and — for the shared
+`item-equip-modal` id — a literal content check distinguishing
+`doMoveTutorNode`'s template from `openItemEquipModal`'s), never by inferring
+from `currentScreen`, which never changes for any of them. `ESCAPE_ROPE_CHOICE`
+has a screen but still has no `choice` bridge and no route through it --
+genuinely out of this repair's scope. `ITEM_CHOICE` was added in M3.1 because
+`doItemNode` does open with `showScreen("item-screen")` (79261) and two of the
+new routes decline an item. `TRADE_CHOICE` was added in M4 (`doTradeNode`'s
+ordinary, non-Endless2 path opens with `showScreen("trade-screen")`, 80587).
 
-An **oracle instrument, not a repair and not a behavior change.** When
-present, both runners call the source's own seeding primitive (`seedRng` /
-`rng.seed_rng`) with the same raw Stream-B state, at the same point in the
-route: after the starter offer, before the starter is chosen.
+## RNG alignment (`align_rng_after_starter_offer`) — RETIRED in M4
 
-It exists because the starter offer *itself* already diverges. The source's
-Story starter screen calls `rollShiny()` once per offered starter
-(bundle.deobfuscated.js:76175-76194; `rollShiny` always draws, line 74921),
-so three draws happen before the player clicks. The Python port's
-`ChooseStarter` handler makes zero and forces `is_shiny = False`
-(`pokelike/engine.py:580-581`). Without re-alignment every later
-RNG-dependent decision — starting with map generation — is only a downstream
-echo of that one difference, and any *independent* divergence would be hidden
-behind it.
+**No fixture sets this key any more, and the primary parity matrix does not
+depend on it.** A focused test (`test_no_scenario_uses_post_starter_rng_
+alignment`) asserts that, and a mutation that reintroduces the key into a gate
+scenario is killed by it.
 
-The divergence is **still recorded and still compared**: the `run_init` and
-`starter_offered` checkpoints carry the pre-alignment `rng.draws` (js `3`,
-python `0`) and the pre-alignment `rng.state`, in **every** scenario, and both
-are part of the frozen parity signature.
+It existed for exactly one reason: the starter offer itself diverged. The
+source's Story starter screen calls `rollShiny()` once per offered starter
+(bundle.deobfuscated.js:76175-76194; `rollShiny` always draws, 74921), for
+three draws before the player clicks, while the port made zero and forced
+`is_shiny = False`. Every later RNG-dependent decision was then a downstream
+echo of that one difference, so the runners re-seeded symmetrically, through
+each side's own primitive, at one route point after the offer.
 
-**Correction (M3.3).** This section previously claimed "the matrix includes at
-least one scenario with no alignment at all". That was **false**: all eight
-fixtures set `align_rng_after_starter_offer`. It was checked and corrected
-rather than left standing.
+M4 repaired the divergence instead: `Engine.reset` performs the same three
+draws, in the same order, and keeps the three resulting instances. With
+nothing left to isolate, keeping the instrument would only have provided a
+place for that exact regression to hide, so it was removed and seven routes
+were re-derived unaligned with `search_route.py --cross-runtime`.
 
-What an unaligned run actually does was measured instead, by stripping the key
-from a copy of `nuzlocke_gen1_permadeath.json` and re-running it: the Python
-side's map generation immediately diverges from the source's, so the fixture's
-own action list stops being valid — the run dies with
-`expected SelectOption while resolving item_choice`, because Python is parked
-on a screen the route never planned for. So an unaligned fixture is not simply
-"the same route with more differences"; a route that is replayable on both
-sides without alignment would have to be authored from scratch. That is
-recorded as a residual limitation, not silently implied by omission.
-
-What the alignment instrument does and does not hide, stated as measurements:
-
-* the three pre-alignment draws are observable in every scenario at
-  checkpoints 0-1 and are frozen there;
-* re-seeding is symmetric and happens at exactly one boundary through each
-  side's own primitive (`seedRng` / `rng.seed_rng`) — visible in the signature
-  as `rng.state` differing at checkpoints **0-1 only** and agreeing from the
-  `rng_aligned` checkpoint onward, in all eight scenarios;
-* non-RNG differences survive it — `counters.any_fainted`, `current_node`,
-  `map.nodes[i].accessible` and `event.battle.status_events[len]` are all found
-  *through* the alignment point.
+The runner still honours the key if a scenario carries one, and the
+`rng_aligned` checkpoint kind still exists, so an investigator can re-introduce
+it deliberately for a one-off probe. It must not come back into the matrix.
 
 ## Excluded fields, and why
 
@@ -250,29 +418,39 @@ observed discrepancy are always compared.
 
 ## Known schema limitations (recorded, not papered over)
 
-1. **No full per-turn battle event stream.** The source's `runBattle` returns
-   a complete `detailedLog`; the Python port's `battle_loop.BattleResult`
-   exposes only `status_events` and `hook_trace` — narrow oracle
-   instrumentation added for the battle oracle — and has no counterpart to
-   compare a full log against. This schema therefore compares winner, exact
-   round count, RNG draws, final per-combatant state, participant set, and
-   the ordered status-tick / poison-drain / status-faint stream, reusing
+1. **No *complete* per-turn battle event stream.** **Narrowed in M3.3b.** The
+   ordered, turn-delimited **attack** family is now compared in full — see
+   "Ordered per-turn battle events" above — and it agrees exactly in all
+   eight scenarios. What is still uncompared is the rest of the source's
+   `detailedLog`: `effect`, `faint`, `send_out`, `transform`,
+   `trait_trigger`, `ability_trigger` and `overtime_start`. The port has no
+   counterpart for those, and fabricating one would have made the oracle
+   assert its own invention. The status-tick subset continues to be compared
+   separately as `status_events`, reusing
    `tools/battle-oracle/run-fixture.js`'s derivation verbatim. The JavaScript
-   log length is carried as `__diagnostic_event_count` and is **never
-   compared**, because there is no Python value to compare it with.
-   Fabricating a Python event log to fill the gap would have made the oracle
-   assert its own invention. Producing a real one is renderer-track (R4)
-   work.
+   log length is still carried as `__diagnostic_event_count` and is **never
+   compared**, because there is still no whole-log Python value to compare it
+   with. Producing a complete one is renderer-track (R4) work.
 
-   **M3.1 addendum, now measured rather than predicted:** this limitation has
-   a concrete cost. The port's `_status_tick_round`
-   (`pokelike/battle_loop.py:1109-1160`) logs burn and poison ticks only,
-   while the source (55687-55710) also logs `sleep_wake` / `sleep_skip`. The
-   Gen3 Admin battle is the first route battle to inflict sleep, and it shows
-   the gap as `event.battle.status_events[len]` js=3 / py=0 — with winner,
+   **M3.1 addendum, REPAIRED in M4.** The port's `_status_tick_round` logged
+   burn and poison ticks only, while the source's pre-turn block (55647-55710)
+   also logs `flinch`, `freeze_skip`, `sleep_wake` and `sleep_skip`. That
+   showed as `event.battle.status_events[len]` js=3 / py=0 — with winner,
    round count, RNG draws and final state all agreeing exactly, because sleep
-   itself *is* modelled. Frozen as finding 4 in
-   `findings/M3-parity-blockers.md`; not repaired.
+   itself *was* modelled correctly. `battle_loop`'s turn loop now emits the
+   whole pre-turn `status_tick` family through a pure `_pre_turn_tick` helper,
+   reading the status **before** `battle.resolve_pre_turn_status` folds freeze
+   and sleep-not-woken into one boolean. `story_gen3_sleep_ticks` observes both
+   sleep branches cross-runtime. `flinch` and `freeze_skip` are emitted but no
+   current route inflicts either, so they are source-shaped rather than
+   source-confirmed.
+
+   **Also repaired in M4: the Mirror Coat counter-hit.** The `mirror_coat`
+   ability's `beforeTurn` hook (58108-58142) pushes a real `type: "attack"`
+   entry — a member of the family `event.battle.turns` already compares — and
+   the port applied the damage without logging it. `damage` is the source's
+   CLAMPED delta, not `stored * 2`; the two differ on an overkill.
+   `story_gen3_mirror_coat` observes 9 such events cross-runtime.
 2. **No XP field.** The game has no XP pool: `applyLevelGain`
    (bundle.deobfuscated.js:56791) awards levels directly. `level` is compared
    per team member and per battle; there is no XP quantity in either
@@ -283,17 +461,23 @@ observed discrepancy are always compared.
    (`getBestMove` / `battle.get_best_move`). `move_tier` — the identity input
    that fully determines selection — is compared per team member, and the
    moves actually chosen are compared through the battle events.
-4. **`move-tutor`, `trade`, `question`, `legendary` and `shiny` screens have
-   no `choice` bridge**, and neither do the three overlays that never call
-   `showScreen`: `openItemEquipModal` (79419), `showBranchingChoice` (70560)
-   and `showTeamPickerModal` (76845). The submap `reward` flow *is* bridged,
-   through `swap-screen` — the `fossil` and legendary reward cases call
-   `showSwapScreen` directly (77076 / 77096) — but the `sacrifice` and
-   `stat10` rewards route to the unbridged team-picker modal instead. Routes
-   are planned to avoid the unbridged ones; `plan_route.py` stops rather than
-   guess when only an unbridged screen is reachable.
-5. **`counters.any_fainted` reads through `getattr(st, "any_fainted", False)`.**
-   That defensive read is deliberate: `RunState` has no such field, and
-   reporting a constant `false` is what makes the absence show up as a
-   comparable difference against the source's `state.anyFainted` (81372)
-   rather than crashing the runner. Frozen as finding 5.
+4. **`move-tutor`, `trade` and `shiny` screens, and the `openItemEquipModal`
+   (79442) / `showBranchingChoice` (70560) / `showTeamPickerModal` (76845)
+   overlays — REPAIRED in M4.** All six now have real `choice` bridges (see
+   "Phase ↔ screen" above for how the three `showScreen`-less ones are
+   detected). Ordinary `LEGENDARY` needed no new bridge at all: its win path
+   always ends in the already-bridged `swap-screen`
+   (`_visit_legendary`/`doLegendaryNode`). The submap `reward` flow's
+   `fossil`/legendary cases were already bridged through `swap-screen`
+   (`showSwapScreen` directly, 77076/77096); `sacrifice`/`stat10` now resolve
+   through the newly-bridged team-picker modal instead of being routed
+   around. `plan_route.py` (the older greedy walker, since replaced by
+   `search_route.py` for anything needing to reach one of these) still stops
+   rather than guess when only an unbridged screen is reachable;
+   `ESCAPE_ROPE_CHOICE` remains genuinely unbridged and out of scope.
+5. **`counters.any_fainted` — REPAIRED in M4.** `RunState.any_fainted` is now
+   a real field, initialised false and set true only when a won Nuzlocke
+   battle's cull actually removes at least one member (81371-81372, inside the
+   win branch opened at 81278). The runner's defensive
+   `getattr(st, "any_fainted", False)` is retained so that deleting the field
+   again would surface as a compared difference rather than a crash.

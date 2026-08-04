@@ -576,7 +576,20 @@ class Gen3AbilityConfig:
     # beforeTurn -- bundle.deobfuscated.js:58081-58146
     # -----------------------------------------------------------------
 
-    def before_turn(self, attacker: Combatant, defender: Optional[Combatant]) -> Optional[str]:
+    def before_turn(
+        self,
+        attacker: Combatant,
+        defender: Optional[Combatant],
+        counter_hit: Optional[list] = None,
+    ) -> Optional[str]:
+        """`counter_hit` is an optional observation sink, mirroring the log
+        array the source's own hook receives and pushes into (`BcU`,
+        bundle.deobfuscated.js:58116-58132). It is appended to only by the
+        `mirror_coat` counter-hit, which is a real `type: "attack"` entry in
+        the source's `detailedLog` and therefore belongs to the ordered
+        attack family the route oracle compares. Callers that do not pass it
+        get byte-identical behavior -- nothing here branches on it.
+        """
         ability = ability_id_of(attacker, self.gen4_mode)
         if not ability or ability_id_of(defender, self.gen4_mode) == "shield_dust":
             return None
@@ -587,8 +600,23 @@ class Gen3AbilityConfig:
             stored = attacker.flags.get("_mirrorLast") or 0
             if stored > 0 and defender is not None and defender.current_hp > 0:
                 counter = stored * 2
+                before_hp = defender.current_hp
                 defender.current_hp = max(0, defender.current_hp - counter)
                 attacker.flags["_mirrorLast"] = 0
+                if counter_hit is not None:
+                    # The source's own constants at 58124-58130: the move is
+                    # named "Mirror Coat", Psychic, never a crit, always
+                    # special, `typeEff` a literal 1, and `damage` the CLAMPED
+                    # delta (`Bcw - BcA.currentHp`) rather than `stored * 2`,
+                    # which differ whenever the counter overkills.
+                    counter_hit.append({
+                        "move_name": "Mirror Coat",
+                        "move_type": "Psychic",
+                        "damage": before_hp - defender.current_hp,
+                        "type_eff": 1,
+                        "crit": False,
+                        "is_special": True,
+                    })
                 return "skip"
             return None
         return None

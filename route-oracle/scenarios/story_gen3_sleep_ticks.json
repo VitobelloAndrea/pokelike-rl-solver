@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "scenario": "story_gen3_sleep_ticks",
+  "description": "Story/Gen3. The matrix's SLEEP observation. A battle inflicts sleep and the route records BOTH branches of the source's pre-turn sleep tick (bundle.deobfuscated.js:55687-55710): a `sleep_wake` (the `rng() < 0.5` branch clears the status and the turn PROCEEDS) and a `sleep_skip` (the else branch skips it). Before M4 the port modelled sleep correctly -- same 50% roll, same draw -- but logged neither, which was frozen blocker 4. Derived by a deterministic decline-everything walk over seeds 1-119 x three starters x four generations; this was the only probe in ~1400 that produced both branches, and both must be present so a mutation omitting either is killed on its own.",
+  "mode": {
+    "nuzlocke": false,
+    "gen2": false,
+    "gen3": true,
+    "gen4": false
+  },
+  "seed": 42,
+  "starter_index": 2,
+  "actions": [
+    {
+      "kind": "visit",
+      "node": "n1_0"
+    },
+    {
+      "kind": "choice",
+      "index": null
+    },
+    {
+      "kind": "visit",
+      "node": "n2_0"
+    },
+    {
+      "kind": "visit",
+      "node": "n3_0"
+    },
+    {
+      "kind": "choice",
+      "index": null
+    },
+    {
+      "kind": "visit",
+      "node": "n4_0"
+    }
+  ]
+}

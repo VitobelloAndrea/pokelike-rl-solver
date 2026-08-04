@@ -1,41 +1,31 @@
 {
   "schema_version": 1,
   "scenario": "story_gen1_map0_to_map1",
-  "description": "Story/Gen1. Map 0 start->boss win->badge->map 1, continuing into map 1. Covers initialization, starter selection, map generation and node identity, ordinary trainers, wild battles, a catch-node decline, an evolution (Bulbasaur->Ivysaur), a boss win, a map transition, and a winning progression branch.",
-  "covers": [
-    "init",
-    "starter_selection",
-    "map_generation",
-    "node_identity",
-    "ordinary_trainer",
-    "battle",
-    "catch_decline",
-    "evolution",
-    "boss_win",
-    "map_transition",
-    "winning_progression"
-  ],
+  "description": "Story/Gen1. The ordinary-progression spine: starter selection, map-0 generation and node identity, wild/trainer battles, a catch decline, a boss win, and the map 0 -> map 1 transition, continuing on the new map. Re-derived UNALIGNED for M4 by route-oracle/search_route.py --target second_map_progress --cross-runtime.",
   "mode": {
     "nuzlocke": false,
     "gen2": false,
     "gen3": false,
     "gen4": false
   },
-  "seed": 123456789,
+  "seed": 1,
   "starter_index": 0,
-  "align_rng_after_starter_offer": 88888888,
   "actions": [
     {
       "kind": "visit",
-      "node": "n1_1"
+      "node": "n1_0"
+    },
+    {
+      "kind": "choice",
+      "index": null
     },
     {
       "kind": "visit",
-      "node": "n2_1"
+      "node": "n2_0"
     },
     {
       "kind": "visit",
-      "node": "n3_2"
+      "node": "n3_1"
     },
     {
       "kind": "visit",
@@ -43,11 +33,15 @@
     },
     {
       "kind": "visit",
-      "node": "n5_2"
+      "node": "n5_1"
+    },
+    {
+      "kind": "choice",
+      "index": null
     },
     {
       "kind": "visit",
-      "node": "n6_1"
+      "node": "n6_0"
     },
     {
       "kind": "visit",
@@ -62,19 +56,7 @@
     },
     {
       "kind": "visit",
-      "node": "n1_1"
-    },
-    {
-      "kind": "visit",
-      "node": "n2_1"
-    },
-    {
-      "kind": "visit",
-      "node": "n3_1"
-    },
-    {
-      "kind": "visit",
-      "node": "n4_1"
+      "node": "n1_0"
     },
     {
       "kind": "choice",
@@ -82,19 +64,7 @@
     },
     {
       "kind": "visit",
-      "node": "n5_2"
-    },
-    {
-      "kind": "visit",
-      "node": "n6_2"
-    },
-    {
-      "kind": "visit",
-      "node": "n7_1"
-    },
-    {
-      "kind": "visit",
-      "node": "n8_0"
+      "node": "n2_1"
     }
   ]
 }

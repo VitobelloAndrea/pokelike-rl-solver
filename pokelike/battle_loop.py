@@ -88,6 +88,106 @@ class BattleResult:
     # status/KO sequencing only; they are not yet the public animation log.
     status_events: list = field(default_factory=list)
     hook_trace: list = field(default_factory=list)
+    # Ordered, turn-delimited attack stream for the M3 route oracle (M3.3b
+    # workstream 5). A flat list of `{"type": "turn_start", "round": n}`
+    # markers interleaved with `{"type": "attack", ...}` records, in the order
+    # `run_battle` produces them -- the counterpart of the source's own
+    # `detailedLog` entries with `type === "attack"`, partitioned by its round
+    # loop. Purely additive: every write is an `append` to this list, no
+    # control flow, no state mutation and no RNG draw depends on it.
+    battle_events: list = field(default_factory=list)
+
+
+def _attack_event(
+    side, mover, mover_idx, target_side, target, target_idx,
+    move, move_type, damage, type_eff, crit, is_special,
+) -> dict:
+    """One `type: "attack"` record, shaped like the source's own
+    (bundle.deobfuscated.js:55979-55995). Pure construction: it reads the
+    combatants it is handed and mutates nothing.
+
+    `attacker_name`/`target_name` are deliberately absent: `side` plus the
+    index identifies the combatant exactly, the teams themselves are compared
+    field by field in the same checkpoint, and the source's names go through
+    `nickname || name` -- a display concern the port does not model.
+    """
+    return {
+        "type": "attack",
+        "side": side,
+        "attacker_idx": mover_idx,
+        "target_side": target_side,
+        "target_idx": target_idx,
+        "move_name": move.name,
+        "move_type": move_type,
+        "damage": damage,
+        "type_eff": type_eff,
+        "crit": bool(crit),
+        "is_special": bool(is_special),
+        "attacker_hp_after": mover.current_hp,
+        "target_hp_after": target.current_hp,
+        # The source sets `isExtraAttack` only on the half_twice /
+        # dragon_first_double follow-up hits (56255 / 56338). Those are
+        # emitted from `_apply_half_twice_extra_attack` /
+        # `_apply_dragon_first_double_extra_attack`, which are not
+        # instrumented; both require a passive the Story/Nuzlocke route
+        # matrix never grants, and if one ever fired the projections would
+        # disagree in length rather than silently agree.
+        "extra_attack": False,
+    }
+
+
+def _counter_attack_event(side, mover, mover_idx, target_side, target, target_idx, hit) -> dict:
+    """The `mirror_coat` counter-hit as an ordinary `type: "attack"` record.
+
+    The source builds it inline in the ability's own `beforeTurn`
+    (bundle.deobfuscated.js:58116-58132) rather than at an attack site, but the
+    shape it pushes is the ordinary attack shape, so it is projected through
+    the same fields as `_attack_event`. `extra_attack` is false: the source
+    sets `isExtraAttack` only on the half_twice / dragon_first_double follow-up
+    hits (56255 / 56338) and does not set it here.
+
+    Pure construction: `hit` already carries the values the hook computed, and
+    the HP fields are read from the combatants after the hook applied them.
+    """
+    return {
+        "type": "attack",
+        "side": side,
+        "attacker_idx": mover_idx,
+        "target_side": target_side,
+        "target_idx": target_idx,
+        "move_name": hit["move_name"],
+        "move_type": hit["move_type"],
+        "damage": hit["damage"],
+        "type_eff": hit["type_eff"],
+        "crit": bool(hit["crit"]),
+        "is_special": bool(hit["is_special"]),
+        "attacker_hp_after": mover.current_hp,
+        "target_hp_after": target.current_hp,
+        "extra_attack": False,
+    }
+
+
+def _pre_turn_tick(side, idx, mover, status) -> dict:
+    """One pre-turn `status_tick` record, shaped like the source's own
+    (bundle.deobfuscated.js:55655-55668 flinch, 55676-55685 freeze_skip,
+    55689-55698 sleep_wake, 55699-55709 sleep_skip). All four carry
+    `hpChange: 0` and `hpAfter: currentHp` literally -- none of them touches
+    HP -- so the projection carries the same constants rather than deriving
+    them.
+
+    Pure construction, like `_attack_event`: it reads the combatant it is
+    handed and mutates nothing. `name` is excluded for the same reason
+    `attacker_name` is, and the oracle's `status_events` projection does not
+    carry it either.
+    """
+    return {
+        "type": "status_tick",
+        "side": side,
+        "idx": idx,
+        "status": status,
+        "hp_change": 0,
+        "hp_after": mover.current_hp,
+    }
 
 
 _PERSISTENT_FLAGS = ("_runSpeedStage", "_runMaxHp")
@@ -279,12 +379,18 @@ def run_battle(
     last_total_hp = -1
     status_events: list = []
     hook_trace: list = []
+    battle_events: list = []
 
     def total_hp() -> int:
         return sum(max(0, m.current_hp) for m in p_team) + sum(max(0, m.current_hp) for m in e_team)
 
     while player_still_in_it() and team_alive(e_team) and round_num < _ROUND_CAP:
         round_num += 1
+        # Oracle observation only (M3.3b workstream 5). Emitted at the same
+        # point the source's round counter increments (bundle.deobfuscated.js:
+        # 55415-55418), i.e. before any of this round's events exist, so the
+        # two turn partitions line up exactly.
+        battle_events.append({"type": "turn_start", "round": round_num})
         if round_num == _OVERTIME_ROUND + 1:
             overtime_mult = 3
 
@@ -312,8 +418,6 @@ def run_battle(
                 pokemon.flags["_g3Entered"] = True
                 if ability_config is not None:
                     ability_config.on_switch_in(pokemon, own_team, opp_pokemon, opp_team, battle_config)
-                if pokemon is attacker_p and p_idx not in player_participants:
-                    player_participants.add(p_idx)
 
         # Ditto transform (species 132), bundle.deobfuscated.js:55463-55480
         if attacker_p.species_id == 132 and not attacker_p.flags.get("_transformed"):
@@ -349,20 +453,47 @@ def run_battle(
             attacker_p, attacker_e, player_items, enemy_items, traits, resolve_trick_room(),
             player_speed=player_speed, enemy_speed=enemy_speed,
         )
-        order = (
-            [("player", attacker_p, p_team, "enemy", attacker_e, e_team), ("enemy", attacker_e, e_team, "player", attacker_p, p_team)]
-            if first_actor == "player"
-            else [("enemy", attacker_e, e_team, "player", attacker_p, p_team), ("player", attacker_p, p_team, "enemy", attacker_e, e_team)]
-        )
+        _p_turn = ("player", attacker_p, p_idx, p_team, "enemy", attacker_e, e_team)
+        _e_turn = ("enemy", attacker_e, e_idx, e_team, "player", attacker_p, p_team)
+        order = [_p_turn, _e_turn] if first_actor == "player" else [_e_turn, _p_turn]
 
-        for side, mover, mover_team, target_side, target, target_team in order:
+        for side, mover, mover_idx, mover_team, target_side, target, target_team in order:
             if mover.current_hp <= 0 or target.current_hp <= 0:
                 continue
+            # Pre-turn status ticks, bundle.deobfuscated.js:55647-55710. The
+            # source pushes a `status_tick` onto its detailed log at each of
+            # these four points, with `{side, idx, status, hpChange: 0,
+            # hpAfter: currentHp}`; the oracle's `status_events` projection
+            # (tools/battle-oracle/run-fixture.js:189-201) carries exactly that
+            # shape. Observation only -- no branch, no RNG draw and no
+            # combatant state below is altered by emitting them, which is what
+            # keeps the already-agreeing winner/rounds/draw-count/final-state
+            # results untouched.
             if mover.flags.pop("flinch", False):
+                # 55655-55668: push, clear the flag, skip the turn.
+                status_events.append(_pre_turn_tick(side, mover_idx, mover, "flinch"))
                 continue
             if mover.flags.pop("_frozenOnEntry", False):
                 mover.status = "freeze"
-            if resolve_pre_turn_status(mover):
+            # 55673-55686 (freeze) and 55687-55710 (sleep) are two separate
+            # branches of the same block, and `resolve_pre_turn_status` folds
+            # both into one boolean, so read the status BEFORE calling it:
+            # afterwards a woken sleeper is indistinguishable from a combatant
+            # that was never asleep.
+            status_before = mover.status
+            skipped = resolve_pre_turn_status(mover)
+            if status_before == "freeze":
+                # 55676-55685: always a skip, no draw.
+                status_events.append(_pre_turn_tick(side, mover_idx, mover, "freeze_skip"))
+            elif status_before == "sleep":
+                # 55688: one `rng() < 0.5` draw, already consumed inside
+                # `resolve_pre_turn_status`. Waking clears the status and the
+                # turn PROCEEDS (55689-55698); failing to wake skips it
+                # (55699-55709).
+                status_events.append(
+                    _pre_turn_tick(side, mover_idx, mover, "sleep_skip" if skipped else "sleep_wake")
+                )
+            if skipped:
                 continue
 
             # `mergeBattleConfigs` semantics (bundle.deobfuscated.js:80991-
@@ -381,16 +512,32 @@ def run_battle(
             # too: the source's `O` (first arg to `mergeBattleConfigs`) is
             # always the ability config, `iu` the traits config -- ability
             # hooks fire before trait hooks, not the reverse.
+            #
+            # `counter_hit` is an observation sink only (M4). The source's
+            # `mirror_coat` branch pushes a real `type: "attack"` entry into
+            # its `detailedLog` at 58116-58132 -- an event of the SAME family
+            # `event.battle.turns` already compares, not a new one -- while
+            # the port applied the damage silently. That showed up as
+            # `event.battle.turns[i].events[len]` js=2 / py=1 on a Gen3 route
+            # that fights a Wynaut, with rounds, RNG draws, winner and every
+            # final HP agreeing exactly. Passing the sink changes no branch
+            # and consumes no draw.
+            counter_hit: list = []
             if merged:
-                ability_config.before_turn(mover, target)
+                ability_config.before_turn(mover, target, counter_hit)
                 traits_config.before_turn(mover, target, side, battle_config)
                 skip = None
             elif ability_config is not None:
-                skip = ability_config.before_turn(mover, target)
+                skip = ability_config.before_turn(mover, target, counter_hit)
             elif traits_config is not None:
                 skip = traits_config.before_turn(mover, target, side, battle_config)
             else:
                 skip = None
+            for hit in counter_hit:
+                battle_events.append(_counter_attack_event(
+                    side, mover, mover_idx, target_side, target,
+                    e_idx if target_side == "enemy" else p_idx, hit,
+                ))
             if skip == "skip":
                 continue
 
@@ -422,7 +569,17 @@ def run_battle(
                 if not (has_passive(traits, "neutralize")):
                     move = MoveInstance(power=50, type="Normal", name="Struggle", is_special=False, typeless=True)
 
+            mover_idx = p_idx if side == "player" else e_idx
+            target_idx = e_idx if target_side == "enemy" else p_idx
+
             if move.no_damage:
+                # bundle.deobfuscated.js:55774-55801 logs a zero-damage
+                # `attack` event on this branch before moving on; mirrored
+                # here so the projected family is complete, not truncated.
+                battle_events.append(_attack_event(
+                    side, mover, mover_idx, target_side, target, target_idx,
+                    move, move.type, 0, 1, False, False,
+                ))
                 continue
 
             if side == "player" and "Dragon" in {t.capitalize() for t in mover.types} and has_passive(traits, "dragon_first_crit") and not battle_config.fired_flags.get("dragon_first_crit"):
@@ -524,6 +681,18 @@ def run_battle(
             # `damage`, matching the source's own BEF/BEs split
             # (bundle.deobfuscated.js:55990-55998, 56354-56404).
             actual_damage = pre_hp - target.current_hp
+
+            # Oracle observation only (M3.3b workstream 5). Emitted at the
+            # source's own push point: bundle.deobfuscated.js:55979-55995
+            # pushes the `attack` event AFTER the hit has landed (so
+            # `targetHpAfter` already reflects the sturdy/Fighting-Spirit
+            # clamps) and BEFORE `whenAttacked` runs. `damage` is the source's
+            # `BEF` -- the raw post-modifier value `whenAttacked` also reads --
+            # not the post-clamp `BEs`/`actual_damage`.
+            battle_events.append(_attack_event(
+                side, mover, mover_idx, target_side, target, target_idx,
+                move, result.move_type, damage, result.type_eff, result.crit, move.is_special,
+            ))
 
             if ability_config is not None:
                 ability_config.when_attacked(target, mover, damage)
@@ -641,6 +810,7 @@ def run_battle(
         rounds=round_num,
         status_events=status_events,
         hook_trace=hook_trace,
+        battle_events=battle_events,
     )
 
 
@@ -1244,3 +1414,24 @@ def _handle_faint(
         next_idx = _first_alive_index(enemy_team)
         if next_idx is not None and traits_config is not None:
             traits_config.apply_enemy_switch_in_hazards(enemy_team[next_idx], player_team, battle_config)
+
+    # `player_participants`: the source's OWN "was sent out" bookkeeping
+    # (bundle.deobfuscated.js:56452-56456 for the target-fainted block,
+    # 56489-56493 for the mover-recoil-fainted block -- `_handle_faint`'s
+    # only two callers, run_battle:750/752) adds the next alive player slot
+    # HERE, at a COMBAT faint, and only here. `_status_tick_round`'s own
+    # pre-turn poison/status fainting has NO equivalent "was sent out" call
+    # in the source at all, so a member whose only path onto the field was
+    # a predecessor's STATUS-tick death is never counted as a participant,
+    # even if it goes on to attack -- a real, narrow source quirk, not a
+    # simplification. Found and repaired during the M4 route-oracle work:
+    # a prior version added a slot to `player_participants` unconditionally
+    # the first time it became the active attacker (case-insensitive to WHY
+    # its predecessor left), which is broader than the source and diverged
+    # on any route where a status-tick faint forced a mid-battle switch --
+    # invisible until a long enough multi-battle route finally poisoned a
+    # team member to death.
+    if fainted_side == "player":
+        next_idx = _first_alive_index(player_team)
+        if next_idx is not None:
+            player_participants.add(next_idx)

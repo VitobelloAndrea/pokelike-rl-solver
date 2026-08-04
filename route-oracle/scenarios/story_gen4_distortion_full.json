@@ -1,0 +1,196 @@
+{
+  "schema_version": 1,
+  "scenario": "story_gen4_distortion_full",
+  "description": "Backtracking-derived route for distortion_full.",
+  "mode": {
+    "nuzlocke": false,
+    "gen2": false,
+    "gen3": false,
+    "gen4": true
+  },
+  "seed": 4,
+  "starter_index": 1,
+  "actions": [
+    {
+      "kind": "visit",
+      "node": "n1_1"
+    },
+    {
+      "kind": "visit",
+      "node": "n2_2"
+    },
+    {
+      "kind": "visit",
+      "node": "n3_2"
+    },
+    {
+      "kind": "visit",
+      "node": "n4_1"
+    },
+    {
+      "kind": "choice",
+      "index": 0
+    },
+    {
+      "kind": "choice",
+      "index": 0
+    },
+    {
+      "kind": "visit",
+      "node": "n5_1"
+    },
+    {
+      "kind": "visit",
+      "node": "n6_1"
+    },
+    {
+      "kind": "visit",
+      "node": "n7_0"
+    },
+    {
+      "kind": "visit",
+      "node": "n8_0"
+    },
+    {
+      "kind": "advance_map"
+    },
+    {
+      "kind": "visit",
+      "node": "n1_0"
+    },
+    {
+      "kind": "choice",
+      "index": null
+    },
+    {
+      "kind": "visit",
+      "node": "n2_1"
+    },
+    {
+      "kind": "visit",
+      "node": "n3_1"
+    },
+    {
+      "kind": "choice",
+      "index": 0
+    },
+    {
+      "kind": "choice",
+      "index": 0
+    },
+    {
+      "kind": "visit",
+      "node": "n4_0"
+    },
+    {
+      "kind": "visit",
+      "node": "n1_0"
+    },
+    {
+      "kind": "visit",
+      "node": "n2_0"
+    },
+    {
+      "kind": "visit",
+      "node": "n3_0"
+    },
+    {
+      "kind": "visit",
+      "node": "n5_0"
+    },
+    {
+      "kind": "choice",
+      "index": 0
+    },
+    {
+      "kind": "visit",
+      "node": "n6_0"
+    },
+    {
+      "kind": "visit",
+      "node": "n7_0"
+    },
+    {
+      "kind": "visit",
+      "node": "n8_0"
+    },
+    {
+      "kind": "advance_map"
+    },
+    {
+      "kind": "visit",
+      "node": "n1_0"
+    },
+    {
+      "kind": "choice",
+      "index": null
+    },
+    {
+      "kind": "visit",
+      "node": "n2_0"
+    },
+    {
+      "kind": "visit",
+      "node": "n3_1"
+    },
+    {
+      "kind": "visit",
+      "node": "n4_0"
+    },
+    {
+      "kind": "visit",
+      "node": "n5_1"
+    },
+    {
+      "kind": "visit",
+      "node": "n6_1"
+    },
+    {
+      "kind": "visit",
+      "node": "n7_1"
+    },
+    {
+      "kind": "visit",
+      "node": "n8_0"
+    },
+    {
+      "kind": "advance_map"
+    },
+    {
+      "kind": "visit",
+      "node": "n1_1"
+    },
+    {
+      "kind": "visit",
+      "node": "n2_2"
+    },
+    {
+      "kind": "visit",
+      "node": "n3_3"
+    },
+    {
+      "kind": "choice",
+      "index": null
+    },
+    {
+      "kind": "visit",
+      "node": "n4_2"
+    },
+    {
+      "kind": "visit",
+      "node": "n1_0"
+    },
+    {
+      "kind": "visit",
+      "node": "n2_0"
+    },
+    {
+      "kind": "visit",
+      "node": "n3_0"
+    },
+    {
+      "kind": "visit",
+      "node": "n5_3"
+    }
+  ]
+}

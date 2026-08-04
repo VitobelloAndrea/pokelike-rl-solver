@@ -468,10 +468,24 @@ def main(argv: list[str]) -> int:
         print(sig_mod.summarize(observed_signature))
         print(
             "\nAUDIT: the COMPLETE observed parity signature equals the frozen "
-            f"signature ({observed_signature['signature_sha256']}).\n"
-            "PARITY REMAINS BLOCKED -- this is NOT a parity PASS. The default mode "
-            "(no --audit-frozen) is the parity gate and still exits nonzero."
+            f"signature ({observed_signature['signature_sha256']})."
         )
+        # The wording has to follow the signature's own content. Under M3 the
+        # frozen signature carried 40 difference records, so a clean audit
+        # genuinely still meant PARITY BLOCKED and saying so was the whole
+        # point. Since M4 it carries zero, and repeating the M3 sentence would
+        # be a false statement printed by a passing gate.
+        if observed_signature.get("differences"):
+            print(
+                "PARITY REMAINS BLOCKED -- this is NOT a parity PASS. The default mode "
+                "(no --audit-frozen) is the parity gate and still exits nonzero."
+            )
+        else:
+            print(
+                "The frozen signature contains ZERO difference records, so this also "
+                "asserts that no difference has REAPPEARED. It is still not the parity "
+                "gate: the default mode (no --audit-frozen) is, and it must exit 0."
+            )
         return 0
 
     return 0 if agreed == len(results) else 1

@@ -15,7 +15,24 @@
     "map_transition",
     "winning_progression",
     "nuzlocke_permadeath",
-    "terminal_loss"
+    "terminal_loss",
+    "swap_release",
+    "legendary_swap_accept",
+    "legendary_swap_decline",
+    "shiny_resolved",
+    "move_tutor_resolved",
+    "trade_resolved",
+    "item_equip_resolved",
+    "branching_evolution_resolved",
+    "sacrifice_reward_resolved",
+    "stat10_reward_resolved",
+    "distortion_entry",
+    "distortion_boss_win",
+    "distortion_boss_loss",
+    "distortion_reward_resolved",
+    "distortion_subexit",
+    "distortion_exact_parent_return",
+    "distortion_continued_progress"
   ],
   "scenarios": [
     {
@@ -35,7 +52,7 @@
       ],
       "expected_coverage": {
         "evolution_or_reward_transition": [
-          23
+          35
         ],
         "map_transition": [
           29
@@ -44,16 +61,13 @@
           9,
           12,
           15,
-          18,
-          24,
-          51
+          36
         ],
         "starter_selection": [
-          3
+          2
         ],
         "winning_progression": [
-          26,
-          53
+          26
         ]
       }
     },
@@ -71,22 +85,21 @@
       ],
       "expected_coverage": {
         "evolution_or_reward_transition": [
-          20
+          25
         ],
         "map_transition": [
           28
         ],
         "ordinary_trainer": [
           12,
-          18,
-          21,
-          37
+          15,
+          39
         ],
         "starter_selection": [
-          3
+          2
         ],
         "terminal_loss": [
-          41
+          43
         ],
         "winning_progression": [
           25
@@ -112,28 +125,24 @@
       ],
       "expected_coverage": {
         "evolution_or_reward_transition": [
-          34,
-          40
+          25
         ],
         "map_transition": [
-          29
+          28
         ],
         "ordinary_trainer": [
-          10,
-          16,
-          19,
-          35,
-          38
+          12,
+          15,
+          35
         ],
         "silver": [
           41
         ],
         "starter_selection": [
-          3
+          2
         ],
         "winning_progression": [
-          26,
-          51
+          25
         ]
       }
     },
@@ -149,10 +158,7 @@
       ],
       "expected_coverage": {
         "starter_selection": [
-          3
-        ],
-        "terminal_loss": [
-          14
+          2
         ]
       }
     },
@@ -173,19 +179,16 @@
       ],
       "expected_coverage": {
         "evolution_or_reward_transition": [
-          9
+          8
         ],
         "nuzlocke_permadeath": [
-          9
+          8
         ],
         "ordinary_trainer": [
-          17
+          9
         ],
         "starter_selection": [
-          3
-        ],
-        "terminal_loss": [
-          21
+          2
         ]
       }
     },
@@ -204,27 +207,22 @@
         "run_termination"
       ],
       "expected_coverage": {
-        "evolution_or_reward_transition": [
-          25
-        ],
         "map_transition": [
           28
         ],
         "ordinary_trainer": [
-          9,
+          12,
           15,
-          18,
-          34,
-          37
+          38
         ],
         "starter_selection": [
-          3
+          2
         ],
         "submap_entry": [
-          39
+          40
         ],
         "terminal_loss": [
-          43
+          44
         ],
         "winning_progression": [
           25
@@ -265,11 +263,10 @@
           29
         ],
         "ordinary_trainer": [
-          10,
-          16,
-          19,
-          36,
-          57
+          9,
+          12,
+          15,
+          18
         ],
         "pending_submap_reward": [
           47
@@ -278,7 +275,7 @@
           49
         ],
         "starter_selection": [
-          3
+          2
         ],
         "subexit": [
           51
@@ -291,6 +288,52 @@
         ],
         "winning_progression": [
           26
+        ]
+      }
+    },
+    {
+      "file": "story_gen1_swap_release.json",
+      "covers": [
+        "starter_selection",
+        "map_generation",
+        "node_identity",
+        "ordinary_trainer",
+        "battle",
+        "catch_accept",
+        "catch_decline",
+        "evolution",
+        "boss_win",
+        "map_transition",
+        "winning_progression",
+        "full_team",
+        "swap_release"
+      ],
+      "expected_coverage": {
+        "evolution_or_reward_transition": [
+          54,
+          65
+        ],
+        "map_transition": [
+          28,
+          57
+        ],
+        "ordinary_trainer": [
+          9,
+          12,
+          15,
+          18,
+          39,
+          42
+        ],
+        "starter_selection": [
+          2
+        ],
+        "swap_release": [
+          71
+        ],
+        "winning_progression": [
+          25,
+          54
         ]
       }
     },
@@ -318,33 +361,813 @@
           71
         ],
         "evolution_or_reward_transition": [
-          37,
-          49,
-          65,
-          81
+          26,
+          54
         ],
         "map_transition": [
-          31,
+          29,
           57
         ],
         "ordinary_trainer": [
-          10,
-          16,
-          26,
-          38,
-          41,
-          44,
-          50,
-          68,
-          74
+          12,
+          21,
+          24,
+          36,
+          39,
+          42
         ],
         "starter_selection": [
-          3
+          2
         ],
         "winning_progression": [
-          28,
+          26,
+          54
+        ]
+      }
+    },
+    {
+      "file": "story_gen3_sleep_ticks.json",
+      "covers": [
+        "starter_selection",
+        "battle",
+        "ordinary_trainer",
+        "sleep_wake",
+        "sleep_skip",
+        "run_termination",
+        "terminal_loss"
+      ],
+      "expected_coverage": {
+        "ordinary_trainer": [
+          9
+        ],
+        "starter_selection": [
+          2
+        ],
+        "terminal_loss": [
+          17
+        ]
+      }
+    },
+    {
+      "file": "story_gen3_mirror_coat.json",
+      "covers": [
+        "starter_selection",
+        "admin",
+        "ordinary_trainer",
+        "battle",
+        "mirror_coat_counter_hit",
+        "map_transition",
+        "winning_progression"
+      ],
+      "expected_coverage": {
+        "admin": [
+          74
+        ],
+        "evolution_or_reward_transition": [
+          53,
+          58
+        ],
+        "map_transition": [
+          32,
+          61
+        ],
+        "ordinary_trainer": [
+          9,
+          24,
+          27,
+          51,
           54,
-          81
+          68,
+          71
+        ],
+        "starter_selection": [
+          2
+        ],
+        "winning_progression": [
+          29,
+          58
+        ]
+      }
+    },
+    {
+      "file": "story_gen1_move_tutor.json",
+      "covers": [
+        "starter_selection",
+        "ordinary_trainer",
+        "move_tutor_resolved",
+        "shiny_resolved",
+        "map_transition",
+        "winning_progression"
+      ],
+      "expected_coverage": {
+        "evolution_or_reward_transition": [
+          35
+        ],
+        "map_transition": [
+          29,
+          56
+        ],
+        "move_tutor_resolved": [
+          71
+        ],
+        "ordinary_trainer": [
+          9,
+          12,
+          15,
+          36,
+          45
+        ],
+        "shiny_resolved": [
+          49
+        ],
+        "starter_selection": [
+          2
+        ],
+        "winning_progression": [
+          26,
+          53
+        ]
+      }
+    },
+    {
+      "file": "story_gen1_trade.json",
+      "covers": [
+        "starter_selection",
+        "ordinary_trainer",
+        "trade_resolved",
+        "map_transition",
+        "winning_progression"
+      ],
+      "expected_coverage": {
+        "map_transition": [
+          29
+        ],
+        "ordinary_trainer": [
+          9,
+          12,
+          15
+        ],
+        "starter_selection": [
+          2
+        ],
+        "trade_resolved": [
+          41
+        ],
+        "winning_progression": [
+          26
+        ]
+      }
+    },
+    {
+      "file": "story_gen1_item_equip.json",
+      "covers": [
+        "starter_selection",
+        "ordinary_trainer",
+        "item_equip_resolved",
+        "map_transition",
+        "winning_progression"
+      ],
+      "expected_coverage": {
+        "evolution_or_reward_transition": [
+          39
+        ],
+        "item_equip_resolved": [
+          39
+        ],
+        "map_transition": [
+          29
+        ],
+        "ordinary_trainer": [
+          9,
+          12,
+          15
+        ],
+        "starter_selection": [
+          2
+        ],
+        "winning_progression": [
+          26
+        ]
+      }
+    },
+    {
+      "file": "story_gen1_shiny.json",
+      "covers": [
+        "starter_selection",
+        "ordinary_trainer",
+        "shiny_resolved",
+        "map_transition",
+        "winning_progression"
+      ],
+      "expected_coverage": {
+        "evolution_or_reward_transition": [
+          35
+        ],
+        "map_transition": [
+          29
+        ],
+        "ordinary_trainer": [
+          9,
+          12,
+          15,
+          36,
+          45
+        ],
+        "starter_selection": [
+          2
+        ],
+        "shiny_resolved": [
+          49
+        ],
+        "winning_progression": [
+          26
+        ]
+      }
+    },
+    {
+      "file": "story_gen4_distortion_entry.json",
+      "covers": [
+        "starter_selection",
+        "ordinary_trainer",
+        "distortion_entry",
+        "map_transition",
+        "winning_progression"
+      ],
+      "expected_coverage": {
+        "distortion_entry": [
+          99
+        ],
+        "evolution_or_reward_transition": [
+          20,
+          55,
+          78,
+          92
+        ],
+        "map_transition": [
+          30,
+          58,
+          86
+        ],
+        "ordinary_trainer": [
+          9,
+          12,
+          15,
+          18,
+          21,
+          37,
+          73,
+          79,
+          93
+        ],
+        "shiny_resolved": [
+          97
+        ],
+        "starter_selection": [
+          2
+        ],
+        "submap_entry": [
+          99
+        ],
+        "winning_progression": [
+          27,
+          55,
+          83
+        ]
+      }
+    },
+    {
+      "file": "story_gen4_sacrifice.json",
+      "covers": [
+        "starter_selection",
+        "ordinary_trainer",
+        "submap_entry",
+        "submap_boss_win",
+        "sacrifice_reward_resolved",
+        "map_transition",
+        "winning_progression"
+      ],
+      "expected_coverage": {
+        "evolution_or_reward_transition": [
+          48
+        ],
+        "map_transition": [
+          28
+        ],
+        "ordinary_trainer": [
+          12,
+          15
+        ],
+        "sacrifice_reward_resolved": [
+          48
+        ],
+        "starter_selection": [
+          2
+        ],
+        "submap_boss_win": [
+          44
+        ],
+        "submap_entry": [
+          41
+        ],
+        "winning_progression": [
+          25
+        ]
+      }
+    },
+    {
+      "file": "story_gen4_stat10.json",
+      "covers": [
+        "starter_selection",
+        "ordinary_trainer",
+        "submap_entry",
+        "submap_boss_win",
+        "stat10_reward_resolved",
+        "map_transition",
+        "winning_progression"
+      ],
+      "expected_coverage": {
+        "evolution_or_reward_transition": [
+          14,
+          22,
+          38
+        ],
+        "map_transition": [
+          29
+        ],
+        "ordinary_trainer": [
+          9,
+          12,
+          15,
+          18,
+          36
+        ],
+        "starter_selection": [
+          2
+        ],
+        "stat10_reward_resolved": [
+          48
+        ],
+        "submap_boss_win": [
+          44
+        ],
+        "submap_entry": [
+          41
+        ],
+        "winning_progression": [
+          26
+        ]
+      }
+    },
+    {
+      "file": "story_gen1_branching_evolution.json",
+      "covers": [
+        "starter_selection",
+        "ordinary_trainer",
+        "branching_evolution_resolved",
+        "map_transition",
+        "winning_progression"
+      ],
+      "expected_coverage": {
+        "branching_evolution_resolved": [
+          48
+        ],
+        "evolution_or_reward_transition": [
+          27,
+          48
+        ],
+        "map_transition": [
+          30
+        ],
+        "ordinary_trainer": [
+          12,
+          15,
+          21
+        ],
+        "starter_selection": [
+          2
+        ],
+        "winning_progression": [
+          27
+        ]
+      }
+    },
+    {
+      "file": "story_gen4_distortion_boss_loss.json",
+      "covers": [
+        "starter_selection",
+        "ordinary_trainer",
+        "distortion_entry",
+        "distortion_boss_loss",
+        "map_transition",
+        "winning_progression",
+        "run_termination"
+      ],
+      "expected_coverage": {
+        "distortion_boss_loss": [
+          102
+        ],
+        "distortion_entry": [
+          99
+        ],
+        "evolution_or_reward_transition": [
+          20,
+          55,
+          78,
+          92
+        ],
+        "map_transition": [
+          30,
+          58,
+          86
+        ],
+        "ordinary_trainer": [
+          9,
+          12,
+          15,
+          18,
+          21,
+          37,
+          73,
+          79,
+          93
+        ],
+        "shiny_resolved": [
+          97
+        ],
+        "starter_selection": [
+          2
+        ],
+        "submap_entry": [
+          99
+        ],
+        "terminal_loss": [
+          103
+        ],
+        "winning_progression": [
+          27,
+          55,
+          83
+        ]
+      }
+    },
+    {
+      "file": "story_gen4_legendary_accept.json",
+      "covers": [
+        "starter_selection",
+        "ordinary_trainer",
+        "item_equip_resolved",
+        "move_tutor_resolved",
+        "trade_resolved",
+        "legendary_swap_accept",
+        "map_transition",
+        "winning_progression"
+      ],
+      "expected_coverage": {
+        "evolution_or_reward_transition": [
+          22,
+          46,
+          73,
+          79,
+          99
+        ],
+        "exact_parent_return": [
+          48
+        ],
+        "item_equip_resolved": [
+          20,
+          73,
+          79
+        ],
+        "legendary_swap_accept": [
+          115
+        ],
+        "map_transition": [
+          30,
+          61,
+          93
+        ],
+        "move_tutor_resolved": [
+          86
+        ],
+        "ordinary_trainer": [
+          8,
+          11,
+          14,
+          23,
+          36,
+          51,
+          67,
+          82,
+          100
+        ],
+        "starter_selection": [
+          2
+        ],
+        "subexit": [
+          48
+        ],
+        "submap_boss_win": [
+          44
+        ],
+        "submap_entry": [
+          41
+        ],
+        "trade_resolved": [
+          110
+        ],
+        "winning_progression": [
+          27,
+          58,
+          90
+        ]
+      }
+    },
+    {
+      "file": "story_gen4_legendary_decline.json",
+      "covers": [
+        "starter_selection",
+        "ordinary_trainer",
+        "item_equip_resolved",
+        "move_tutor_resolved",
+        "trade_resolved",
+        "legendary_swap_decline",
+        "map_transition",
+        "winning_progression"
+      ],
+      "expected_coverage": {
+        "evolution_or_reward_transition": [
+          22,
+          46,
+          73,
+          79,
+          99
+        ],
+        "exact_parent_return": [
+          48
+        ],
+        "item_equip_resolved": [
+          20,
+          73,
+          79
+        ],
+        "legendary_swap_decline": [
+          115
+        ],
+        "map_transition": [
+          30,
+          61,
+          93
+        ],
+        "move_tutor_resolved": [
+          86
+        ],
+        "ordinary_trainer": [
+          8,
+          11,
+          14,
+          23,
+          36,
+          51,
+          67,
+          82,
+          100
+        ],
+        "starter_selection": [
+          2
+        ],
+        "subexit": [
+          48
+        ],
+        "submap_boss_win": [
+          44
+        ],
+        "submap_entry": [
+          41
+        ],
+        "trade_resolved": [
+          110
+        ],
+        "winning_progression": [
+          27,
+          58,
+          90
+        ]
+      }
+    },
+    {
+      "file": "story_gen4_distortion_full.json",
+      "covers": [
+        "starter_selection",
+        "ordinary_trainer",
+        "submap_entry",
+        "submap_boss_win",
+        "item_equip_resolved",
+        "move_tutor_resolved",
+        "trade_resolved",
+        "distortion_entry",
+        "distortion_boss_win",
+        "distortion_subexit",
+        "distortion_exact_parent_return",
+        "distortion_continued_progress",
+        "map_transition",
+        "winning_progression"
+      ],
+      "expected_coverage": {
+        "distortion_boss_win": [
+          109
+        ],
+        "distortion_continued_progress": [
+          116
+        ],
+        "distortion_entry": [
+          106
+        ],
+        "distortion_exact_parent_return": [
+          113
+        ],
+        "distortion_subexit": [
+          113
+        ],
+        "evolution_or_reward_transition": [
+          22,
+          43,
+          50,
+          88,
+          111
+        ],
+        "exact_parent_return": [
+          52,
+          113
+        ],
+        "item_equip_resolved": [
+          17,
+          43
+        ],
+        "map_transition": [
+          30,
+          67,
+          94
+        ],
+        "move_tutor_resolved": [
+          56
+        ],
+        "ordinary_trainer": [
+          8,
+          11,
+          20,
+          23,
+          62,
+          74,
+          77,
+          80,
+          83,
+          86,
+          89,
+          100
+        ],
+        "starter_selection": [
+          2
+        ],
+        "subexit": [
+          52,
+          113
+        ],
+        "submap_boss_win": [
+          48,
+          109
+        ],
+        "submap_entry": [
+          45,
+          106
+        ],
+        "trade_resolved": [
+          104
+        ],
+        "winning_progression": [
+          27,
+          64,
+          91
+        ]
+      }
+    },
+    {
+      "file": "story_gen4_distortion_reward.json",
+      "covers": [
+        "starter_selection",
+        "ordinary_trainer",
+        "submap_entry",
+        "submap_boss_win",
+        "item_equip_resolved",
+        "move_tutor_resolved",
+        "trade_resolved",
+        "shiny_resolved",
+        "distortion_entry",
+        "distortion_boss_win",
+        "distortion_subexit",
+        "distortion_exact_parent_return",
+        "distortion_continued_progress",
+        "distortion_reward_resolved",
+        "map_transition",
+        "winning_progression"
+      ],
+      "expected_coverage": {
+        "distortion_boss_win": [
+          108,
+          173
+        ],
+        "distortion_continued_progress": [
+          115
+        ],
+        "distortion_entry": [
+          105,
+          170
+        ],
+        "distortion_exact_parent_return": [
+          112
+        ],
+        "distortion_reward_resolved": [
+          177
+        ],
+        "distortion_subexit": [
+          112
+        ],
+        "evolution_or_reward_transition": [
+          34,
+          60,
+          103,
+          110,
+          141,
+          168
+        ],
+        "exact_parent_return": [
+          49,
+          112
+        ],
+        "item_equip_resolved": [
+          103,
+          141,
+          168
+        ],
+        "map_transition": [
+          29,
+          63,
+          91,
+          125,
+          155
+        ],
+        "move_tutor_resolved": [
+          10,
+          74
+        ],
+        "ordinary_trainer": [
+          13,
+          19,
+          22,
+          58,
+          70,
+          84,
+          97,
+          115,
+          118,
+          135
+        ],
+        "pending_submap_reward": [
+          45,
+          175
+        ],
+        "resolved_submap_reward": [
+          47,
+          177
+        ],
+        "shiny_resolved": [
+          132
+        ],
+        "starter_selection": [
+          2
+        ],
+        "subexit": [
+          49,
+          112
+        ],
+        "submap_boss_win": [
+          43,
+          108,
+          173
+        ],
+        "submap_entry": [
+          40,
+          105,
+          170
+        ],
+        "trade_resolved": [
+          78
+        ],
+        "winning_progression": [
+          26,
+          60,
+          88,
+          122,
+          152
         ]
       }
     }

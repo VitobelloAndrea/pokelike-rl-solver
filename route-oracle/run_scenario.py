@@ -48,6 +48,9 @@ _PHASE_TO_SCREEN = {
     # makes an unexpected one show up as `<unmapped:...>` instead of being
     # silently folded onto a plausible-looking screen id.
     engine.Phase.ITEM_CHOICE: "item-screen",
+    # `doTradeNode`'s ordinary (non-Endless2) path opens with
+    # `showScreen("trade-screen")` (bundle.deobfuscated.js:80587). M4.
+    engine.Phase.TRADE_CHOICE: "trade-screen",
     engine.Phase.NEXT_MAP_READY: "badge-screen",
     engine.Phase.GAME_OVER: "gameover-screen",
     engine.Phase.VICTORY: "win-screen",
@@ -167,9 +170,17 @@ def _normalize_node(node: map_gen.MapNode) -> dict:
         out["boss_team"] = [
             {"id": b.get("id", b.get("species_id")), "level": _num(b.get("level"))} for b in team
         ]
-    reward = extra.get("reward")
-    if isinstance(reward, dict):
-        out["reward"] = {"kind": reward.get("kind")}
+    # A REWARD node's `extra["reward"]` (set by `map_gen.generate_sub_map`) is
+    # a plain STRING submap-reward-table id ("sacrifice", "stat10", "fossil",
+    # "skip", ...), matching the source's own `node.reward` (bundle.
+    # deobfuscated.js:53591-53611, e.g. `B2Q["reward"] = "skip"`) exactly --
+    # never a dict. The old `isinstance(reward, dict)` guard here checked a
+    # shape that never occurs on either side, so `out["reward"]` was silently
+    # NEVER populated, found while deriving the M4 `sacrifice`/`stat10`
+    # route-oracle scenarios (`coverage.py`'s `sacrifice_reward_resolved`/
+    # `stat10_reward_resolved` need the real id to tell the two apart).
+    if "reward" in extra:
+        out["reward"] = {"kind": extra["reward"]}
     return out
 
 
@@ -210,6 +221,27 @@ def _normalize_item(item) -> Optional[str]:
     return getattr(item, "id", None)
 
 
+def _fold_turns(events: list) -> list:
+    """`BattleResult.battle_events` (a flat ordered list with `turn_start`
+    markers) -> the same `[{turn, events}]` shape `driver.js`'s `deriveTurns`
+    folds the source's `detailedLog` into.
+
+    A compared-family event before the first `turn_start` is a hard error, the
+    exact counterpart of the driver's own pre-first-round assertion: both
+    runtimes must place every attack inside a round or fail loudly rather than
+    drop it from the projection.
+    """
+    turns: list[dict] = []
+    for event in events:
+        if event.get("type") == "turn_start":
+            turns.append({"turn": int(event["round"]), "events": []})
+            continue
+        if not turns:
+            raise RuntimeError(f"battle event {event.get('type')!r} precedes the first turn_start")
+        turns[-1]["events"].append(dict(event))
+    return turns
+
+
 def _normalize_battle(result: battle_loop.BattleResult, draws: int) -> dict:
     return {
         "player_won": bool(result.player_won),
@@ -219,9 +251,296 @@ def _normalize_battle(result: battle_loop.BattleResult, draws: int) -> dict:
         "enemy_team": [_normalize_mon(m) for m in result.enemy_team],
         "player_participants": sorted(result.player_participants),
         "status_events": [dict(e) for e in result.status_events],
+        # Ordered, turn-delimited attack stream -- see `_fold_turns` and
+        # driver.js's `deriveTurns`. M3.3b workstream 5.
+        "turns": _fold_turns(result.battle_events),
         # Diagnostic only, never compared: the Python port has no full
         # per-turn battle event log to count. See SCHEMA.md.
         "__diagnostic_event_count": None,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Canonical pending-choice OPTION IDENTITY (M3.3b workstream 3)
+#
+# Mirrors `driver.js`'s `monOption`/`itemOption`/`pendingState` field for
+# field. Every option is a semantic property of the offered object -- no
+# renderer strings, no object identity, no opaque hash.
+#
+# `instance` is the full normalized instance the runtime built for that
+# option, or None when it built none. It is REPORTED rather than omitted so
+# that an absent instance is a compared difference instead of a silent
+# exclusion (the same discipline `counters.any_fainted` follows).
+# ---------------------------------------------------------------------------
+
+
+def _mon_option(role: str, mon, slot: Optional[int] = None) -> dict:
+    norm = _normalize_mon(mon)
+    return {
+        "role": role,
+        "kind": "mon",
+        "species_id": norm["species_id"] if norm else None,
+        "form_id": norm["form_id"] if norm else None,
+        "name": norm["name"] if norm else None,
+        "item_id": None,
+        "slot": slot,
+        "instance": norm,
+    }
+
+
+def _item_option(role: str, item) -> dict:
+    return {
+        "role": role,
+        "kind": "item",
+        "species_id": None,
+        "form_id": None,
+        "name": getattr(item, "name", None),
+        "item_id": getattr(item, "id", None),
+        "slot": None,
+        "instance": None,
+    }
+
+
+def _is_shiny_origin(pending) -> bool:
+    """`_visit_shiny` (engine.py:2340-2377) reuses `Phase.CATCH_CHOICE`
+    wholesale rather than a dedicated phase, but the source's `doShinyNode`
+    (bundle.deobfuscated.js:80872-80990) uses its OWN screen
+    (`showScreen("shiny-screen")`), never `catch-screen`. `_visit_shiny`
+    tags its pending with `extra["origin"] = "shiny_node"` precisely so this
+    projection can tell the two apart -- without it, a shiny scenario would
+    fail on `screen`/`pending.phase`/option `role` alone even with correct
+    game logic, since `_PHASE_TO_SCREEN`/`_pending_projection` would report
+    the ordinary catch shape for both.
+
+    NOT `"question"`: `_visit_catch` (engine.py:2330) ALSO tags a
+    question-resolved-to-ordinary-catch pending with `origin="question"`,
+    and that one really does belong on `catch-screen`/role `"catch"` (the
+    source dispatches it to `doCatchNode`, not `doShinyNode`) -- collapsing
+    the two onto the same origin string was a real bug this projection had
+    until the M4 route-oracle bridge work traced the exact source and gave
+    `_visit_shiny` its own distinct origin value."""
+    return bool(pending) and pending.phase == engine.Phase.CATCH_CHOICE and (pending.extra or {}).get("origin") == "shiny_node"
+
+
+def _screen_for(st) -> str:
+    """The screen the source would actually be showing underneath, including
+    the four M4-bridged phases that used to report `<unmapped:...>`.
+
+    `MOVE_TUTOR_CHOICE`/`ITEM_EQUIP_CHOICE`/`EVOLUTION_CHOICE`/
+    `REWARD_TEAM_PICK` never call `showScreen` themselves (see SCHEMA.md's
+    "Phase <-> screen"), so `currentScreen` on the JS side is whatever the
+    LAST real screen change left it at -- and unlike JS, Python's dispatch is
+    constrained enough that every one of these has exactly one (or, for
+    `EVOLUTION_CHOICE`, exactly two) real callers, so the correct value can be
+    read off `pending.extra` rather than needing a general "last screen"
+    field. Confirmed against a real cross-runtime probe during the M4 route-
+    oracle bridge work: before this fix, a real move-tutor route agreed on
+    every compared field EXCEPT this one (`<unmapped:move_tutor_choice>` vs
+    the source's real `"map-screen"`)."""
+    pending = st.pending
+    if _is_shiny_origin(pending):
+        return "shiny-screen"
+    if pending is not None:
+        extra = pending.extra or {}
+        if pending.phase == engine.Phase.MOVE_TUTOR_CHOICE:
+            # `doMoveTutorNode` is dispatched straight from `onNodeClick` on
+            # an ordinary node visit (bundle.deobfuscated.js:77356-77358),
+            # which always starts from `map-screen`.
+            return "map-screen"
+        if pending.phase == engine.Phase.ITEM_EQUIP_CHOICE:
+            # `openItemEquipModal` is called from `doItemNode`'s own
+            # non-usable-item click handler (79423-79429) with no screen
+            # change first -- `currentScreen` is still `doItemNode`'s own
+            # `showScreen("item-screen")` (79263).
+            return "item-screen"
+        if pending.phase == engine.Phase.REWARD_TEAM_PICK:
+            # `doSubMapReward` is dispatched straight from `onNodeClick` too
+            # (77377-77379).
+            return "map-screen"
+        if pending.phase == engine.Phase.EVOLUTION_CHOICE:
+            # `showBranchingChoice` is awaited from `checkAndEvolveTeam`,
+            # called from two contexts: `runBattleScreen`'s win-branch
+            # `_run_todo`/evolve step (81381) -- BEFORE any `showScreen` call
+            # ever leaves the battle results screen, so `currentScreen` is
+            # still `"battle-screen"` -- or `_apply_use_item`'s Moon Stone /
+            # Rare Candy bag-item path (79624). The route-oracle's action
+            # vocabulary (visit/choice/advance_map, SCHEMA.md) has no "use
+            # item" action, so the bag-item source is UNREACHABLE through
+            # this harness and its screen value is not cross-runtime
+            # verified; `_maybe_evolve_one`'s own `extra["source"]`
+            # ("todo" | "item") is what tells the two apart.
+            return "battle-screen" if extra.get("source") == "todo" else "map-screen"
+    return _PHASE_TO_SCREEN.get(st.phase, f"<unmapped:{st.phase.value}>")
+
+
+def _pending_projection(st) -> Optional[dict]:
+    """`RunState.pending` -> the same record `driver.js`'s `pendingState`
+    builds from the source's own run state.
+
+    Options are read from `PendingChoice.extra`, which holds the live
+    `Combatant`/item objects the engine will actually act on, in the order it
+    will act on them -- the exact counterpart of reading
+    `state.savedCatch.instances` / `state.itemOffer.ids` / `showSwapScreen`'s
+    arguments on the source side. `PendingChoice.options` (the renderer-facing
+    summary) is used as an independent cardinality cross-check, and a
+    disagreement is a hard error rather than a silently preferred side.
+    """
+    pending = st.pending
+    if pending is None:
+        return None
+    phase = pending.phase
+    extra = pending.extra or {}
+    options: list[dict]
+    context: Optional[dict] = None
+    # Overridden below only for the shiny-origin CATCH_CHOICE case, to match
+    # `_screen_for`'s `screen`/`driver.js`'s `pendingState` `shiny_choice`.
+    phase_name = phase.value
+
+    if phase == engine.Phase.CHOOSE_STARTER:
+        # The three real pending `Combatant`s `Engine.reset` built from
+        # `showStarterSelect`'s own `rollShiny`/`createInstance` loop
+        # (bundle.deobfuscated.js:76175-76194), in displayed order -- the same
+        # discipline as every other branch here: read the live objects the
+        # engine will act on, never the renderer-facing summary. Before M4 the
+        # port built none and this projected `instance: null`, which was frozen
+        # blocker 1(b).
+        instances = extra.get("instances")
+        if instances is None:
+            raise RuntimeError("choose_starter pending has no `instances` in extra")
+        options = [_mon_option("starter", m) for m in instances]
+    elif phase == engine.Phase.CATCH_CHOICE:
+        candidates = extra.get("candidates")
+        if candidates is None:
+            raise RuntimeError("catch_choice pending has no `candidates` in extra")
+        if _is_shiny_origin(pending):
+            # `doShinyNode` (bundle.deobfuscated.js:80872-80990) is its own
+            # screen and its own card role ("shiny"), never the ordinary
+            # "catch" one -- see `_is_shiny_origin`/`_screen_for`.
+            phase_name = "shiny_choice"
+            options = [_mon_option("shiny", m) for m in candidates]
+        else:
+            options = [_mon_option("catch", m) for m in candidates]
+    elif phase == engine.Phase.ITEM_CHOICE:
+        items = extra.get("items")
+        if items is None:
+            raise RuntimeError("item_choice pending has no `items` in extra")
+        options = [_item_option("item", it) for it in items]
+    elif phase == engine.Phase.SWAP_CHOICE:
+        incoming = extra.get("incoming")
+        if incoming is None:
+            raise RuntimeError("swap_choice pending has no `incoming` in extra")
+        # `showSwapScreen`'s own room test (bundle.deobfuscated.js:79143).
+        # Both port entry points agree with it: `_offer_swap_screen` records
+        # `has_room` explicitly, and `_try_add_to_team`'s swap branch is only
+        # reached with a full team.
+        has_room = len(st.team) < engine.TEAM_CAP
+        if has_room:
+            options = [_mon_option("swap_accept", incoming)]
+        else:
+            # DECLARED ASYMMETRY, see SCHEMA.md "one declared asymmetry".
+            # The source suppresses every release card under
+            # `ip = challengeNoReplace && !iu` (79145, loop guard 79202), and
+            # driver.js mirrors that. There is no counterpart here because the
+            # ported engine has no `challenge_no_replace` field: the flag is
+            # set only by `case "noreplace"` of the Challenges setup switch
+            # (82796), and Challenges mode is out of M3 scope. This tripwire
+            # exists so that if the port ever grows the flag, the divergence
+            # is a loud error at exactly this line instead of a silent
+            # cardinality disagreement between the two runners.
+            if getattr(st, "challenge_no_replace", False):
+                raise RuntimeError(
+                    "swap_choice: the engine now sets `challenge_no_replace`, but this "
+                    "projection has no `ip` guard while driver.js does "
+                    "(bundle.deobfuscated.js:79145/79202). Port the guard here before "
+                    "running a Challenges route -- see SCHEMA.md."
+                )
+            options = [_mon_option("swap_release", m, i) for i, m in enumerate(st.team)]
+        context = {
+            "incoming": _mon_option("incoming", incoming),
+            "team": [_mon_option("team", m, i) for i, m in enumerate(st.team)],
+        }
+    elif phase == engine.Phase.MOVE_TUTOR_CHOICE:
+        # `_visit_move_tutor`'s `extra` carries only `node_id`; the live
+        # identity is `st.team[team_index]`, and `pending.options[i][
+        # "team_index"]` is exactly the index `_resolve_move_tutor_choice`
+        # itself reads at resolution time (engine.py:3083) -- reading it back
+        # here keeps the two in lockstep by construction rather than by
+        # assuming the same filter/order twice. Mirrors `doMoveTutorNode`'s
+        # one `[data-tutor]` button per non-mastered member, in team order
+        # (bundle.deobfuscated.js:80470-80517); may legitimately be empty
+        # (a fully-mastered team) -- the source still opens the modal with
+        # only its skip control, see `_visit_move_tutor`.
+        options = [_mon_option("move_tutor", st.team[o["team_index"]], o["team_index"]) for o in pending.options]
+    elif phase == engine.Phase.TRADE_CHOICE:
+        # `doTradeNode`'s ordinary path (bundle.deobfuscated.js:80580-80638)
+        # builds one `li.trade-member-row` per team member, in team order,
+        # and `_resolve_trade_choice` reads `action.index` directly as the
+        # team slot (engine.py:3147) -- no separate candidate list exists
+        # until the replacement is rolled at click time.
+        options = [_mon_option("trade", m, i) for i, m in enumerate(st.team)]
+    elif phase == engine.Phase.ITEM_EQUIP_CHOICE:
+        # `openItemEquipModal` as `doItemNode` always calls it
+        # (`fromBagIdx=-1, fromPokemonIdx=-1`, bundle.deobfuscated.js:
+        # 79423-79429): one `[data-idx]` button per team member, in team
+        # order, plus a real decline (`#btn-equip-to-bag`, see
+        # `_resolve_item_equip_choice`). `action.index` is the team slot
+        # directly (engine.py:3121).
+        options = [_mon_option("item_equip", m, i) for i, m in enumerate(st.team)]
+    elif phase == engine.Phase.REWARD_TEAM_PICK:
+        # `showTeamPickerModal` (bundle.deobfuscated.js:76845-76884) -- the
+        # `sacrifice`/`stat10` submap rewards. One `[data-idx]` button per
+        # team member, in team order; `_resolve_reward_team_pick` reads
+        # `action.index` directly as the team slot for both reward kinds
+        # (engine.py:2985, 2989).
+        options = [_mon_option("team_pick", m, i) for i, m in enumerate(st.team)]
+    elif phase == engine.Phase.EVOLUTION_CHOICE:
+        # `showBranchingChoice` (bundle.deobfuscated.js:70560-70613): the
+        # options are hypothetical evolution TARGETS, not team members or
+        # existing instances -- `extra["branches"]` is the exact
+        # `BRANCHING_EVOLUTIONS[speciesId]` entry list `_maybe_evolve_one`
+        # raised the choice from (engine.py:1513-1521), in the same order the
+        # source builds its cards.
+        branches = extra.get("branches")
+        if branches is None:
+            raise RuntimeError("evolution_choice pending has no `branches` in extra")
+        team_index = extra.get("team_index")
+        options = [
+            {
+                "role": "evolution_branch", "kind": "mon", "species_id": b.into, "form_id": None,
+                "name": b.name, "item_id": None, "slot": None, "instance": None,
+            }
+            for b in branches
+        ]
+        context = {"evolving": _mon_option("evolving", st.team[team_index])} if team_index is not None else None
+    else:
+        # A phase with no route-matrix counterpart. Report the cardinality the
+        # engine itself declares and no invented identities, so an unexpected
+        # screen is visible rather than silently shaped into a known one.
+        options = [
+            {
+                "role": f"<unprojected:{phase.value}>",
+                "kind": None,
+                "species_id": None,
+                "form_id": None,
+                "name": None,
+                "item_id": None,
+                "slot": None,
+                "instance": None,
+            }
+            for _ in pending.options
+        ]
+
+    if len(options) != len(pending.options):
+        raise RuntimeError(
+            f"{phase.value}: projected {len(options)} option(s) but "
+            f"PendingChoice.options has {len(pending.options)}"
+        )
+    return {
+        "phase": phase_name,
+        "optional": bool(pending.optional),
+        "option_count": len(options),
+        "options": options,
+        "context": context,
     }
 
 
@@ -266,7 +585,6 @@ class Runner:
     def checkpoint(self, kind: str, event: Optional[dict] = None) -> dict:
         st = self.engine.state
         assert st is not None
-        pending = st.pending
         cp = {
             "schema_version": SCHEMA_VERSION,
             "scenario": self.sc["scenario"],
@@ -281,7 +599,7 @@ class Runner:
             },
             "seed": _num(self.sc["seed"]),
             "rng": {"state": self.counter.state, "draws": self.counter.draws},
-            "screen": _PHASE_TO_SCREEN.get(st.phase, f"<unmapped:{st.phase.value}>"),
+            "screen": _screen_for(st),
             "map": _normalize_map(st.map),
             "current_map": _num(st.current_map),
             "current_node": st.current_node_id,
@@ -308,19 +626,12 @@ class Runner:
             "team": [_normalize_mon(m, i) for i, m in enumerate(st.team)],
             "items": [_normalize_item(i) for i in st.items],
             "game_over": bool(st.game_over) or st.phase == engine.Phase.GAME_OVER,
-            # Pending-choice shape. Compared as cardinality + option identity
-            # only: the JS side's option list is DOM cards, so the comparable
-            # invariant is "how many choices, of what identity", not the
-            # renderer's own dict layout. See SCHEMA.md.
-            "pending": (
-                {
-                    "phase": pending.phase.value,
-                    "optional": bool(pending.optional),
-                    "option_count": len(pending.options),
-                }
-                if pending is not None
-                else None
-            ),
+            # Pending-choice shape: phase, cardinality, optionality, and the
+            # ORDERED semantic identity of every offered option (M3.3b
+            # workstream 3). Captured pre-resolution, from the objects each
+            # runtime will actually act on. See `_pending_projection` and
+            # SCHEMA.md.
+            "pending": _pending_projection(st),
         }
         self.checkpoints.append(cp)
         self.seq += 1
@@ -393,7 +704,7 @@ class Runner:
                     self.checkpoint(
                         "choice_pre",
                         {
-                            "screen": _PHASE_TO_SCREEN.get(st.phase, f"<unmapped:{st.phase.value}>"),
+                            "screen": _screen_for(st),
                             "index": index,
                             "step": step,
                         },
@@ -431,7 +742,7 @@ class Runner:
                 {
                     "game_over": bool(st.game_over) or st.phase == engine.Phase.GAME_OVER,
                     "team_size": len(st.team),
-                    "screen": _PHASE_TO_SCREEN.get(st.phase, f"<unmapped:{st.phase.value}>"),
+                    "screen": _screen_for(st),
                 },
             )
         except Exception as exc:  # noqa: BLE001 -- surfaced in the output, not swallowed

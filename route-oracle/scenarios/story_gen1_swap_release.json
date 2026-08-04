@@ -1,0 +1,133 @@
+{
+  "schema_version": 1,
+  "scenario": "story_gen1_swap_release",
+  "description": "Story/Gen1. Grows the team to the full six members and then triggers a swap screen, so showSwapScreen's full-team REPLACE branch (bundle.deobfuscated.js:79202-79246) really builds the per-member release cards and one is really clicked. Re-derived UNALIGNED for M4 by search_route.py --target swap_release --choice-order accept-first --cross-runtime.",
+  "mode": {
+    "nuzlocke": false,
+    "gen2": false,
+    "gen3": false,
+    "gen4": false
+  },
+  "seed": 1,
+  "starter_index": 0,
+  "actions": [
+    {
+      "kind": "visit",
+      "node": "n1_0"
+    },
+    {
+      "kind": "choice",
+      "index": 0
+    },
+    {
+      "kind": "visit",
+      "node": "n2_0"
+    },
+    {
+      "kind": "visit",
+      "node": "n3_0"
+    },
+    {
+      "kind": "visit",
+      "node": "n4_0"
+    },
+    {
+      "kind": "visit",
+      "node": "n5_0"
+    },
+    {
+      "kind": "visit",
+      "node": "n6_0"
+    },
+    {
+      "kind": "visit",
+      "node": "n7_0"
+    },
+    {
+      "kind": "visit",
+      "node": "n8_0"
+    },
+    {
+      "kind": "advance_map"
+    },
+    {
+      "kind": "visit",
+      "node": "n1_0"
+    },
+    {
+      "kind": "choice",
+      "index": 0
+    },
+    {
+      "kind": "visit",
+      "node": "n2_0"
+    },
+    {
+      "kind": "choice",
+      "index": null
+    },
+    {
+      "kind": "visit",
+      "node": "n3_0"
+    },
+    {
+      "kind": "visit",
+      "node": "n4_0"
+    },
+    {
+      "kind": "visit",
+      "node": "n5_0"
+    },
+    {
+      "kind": "choice",
+      "index": 0
+    },
+    {
+      "kind": "visit",
+      "node": "n6_0"
+    },
+    {
+      "kind": "choice",
+      "index": 0
+    },
+    {
+      "kind": "visit",
+      "node": "n7_0"
+    },
+    {
+      "kind": "visit",
+      "node": "n8_0"
+    },
+    {
+      "kind": "advance_map"
+    },
+    {
+      "kind": "visit",
+      "node": "n1_0"
+    },
+    {
+      "kind": "choice",
+      "index": 0
+    },
+    {
+      "kind": "visit",
+      "node": "n2_0"
+    },
+    {
+      "kind": "choice",
+      "index": 0
+    },
+    {
+      "kind": "visit",
+      "node": "n3_1"
+    },
+    {
+      "kind": "choice",
+      "index": 0
+    },
+    {
+      "kind": "choice",
+      "index": 0
+    }
+  ]
+}

@@ -69,7 +69,15 @@
   // on -- it is an observation of a real source call, not a model of one.
   var currentScreen = null;
   var screenLog = [];
-  showScreen = function (id) { currentScreen = id; screenLog.push(id); };
+  // Ordered list of the Pokemon objects the source passed to
+  // `renderPokemonCard` since the current screen was raised. `showScreen` is
+  // the source's OWN first statement in every screen builder that renders
+  // cards (`showStarterSelect` 75569, `doCatchNode` 78428, `showSwapScreen`
+  // 79143), so clearing here scopes the log to exactly one screen build.
+  // Only the STARTER screen reads it -- the catch/item/swap offers are read
+  // from real run state instead (see `pendingState`). See M3.3b workstream 3.
+  var cardRenderLog = [];
+  showScreen = function (id) { currentScreen = id; screenLog.push(id); cardRenderLog = []; };
 
   showMapScreen = function () { showScreen('map-screen'); };
   renderMap = function () {};
@@ -77,7 +85,13 @@
   renderTeamBar = function () {};
   renderItemBadges = function () {};
   renderTrainerIcons = function () {};
-  renderPokemonCard = function () { return '<div class="poke-card"></div>'; };
+  // The source calls this once per offered card, with the very object that
+  // card's click listener closes over (`showStarterSelect` 76176-76186:
+  // `renderPokemonCard(BIv, ...)` then `addEventListener('click', () =>
+  // selectStarter(BIv))`). Recording the argument is an observation of a real
+  // source call, not a model of one, and it happens at BUILD time -- strictly
+  // before any callback can be invoked.
+  renderPokemonCard = function (mon) { cardRenderLog.push(mon); return '<div class="poke-card"></div>'; };
   renderTraitPreview = function () { return ''; };
   renderTraitDeltaRows = function () { return ''; };
   renderBattleTraitBars = function () {};
@@ -158,6 +172,7 @@
     runBattle = function () {
       var drawsBefore = rngDraws;
       globalThis.__ROUND_COUNT__ = 0;
+      globalThis.__ROUND_MARKS__ = [];
       var res = realRunBattle.apply(this, arguments);
       var derived = deriveStatusEvents(res.detailedLog || []);
       battles.push({
@@ -168,11 +183,70 @@
         enemy_team: (res.eTeam || []).map(normalizeMon),
         player_participants: Array.from(res.playerParticipants || []).sort(function (a, b) { return a - b; }),
         status_events: derived,
+        turns: deriveTurns(res.detailedLog || [], globalThis.__ROUND_MARKS__ || []),
         __diagnostic_event_count: (res.detailedLog || []).length,
       });
       return res;
     };
   })();
+
+  // ---- ordered per-turn battle events (M3.3b workstream 5) ---------------
+  // The source's `detailedLog` is one flat stream for the whole battle. The
+  // round-boundary marks installed by run-scenario.js (see its header) say
+  // where each round's slice begins, so the projection below is a real
+  // partition of the source's own log -- not a reconstruction from final
+  // state, and not a post-hoc synthesis.
+  //
+  // The compared FAMILY is `type === "attack"` and nothing else. Every source
+  // attack site emits that one shape (the ordinary hit at 55979-55995, the
+  // `noDamage` "nothing happened" hit at 55786-55800, and both extra-attack
+  // hits at 56240-56255 / 56322-56338, which additionally set
+  // `isExtraAttack`). Presentation is excluded: the log's own prose lines
+  // live on `res.log`, not here, and `attackerName`/`targetName` are dropped
+  // because `side` + index already identify the combatant exactly and the
+  // teams themselves are compared field by field in the same checkpoint.
+  function normalizeAttackEvent(e) {
+    return {
+      type: 'attack',
+      side: e.side === undefined ? null : e.side,
+      attacker_idx: num(e.attackerIdx),
+      target_side: e.targetSide === undefined ? null : e.targetSide,
+      target_idx: num(e.targetIdx),
+      move_name: e.moveName === undefined ? null : e.moveName,
+      move_type: e.moveType === undefined ? null : e.moveType,
+      damage: num(e.damage),
+      type_eff: num(e.typeEff),
+      crit: !!e.crit,
+      is_special: !!e.isSpecial,
+      attacker_hp_after: num(e.attackerHpAfter),
+      target_hp_after: num(e.targetHpAfter),
+      extra_attack: !!e.isExtraAttack,
+    };
+  }
+
+  function deriveTurns(log, marks) {
+    // Nothing of the compared family may precede the first round: the events
+    // before `marks[0]` are `runBattle`'s pre-loop setup (send_out at 55232,
+    // trait/ability triggers at 55274+). Asserted rather than assumed, so a
+    // source change that moves an attack out of the loop fails loudly instead
+    // of silently dropping it from the projection.
+    var firstRound = marks.length ? marks[0] : log.length;
+    for (var pre = 0; pre < firstRound; pre++) {
+      if (log[pre] && log[pre].type === 'attack') {
+        throw new Error('attack event at log index ' + pre + ' precedes the first round boundary');
+      }
+    }
+    var turns = [];
+    for (var r = 0; r < marks.length; r++) {
+      var end = (r + 1 < marks.length) ? marks[r + 1] : log.length;
+      var events = [];
+      for (var i = marks[r]; i < end; i++) {
+        if (log[i] && log[i].type === 'attack') events.push(normalizeAttackEvent(log[i]));
+      }
+      turns.push({ turn: r + 1, events: events });
+    }
+    return turns;
+  }
 
   function num(v) { return typeof v === 'number' && isFinite(v) ? v : null; }
 
@@ -251,6 +325,95 @@
     return out;
   }
 
+  // ======================= pending-choice observation =======================
+  // `showSwapScreen(incoming, node)` (bundle.deobfuscated.js:79141) is the ONE
+  // choice screen whose offered object never lands in `state` -- the incoming
+  // Pokemon lives only in the closure the accept/release listeners capture
+  // (79173-79201 / 79202-79246). Wrapping the source function records its own
+  // arguments BEFORE delegating, so the identity is captured strictly before
+  // any listener can resolve it. The wrapper adds no behavior: it forwards
+  // `arguments` unchanged and returns the real result.
+  var swapOffer = null;
+  (function () {
+    var realShowSwapScreen = showSwapScreen;
+    showSwapScreen = function (incoming, node) {
+      swapOffer = { incoming: incoming, node_id: node && node.id !== undefined ? node.id : null };
+      return realShowSwapScreen.apply(this, arguments);
+    };
+  })();
+
+  // `showBranchingChoice(mon, branches)` (bundle.deobfuscated.js:70560-70613)
+  // is one of the three overlays that never call `showScreen` -- its
+  // `#eevee-choice-overlay` is toggled visible with `style.display = "flex"`
+  // and the branch cards it offers are hypothetical evolution targets, not
+  // objects state itself stores anywhere reachable after the call returns.
+  // Wrapping it, exactly like `showSwapScreen` above, captures the real
+  // arguments the source is about to act on (the evolving mon plus its
+  // `BRANCHING_EVOLUTIONS` entry) strictly before any card can be clicked.
+  var evoOffer = null;
+  (function () {
+    var realShowBranchingChoice = showBranchingChoice;
+    showBranchingChoice = function (mon, branches) {
+      evoOffer = { mon: mon, branches: branches };
+      return realShowBranchingChoice.apply(this, arguments);
+    };
+  })();
+
+  // ======================= showScreen-less overlay detection =======================
+  // `openItemEquipModal` (79442), `doMoveTutorNode` (80464-80563, which reuses
+  // the SAME `#item-equip-modal` id/class as `openItemEquipModal`) and
+  // `showTeamPickerModal` (76845) never call `showScreen`, so `currentScreen`
+  // cannot tell them apart or tell they exist at all -- this must detect them
+  // DIRECTLY from the DOM the source itself built, never infer from
+  // `currentScreen`.
+  //
+  // Two real properties of run-scenario.js's minimal DOM stub matter here and
+  // are NOT what a real browser DOM would do (see its own M4 repair-item-1
+  // comments): `document.getElementById(id)` auto-vivifies and returns a
+  // TRUTHY stub for ANY id, seen or not, so truthiness alone can never mean
+  // "this overlay is really open"; and `.remove()` only unlinks an element
+  // from its parent's children, it does not erase the element or its stale
+  // `innerHTML`. The real presence signal is therefore "is the fixed-id
+  // element CURRENTLY a child of `document.body`" -- exactly the state
+  // `appendChild`/`remove` already track correctly, reused here rather than
+  // invented. `doMoveTutorNode` and `openItemEquipModal` share that one id,
+  // so they are told apart by real, always-present content
+  // (`openItemEquipModal`'s template literally contains `btn-skip-tutor`
+  // only when it is NOT the tutor modal) rather than by querying for a
+  // specific button, since `el.querySelector('#some-id')` unconditionally
+  // fabricates a truthy stand-in regardless of whether that id's markup is
+  // really there.
+  function isMounted(el) {
+    return !!el && document.body.__children.indexOf(el) !== -1;
+  }
+
+  function detectOverlay() {
+    var equipModal = document.getElementById('item-equip-modal');
+    if (isMounted(equipModal)) {
+      if (equipModal.innerHTML.indexOf('btn-skip-tutor') !== -1) {
+        var tutorButtons = Array.prototype.slice.call(equipModal.querySelectorAll('button[data-tutor]'));
+        return { kind: 'move_tutor', el: equipModal, buttons: tutorButtons, skip: equipModal.querySelector('#btn-skip-tutor') };
+      }
+      var equipButtons = Array.prototype.slice.call(equipModal.querySelectorAll('button[data-idx]'));
+      return { kind: 'item_equip', el: equipModal, buttons: equipButtons, skip: equipModal.querySelector('#btn-equip-to-bag') };
+    }
+    // `#eevee-choice-overlay` is a PRE-EXISTING element toggled visible, not
+    // created on demand -- `display !== "flex"` means it is inert, exactly
+    // the source's own visibility test, so no `isMounted` check applies here.
+    var evoOverlay = document.getElementById('eevee-choice-overlay');
+    if (evoOverlay && evoOverlay.style && evoOverlay.style.display === 'flex') {
+      var evoContainer = document.getElementById('eevee-choices');
+      var evoButtons = evoContainer ? Array.prototype.slice.call(evoContainer.__children || []) : [];
+      return { kind: 'branching_evolution', el: evoOverlay, buttons: evoButtons, skip: null };
+    }
+    var pickerModal = document.getElementById('submap-pick-modal');
+    if (isMounted(pickerModal)) {
+      var pickButtons = Array.prototype.slice.call(pickerModal.querySelectorAll('button[data-idx]'));
+      return { kind: 'team_pick', el: pickerModal, buttons: pickButtons, skip: null };
+    }
+    return null;
+  }
+
   // ======================= checkpoint construction =======================
   function normalizeNode(n) {
     var out = {
@@ -271,8 +434,17 @@
       });
     }
     if (n.trainerKey !== undefined) out.trainer_key = n.trainerKey;
-    if (n.reward !== undefined && n.reward && typeof n.reward === 'object') {
-      out.reward = { kind: n.reward.kind === undefined ? null : n.reward.kind };
+    // A REWARD node's `.reward` (bundle.deobfuscated.js:53591-53611, e.g.
+    // `B2Q["reward"] = "skip"`) is a plain STRING submap-reward-table id
+    // ("sacrifice", "stat10", "fossil", "skip", ...), never an object -- the
+    // old `typeof n.reward === 'object'` guard here was checking a shape
+    // that never occurs in the real source, so `out.reward` was silently
+    // NEVER populated on this side, found while deriving the M4
+    // `sacrifice`/`stat10` route-oracle scenarios (`coverage.py`'s
+    // `sacrifice_reward_resolved`/`stat10_reward_resolved` need the real id
+    // to tell the two reward kinds apart).
+    if (n.reward !== undefined) {
+      out.reward = { kind: n.reward || null };
     }
     return out;
   }
@@ -311,34 +483,277 @@
     };
   }
 
+  // ---- canonical pending-choice OPTION IDENTITY (M3.3b workstream 3) ------
+  // One shape for every option on both runtimes, so a comparison is possible
+  // at all. Every field is a semantic property of the offered object: no DOM
+  // text, no object address, no closure identity, no opaque hash.
+  //
+  //   role       which affordance this is ("starter" | "catch" | "item" |
+  //              "swap_accept" | "swap_release" | "team")
+  //   kind       "mon" | "item"
+  //   species_id/form_id/name   stable species identity, present even when the
+  //              runtime has no instance to go with it
+  //   item_id    the item's own id (items have no species)
+  //   slot       team position, for options that name an EXISTING team member
+  //   instance   the full normalized instance when the runtime built one, or
+  //              null when it did not. Reported rather than omitted so an
+  //              absent instance is a COMPARED difference (same discipline as
+  //              `counters.any_fainted`) instead of a silent exclusion.
+  function monOption(role, mon, slot) {
+    var norm = normalizeMon(mon);
+    return {
+      role: role,
+      kind: 'mon',
+      species_id: norm ? norm.species_id : null,
+      form_id: norm ? norm.form_id : null,
+      name: norm ? norm.name : null,
+      item_id: null,
+      slot: slot === undefined ? null : slot,
+      instance: norm,
+    };
+  }
+
+  function itemOption(role, item) {
+    return {
+      role: role,
+      kind: 'item',
+      species_id: null,
+      form_id: null,
+      name: item && item.name !== undefined ? item.name : null,
+      item_id: item && item.id !== undefined ? item.id : null,
+      slot: null,
+      instance: null,
+    };
+  }
+
+  // `doItemNode` resolves an offered id back to its pool entry with exactly
+  // this lookup (bundle.deobfuscated.js:79348-79358); reusing the source's own
+  // two pools keeps the id -> entry mapping the source's, not the driver's.
+  function resolveOfferedItem(id) {
+    for (var pool of [ITEM_POOL, USABLE_ITEM_POOL]) {
+      for (var entry of pool || []) {
+        if (entry && entry.id === id) return entry;
+      }
+    }
+    if (typeof MEGA_STONE_BY_ID !== 'undefined' && MEGA_STONE_BY_ID[id]) return makeMegaStoneItem(MEGA_STONE_BY_ID[id]);
+    return { id: id, name: null };
+  }
+
   // The source has no `PendingChoice`; the player's pending decision is
-  // implied by which screen is up and how many affordances it built. This
-  // reconstructs the SAME (kind, cardinality, optional) triple the Python
-  // port reports from `RunState.pending`, from the source's own DOM, so the
-  // two are genuinely compared rather than one side reporting nothing.
+  // implied by which screen is up and which affordances it built. This
+  // reconstructs the same (kind, cardinality, optional, ORDERED OPTION
+  // IDENTITY) record the Python port reports from `RunState.pending`, from
+  // the source's own run state and its own build-time calls, so the two are
+  // genuinely compared rather than one side reporting nothing.
+  //
+  // Every option list below is read from state the source itself owns and
+  // orders, at the same order the source appends the cards:
+  //   starter  `renderPokemonCard`'s per-card argument   (76176-76186)
+  //   catch    `state.savedCatch.instances`              (78765, 78949-78951)
+  //   item     `state.itemOffer.ids`                     (79372, 79377-79429)
+  //   swap     `showSwapScreen`'s own arguments + `state.team` (79141-79246)
   // Screens with no pending decision report null on both sides.
   function pendingState() {
     function childCount(id) {
       var el = document.getElementById(id);
       return ((el && el.__children) || []).length;
     }
+    // ---- showScreen-less overlays (M4 repair item 1) ----------------------
+    // Checked BEFORE `currentScreen`, and independent of it: none of these
+    // three ever call `showScreen`, so `currentScreen` still names whatever
+    // screen was up before the overlay was raised and can never be used to
+    // detect them.
+    var overlay = detectOverlay();
+    if (overlay) {
+      if (overlay.kind === 'move_tutor') {
+        // `doMoveTutorNode` (80464-80563) builds one `[data-tutor]` button
+        // per NON-mastered team member, in team order, reading the real
+        // member back off `state.team` by its own `data-tutor` index -- the
+        // identity the driver must also read, never the row's rendered text.
+        var tutorIdxs = overlay.buttons.map(function (b) { return parseInt(b.getAttribute('data-tutor'), 10); });
+        return {
+          phase: 'move_tutor_choice', optional: true, option_count: tutorIdxs.length,
+          options: tutorIdxs.map(function (idx) { return monOption('move_tutor', state.team[idx], idx); }),
+          context: null,
+        };
+      }
+      if (overlay.kind === 'item_equip') {
+        // `openItemEquipModal` (79442-79570), reached only as `doItemNode`'s
+        // `fromBagIdx=-1, fromPokemonIdx=-1` call (79423-79429) -- the only
+        // configuration an ordinary node visit produces -- builds exactly one
+        // `[data-idx]` button per team member, in team order, plus
+        // `#btn-equip-to-bag` as a real decline (see run_scenario.py's
+        // matching `_resolve_item_equip_choice`).
+        var equipIdxs = overlay.buttons.map(function (b) { return parseInt(b.getAttribute('data-idx'), 10); });
+        if (equipIdxs.length !== state.team.length || equipIdxs.some(function (v, i) { return v !== i; })) {
+          throw new Error('item-equip option capture mismatch: buttons ' + JSON.stringify(equipIdxs) +
+            ' vs ' + state.team.length + ' team member(s)');
+        }
+        return {
+          phase: 'item_equip_choice', optional: true, option_count: equipIdxs.length,
+          options: state.team.map(function (m, i) { return monOption('item_equip', m, i); }),
+          context: null,
+        };
+      }
+      if (overlay.kind === 'branching_evolution') {
+        // `showBranchingChoice` (70560-70613) never stashes its arguments on
+        // `state`; the wrapper above captures them at call time, before any
+        // card can be clicked. Options are the BRANCH TARGETS the source
+        // offers, not team members, and there is no cancel -- picking one is
+        // mandatory (`optional: false`), same as the source itself.
+        if (!evoOffer) throw new Error('eevee-choice-overlay is visible but showBranchingChoice was never observed');
+        if (evoOffer.branches.length !== overlay.buttons.length) {
+          throw new Error('branching-evolution option capture mismatch: ' + evoOffer.branches.length +
+            ' branch(es) vs ' + overlay.buttons.length + ' card(s)');
+        }
+        return {
+          phase: 'evolution_choice', optional: false, option_count: evoOffer.branches.length,
+          options: evoOffer.branches.map(function (b) {
+            return {
+              role: 'evolution_branch', kind: 'mon', species_id: b.into, form_id: null,
+              name: b.name, item_id: null, slot: null, instance: null,
+            };
+          }),
+          context: { evolving: monOption('evolving', evoOffer.mon) },
+        };
+      }
+      if (overlay.kind === 'team_pick') {
+        // `showTeamPickerModal` (76845-76884) -- the `sacrifice`/`stat10`
+        // submap-reward branches. One `[data-idx]` button per team member, in
+        // team order (76852-76866); no cancel, matching `optional: false`.
+        var pickIdxs = overlay.buttons.map(function (b) { return parseInt(b.getAttribute('data-idx'), 10); });
+        if (pickIdxs.length !== state.team.length || pickIdxs.some(function (v, i) { return v !== i; })) {
+          throw new Error('team-picker option capture mismatch: buttons ' + JSON.stringify(pickIdxs) +
+            ' vs ' + state.team.length + ' team member(s)');
+        }
+        return {
+          phase: 'reward_team_pick', optional: false, option_count: pickIdxs.length,
+          options: state.team.map(function (m, i) { return monOption('team_pick', m, i); }),
+          context: null,
+        };
+      }
+    }
     if (currentScreen === 'starter-screen') {
-      return { phase: 'choose_starter', optional: false, option_count: childCount('starter-choices') };
+      // `showStarterSelect` appends one `.poke-card` per offered starter, in
+      // the order it renders them (76175-76194). The card count is the
+      // independent cross-check that the render log is exactly this screen's
+      // options and nothing else's.
+      var cards = childCount('starter-choices');
+      if (cardRenderLog.length !== cards) {
+        throw new Error(
+          'starter option capture mismatch: ' + cardRenderLog.length +
+          ' rendered card(s) vs ' + cards + ' appended card(s)');
+      }
+      return {
+        phase: 'choose_starter', optional: false, option_count: cards,
+        options: cardRenderLog.map(function (m) { return monOption('starter', m); }),
+        context: null,
+      };
     }
     if (currentScreen === 'swap-screen') {
       // With room the incoming card is the only accept affordance
       // (bundle.deobfuscated.js:79171-79201); full, it is one card per team
-      // member (79202-79246). Cancel is always available -> optional.
+      // member in `state.team` order (79202-79246), and the click releases
+      // `state.team[i]` for that same i. Cancel is always available ->
+      // optional. `challengeNoReplace` with a full team builds no cards at
+      // all (the `ip` guard at 79145/79202) -- mirrored exactly rather than
+      // assumed unreachable.
+      if (!swapOffer) throw new Error('swap-screen is up but showSwapScreen was never observed');
+      var hasRoom = state.team.length < 0x6;
+      var noReplace = !!state.challengeNoReplace && !hasRoom;
+      var swapOptions = hasRoom
+        ? [monOption('swap_accept', swapOffer.incoming)]
+        : (noReplace ? [] : state.team.map(function (m, i) { return monOption('swap_release', m, i); }));
+      var builtCards = hasRoom ? (document.querySelector('#swap-incoming .poke-card') ? 1 : 0) : childCount('swap-choices');
+      if (swapOptions.length !== builtCards) {
+        throw new Error(
+          'swap option capture mismatch: ' + swapOptions.length + ' option(s) vs ' + builtCards + ' card(s)');
+      }
       return {
-        phase: 'swap_choice', optional: true,
-        option_count: state.team.length < 6 ? 1 : childCount('swap-choices'),
+        phase: 'swap_choice', optional: true, option_count: swapOptions.length,
+        options: swapOptions,
+        context: {
+          incoming: monOption('incoming', swapOffer.incoming),
+          team: state.team.map(function (m, i) { return monOption('team', m, i); }),
+        },
       };
     }
     if (currentScreen === 'catch-screen') {
-      return { phase: 'catch_choice', optional: true, option_count: childCount('catch-choices') };
+      // `doCatchNode` renders `#catch-choices` from `B2n` and pins that exact
+      // array on `state.savedCatch.instances` (78765), replacing it in place
+      // on a reroll (78896) -- so the saved array is the live, ordered offer.
+      var saved = state.savedCatch;
+      if (!saved || !Array.isArray(saved.instances)) {
+        throw new Error('catch-screen is up but state.savedCatch.instances is absent');
+      }
+      var catchCards = childCount('catch-choices');
+      if (saved.instances.length !== catchCards) {
+        throw new Error(
+          'catch option capture mismatch: ' + saved.instances.length + ' instance(s) vs ' + catchCards + ' card(s)');
+      }
+      return {
+        phase: 'catch_choice', optional: true, option_count: catchCards,
+        options: saved.instances.map(function (m) { return monOption('catch', m); }),
+        context: null,
+      };
     }
     if (currentScreen === 'item-screen') {
-      return { phase: 'item_choice', optional: true, option_count: childCount('item-choices') };
+      // `doItemNode` pins the offered ids on `state.itemOffer.ids` in the same
+      // order it appends the cards (79372, 79377-79429).
+      var offer = state.itemOffer;
+      if (!offer || !Array.isArray(offer.ids)) {
+        throw new Error('item-screen is up but state.itemOffer.ids is absent');
+      }
+      var itemCards = childCount('item-choices');
+      if (offer.ids.length !== itemCards) {
+        throw new Error(
+          'item option capture mismatch: ' + offer.ids.length + ' id(s) vs ' + itemCards + ' card(s)');
+      }
+      return {
+        phase: 'item_choice', optional: true, option_count: itemCards,
+        options: offer.ids.map(function (id) { return itemOption('item', resolveOfferedItem(id)); }),
+        context: null,
+      };
+    }
+    if (currentScreen === 'shiny-screen') {
+      // `doShinyNode` (80872-80990) writes `#shiny-content` via raw
+      // `innerHTML` (not `appendChild`), so -- exactly like the swap
+      // screen's `#swap-incoming` cross-check above -- presence comes from
+      // the SAME single-element `document.querySelector` the source itself
+      // uses (80972), not the `.__children` tracker and not
+      // `document.querySelectorAll`, which run-scenario.js's DOM stub always
+      // returns `[]` from at the `document` level. The single card is
+      // already captured in `cardRenderLog` by the existing
+      // `renderPokemonCard` wrapper (80940), since `showScreen` cleared the
+      // log immediately before the card was rendered -- there is never more
+      // than one, so presence (0 or 1) is the whole cross-check.
+      var shinyCards = document.querySelector('#shiny-content .poke-card') ? 1 : 0;
+      if (cardRenderLog.length !== shinyCards) {
+        throw new Error(
+          'shiny option capture mismatch: ' + cardRenderLog.length +
+          ' rendered card(s) vs ' + shinyCards + ' card(s)');
+      }
+      return {
+        phase: 'shiny_choice', optional: true, option_count: shinyCards,
+        options: cardRenderLog.map(function (m) { return monOption('shiny', m); }),
+        context: null,
+      };
+    }
+    if (currentScreen === 'trade-screen') {
+      // `doTradeNode`'s ordinary (non-Endless2) path (80580-80638) builds one
+      // `li.trade-member-row` per team member via `createElement`+
+      // `appendChild` (80606-80630), so `childCount` (the `.__children`
+      // tracker) applies, same as catch/item.
+      var tradeRows = childCount('trade-team-list');
+      if (tradeRows !== state.team.length) {
+        throw new Error(
+          'trade option capture mismatch: ' + tradeRows + ' row(s) vs ' + state.team.length + ' team member(s)');
+      }
+      return {
+        phase: 'trade_choice', optional: true, option_count: tradeRows,
+        options: state.team.map(function (m, i) { return monOption('trade', m, i); }),
+        context: null,
+      };
     }
     return null;
   }
@@ -521,7 +936,25 @@
         checkpoint('choice_pre', { screen: currentScreen, index: act.index === undefined ? null : act.index, step: step });
         var idx = (act.index === undefined || act.index === null) ? null : act.index;
         var ok = false;
-        if (currentScreen === 'swap-screen') {
+        var ov = detectOverlay();
+        if (ov && ov.kind === 'move_tutor') {
+          // #btn-skip-tutor (80531-80534) vs the Nth [data-tutor] button.
+          ok = idx === null ? clickEl(ov.skip) : clickEl(ov.buttons[idx]);
+        } else if (ov && ov.kind === 'item_equip') {
+          // #btn-equip-to-bag is the real decline (see run_scenario.py's
+          // matching resolver) vs the Nth [data-idx] button.
+          ok = idx === null ? clickEl(ov.skip) : clickEl(ov.buttons[idx]);
+        } else if (ov && ov.kind === 'branching_evolution') {
+          // No decline: `optional: false`, exactly like the source, which
+          // never builds a cancel affordance here.
+          if (idx === null) throw new Error('step ' + step + ': branching-evolution has no decline');
+          ok = clickEl(ov.buttons[idx]);
+        } else if (ov && ov.kind === 'team_pick') {
+          // No decline: `optional: false`, matching `showTeamPickerModal`,
+          // which never builds a cancel affordance either.
+          if (idx === null) throw new Error('step ' + step + ': team-picker has no decline');
+          ok = clickEl(ov.buttons[idx]);
+        } else if (currentScreen === 'swap-screen') {
           if (idx === null) ok = clickEl(document.getElementById('btn-cancel-swap'));
           else if (state.team.length < 6) ok = clickEl(firstClickable(document.querySelector('#swap-incoming .poke-card'), 0));
           else ok = clickEl(nthChoice('swap-choices', idx));
@@ -535,6 +968,17 @@
           // #btn-skip-item (bundle.deobfuscated.js:79260-79436).
           if (idx === null) ok = clickEl(document.getElementById('btn-skip-item'));
           else ok = clickEl(nthChoice('item-choices', idx));
+        } else if (currentScreen === 'shiny-screen') {
+          // doShinyNode: #btn-take-shiny (re-id'd from the rendered card) vs
+          // #btn-skip-shiny (80937-80989).
+          if (idx === null) ok = clickEl(document.getElementById('btn-skip-shiny'));
+          else ok = clickEl(document.getElementById('btn-take-shiny'));
+        } else if (currentScreen === 'trade-screen') {
+          // doTradeNode: the Nth li.trade-member-row IS the clickable element
+          // (the listener is on the row itself, 80621-80629), decline via
+          // #btn-skip-trade (80632-80637).
+          if (idx === null) ok = clickEl(document.getElementById('btn-skip-trade'));
+          else ok = clickEl(nthChoice('trade-team-list', idx));
         } else if (currentScreen === 'battle-screen') {
           ok = clickEl(document.getElementById('btn-continue-battle'));
         } else {

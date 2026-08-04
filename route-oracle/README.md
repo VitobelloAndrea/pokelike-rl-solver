@@ -92,7 +92,63 @@ node route-oracle/scan-toplevel-danger.js route-oracle/out/route-prefix.js   # n
 
 # author or extend a route fixture from the real generated maps
 python route-oracle/plan_route.py --seed 123456789 --align 88888888 --maps 1
+
+# verify a checked-in fixture's coverage claim on BOTH runtimes
+python route-oracle/search_route.py verify \
+       route-oracle/scenarios/story_gen3_admin.json --target admin
+
+# derive a route that earns a coverage tag, by bounded deterministic search
+python route-oracle/search_route.py search --target admin --gen3 \
+       --seeds 240 --align 26457513 --max-maps 2 --max-expansions 200000
 ```
+
+### Deterministic route search (`search_route.py`)
+
+`plan_route.py` is a greedy walker: it takes a seed as input, follows one path
+by a fixed type preference, spawns a `node` process per step, and cannot
+search seeds, starters or branch points. It cannot re-derive a fragile
+multi-map fixture. `search_route.py` is the tracked replacement.
+
+* **`verify <scenario> --target <tag>`** re-runs the scenario through the real
+  Python runner *and* the real JavaScript runner and requires
+  `coverage.derive` to earn the tag on both, with identical evidence indices.
+  This is what makes a checked-in fixture's provenance checkable rather than
+  asserted. It is the command that reproduces `story_gen3_admin.json`'s claim.
+* **`search --target <tag> …`** runs a depth-first, deterministic, bounded
+  search over `(seed, starter, node choice, screen choice)` on the real Python
+  engine, then **verifies** the winner against an observed checkpoint stream
+  before printing it. It never trusts its own generated action list.
+
+Contract:
+
+| property | how |
+|---|---|
+| deterministic | no RNG, clock or filesystem scan feeds a decision; nodes are ordered by `(layer, col, id)`, not by dict order |
+| order-independent | seeds are canonicalized with `sorted(set(...))`, so `--seeds 242,240,241`, `--seeds 240,241,242` and `--seeds 240-242` search identically |
+| bounded | `--max-expansions`, `--max-depth`, `--max-maps`, `--max-choice-options`, `--max-candidates`, `--max-candidates-per-root` and the seed/starter lists are all explicit |
+| bounded failure | exhausting the space or a bound prints the bounds and the counters and exits **2** — never a hang, never a silent "no" |
+| verified | exit **3** if the emitted route does not earn the tag on a real observed stream |
+| source-gated (M3.5) | `--cross-runtime` rejects any candidate the JavaScript source resolves differently and **resumes the walk**, instead of the search having to be right first time. A candidate is admissible only when the JS runner replays it without error, both runtimes derive identical coverage evidence, and every JS-vs-Python difference path is already a frozen blocker path — so a fresh parity finding cannot enter the matrix disguised as tooling work |
+| branch order (M3.5) | `--choice-order accept-first` mirrors the default `decline-first`. Targets that need the team to **grow** are unreachable under the default, because depth-first search exhausts the entire decline-everything subtree before it ever accepts a catch. Both orders are total and content-derived, so each is deterministic on its own |
+| non-destructive | writing into `scenarios/` is refused without `--allow-fixture-overwrite` |
+| cacheable | `--cache PATH` stores the result under a sha256 of *every* search input; a changed seed, target or bound invalidates it, and a tampered digest is not served |
+| offline | no sockets, and the only file written is the one named on the command line |
+
+**Measured cost.** Finding the Admin route from the fixture's own seed 240
+(gen3, `--max-maps 2`, three starters) takes **0.42 s / 437 expansions**,
+including verification. Fully *exhausting* a seed is the expensive direction:
+ten seeds at `--max-maps 0` take **9.3 s** (~0.93 s per single-map seed), and
+the tree grows quickly with `--max-maps`. `RouteSearchTests` in
+`pokelike/tests/test_route_oracle.py` covers the whole contract with one
+bounded search (~20 s) and stays in ordinary discovery; a wide sweep such as
+
+```sh
+python route-oracle/search_route.py search --target admin --gen3 \
+       --seeds 0-999 --align 26457513 --max-maps 2 --max-expansions 100000000
+```
+
+is **not** part of discovery — run it deliberately and expect minutes to
+hours depending on how early a solution appears.
 
 Harness-level unit tests (canonicalization, hashing, diffing, and mutation
 sensitivity) live in `pokelike/tests/test_route_oracle.py` and run inside the
@@ -125,6 +181,32 @@ on any load-reachable risky global that is neither proved guarded by `typeof`
 analysis nor covered by an allow-list entry pinned to the current prefix hash,
 and also on a stale allow-list entry that no longer matches anything.
 
+**What counts as load-reachable** — widened by M3.5 to close M3.4 Defect C,
+which demonstrated three blind spots with fresh adversarial inputs:
+
+| form | before M3.5 | now |
+|---|---|---|
+| `(function(){…})()`, `(()=>{…})()`, `.call(…)`, `.apply(…)` | flagged | flagged |
+| `(function(){…}).bind(this)()`, and `.call`/`.apply` on a bound function | **missed — reported 0 references** | flagged (`unwrapBound`) |
+| `setTimeout` / `setInterval` / `queueMicrotask` / `requestAnimationFrame` / `addEventListener` … at load | **missed — not in the risky set at all** | flagged (`RISKY_SCHEDULERS`) |
+| `window["fetch"]`, `g["localStorage"]` | **missed — while dotted access on the same object was caught** | flagged (`staticPropertyName`) |
+
+Schedulers are kept separate from the data/IO globals and count only as a bare
+identifier or off an explicit global root (`window.setTimeout`), because
+`document.addEventListener(…)` is already fully accounted for by its
+`document` reference — flagging the method name too would double-count it and
+would wrongly report `typeof document !== "undefined" && document.addEventListener(…)`
+as unguarded.
+
+The wider net surfaced **two real references the previous scanner never
+reported**: `setTimeout(O, 5000)` and `setInterval(O, 30000)` at prefix lines
+38810-38811, which re-arm the bundle's anti-clone hostname check. They execute
+on every oracle run — the enclosing `typeof window != "undefined"` guard names
+`window`, and the sandbox *does* define `window` — and are inert only because
+`run-scenario.js` binds both timers to `() => 0`. That is recorded as an
+allow-list entry with its reason, not proved away. The real prefix now reports
+**21** references (6 proved guarded, 15 allow-listed) and still exits 0.
+
 ## Offline behavior
 
 The sandbox defines no `localStorage`, `fetch`, `XMLHttpRequest`,
@@ -148,21 +230,28 @@ Anything else fails the run.
 
 | scenario | mode | cps | covers |
 |---|---|---:|---|
-| `story_gen1_map0_to_map1` | Story / Gen1 | 56 | init, starter selection, map generation + node identity, ordinary trainer, wild battles, catch decline, **evolution** (Bulbasaur→Ivysaur), **boss win**, **map transition**, winning progression |
-| `story_gen2_silver` | Story / Gen2 | 42 | Silver **placement and encounter**, boss win, map transition, evolution (Cyndaquil→Quilava), pokecenter, run termination on a non-Nuzlocke loss. Reaches Silver and **loses** — it does not earn the `silver` tag |
-| `story_gen2_silver_win` | Story / Gen2 | 54 | **beats Silver** at n4_1 (`silverBeaten` incremented), catch accept, boss win, map transition, terminal loss |
-| `nuzlocke_gen1_loss` | **Nuzlocke** / Gen1 | 15 | Nuzlocke init, the Nuzlocke-only layer-1 map shape, catch decline, **game over / run termination**. Wipes with a one-Pokemon party, so nothing is ever culled |
-| `nuzlocke_gen1_permadeath` | **Nuzlocke** / Gen1 | 22 | catch accept, **a real permadeath cull** (a member faints in a *won* battle — the only branch that culls), item decline, game over |
-| `story_gen4_underground` | Story / Gen4 | 44 | **special-submap entry**, submap generation/topology, saved parent identity + locked parent flags, submap boss **loss**, boss win + map transition on the parent map |
-| `story_gen4_submap_full` | Story / Gen4 | 59 | the **complete submap lifecycle**: entry → **boss win** → **pending fossil reward** → **resolved reward** (accept, via the source's own `#swap-incoming .poke-card` listener) → **subexit** → **exact parent restore** → continue on the parent map |
-| `story_gen3_admin` | Story / Gen3 | 84 | **Team Magma Admin resolved** at n4_0 on map 2 (Courtney, levels 26/28/27) after surviving two full maps; catch accept/decline, item decline, two boss wins, two map transitions, terminal loss |
+| `story_gen1_map0_to_map1` | Story / Gen1 | 38 | the ordinary-progression spine: starter selection, map generation + node identity, wild/trainer battles, catch decline, boss win, map transition, winning progression |
+| `story_gen2_silver` | Story / Gen2 | 44 | Silver **placement and encounter**, then a **loss** there — it proves the Gen2 rival placement without the win branch, and earns `terminal_loss`, not `silver` |
+| `story_gen2_silver_win` | Story / Gen2 | 43 | **beats Silver** (`silverBeaten` incremented) — the scenario that earns the `silver` tag |
+| `nuzlocke_gen1_loss` | **Nuzlocke** / Gen1 | 13 | Nuzlocke init, the Nuzlocke-only layer-1 map shape, catch decline, game over. Wipes with a one-Pokemon party, so nothing is ever culled |
+| `nuzlocke_gen1_permadeath` | **Nuzlocke** / Gen1 | 11 | a real permadeath **cull** (a member faints in a *won* battle — the only branch that culls) and therefore the primary observation of `any_fainted` |
+| `story_gen4_underground` | Story / Gen4 | 45 | special-submap **entry**, submap generation/topology and the saved locked parent, observed on a route that **loses** the submap boss and never returns |
+| `story_gen4_submap_full` | Story / Gen4 | 53 | the **complete submap lifecycle**: entry → boss win → pending reward on the source's own `showSwapScreen` → resolved reward → subexit → **exact parent restore** → continue on the parent |
+| `story_gen3_admin` | Story / Gen3 | 73 | **Team Magma Admin resolved** through `doAdminNode` with the run still alive |
+| `story_gen1_swap_release` | Story / Gen1 | 73 | grows the team to **six**, then really clicks a release card, so `showSwapScreen`'s full-team **replace** branch (79202-79246) is exercised |
+| `story_gen3_sleep_ticks` | Story / Gen3 | 18 | the matrix's **sleep** observation — both `sleep_wake` and `sleep_skip`, so a mutation omitting either is killed on its own |
+| `story_gen3_mirror_coat` | Story / Gen3 | 76 | the matrix's **Mirror Coat counter-hit** observation — 9 counter-hit attack events |
+
+Every fixture is **unaligned** and every one was derived or verified with
+`search_route.py --cross-runtime`, so the JavaScript source replays it, both
+runtimes derive identical coverage evidence, and the difference set is empty.
 
 Terminal losses are separate scenarios with their own deterministic prefix,
 never a fabricated continuation past game over.
 
 ### Machine-enforced coverage
 
-`compare.py --all` **fails** unless the observed checkpoints earn all fifteen
+`compare.py --all` **fails** unless the observed checkpoints earn all sixteen
 required tags in `coverage.REQUIRED_TAGS`, and unless each scenario earns
 exactly the evidence indices pinned in `scenarios/manifest.json`. Coverage is
 derived from what actually happened (`coverage.derive`), never from a
@@ -187,83 +276,94 @@ Required tags: `starter_selection`, `ordinary_trainer`, `silver`, `admin`,
 
 ### Declared coverage gaps
 
-Stated plainly rather than implied by omission:
+Stated plainly rather than implied by omission.
 
-* **Distortion submaps are not covered** (maps 3/5/7). M3 requires one
-  successful special-submap family, and Underground provides the complete
-  lifecycle; Distortion remains untested.
-* **`move-tutor`, `trade`, `question`, `legendary` and `shiny` screens have
-  no `choice` bridge**, and neither do the three *overlays* that never call
-  `showScreen`: `openItemEquipModal` (79419, which is why items are only ever
-  declined), `showBranchingChoice`'s `#eevee-choice-overlay` (70560) and
-  `showTeamPickerModal`'s `#submap-pick-modal` (76845, the `sacrifice` and
-  `stat10` submap rewards). Routes are planned around all of them.
-* Consequently, `RunState` phases `MOVE_TUTOR_CHOICE`, `ITEM_EQUIP_CHOICE`,
-  `TRADE_CHOICE`, `ESCAPE_ROPE_CHOICE`, `EVOLUTION_CHOICE` and
-  `REWARD_TEAM_PICK` are deliberately left out of the phase↔screen projection
-  in `run_scenario.py`, so an unexpected one surfaces as `<unmapped:...>`
-  rather than being folded onto a plausible-looking screen id.
+**Closed since M3:**
 
-* **Pending-choice OPTION IDENTITY is not compared.** Both runners report only
-  `{phase, optional, option_count}` for a pending choice. Which starter, which
-  catch candidate, which item or which incoming/release Pokemon was offered —
-  and in what order — is **not** in the schema, so a mutation that keeps the
-  option count constant while changing an option's identity or order would not
-  be detected. Open M3.3 item; do not read the current agreement on `pending`
-  as evidence that the two sides offer the same options.
-* **There is no ordered per-turn battle-event projection.** See "Known schema
-  limitations" 1 in `SCHEMA.md`: the comparison is winner, round count, RNG
-  draws, final per-combatant state, participants and a narrow status-tick
-  subset. Acting side/combatant, selected move identity and category, target,
-  per-hit damage, crit/faint/switch events and round boundaries are **not**
-  compared. Open M3.3 item.
-* **The Admin route's provenance is not reproducible from tracked artifacts.**
-  `story_gen3_admin.json` was selected by a bounded search that lived in a
-  session scratchpad; `plan_route.py` is a **greedy authoring helper** that
-  takes a seed as input and cannot search seeds, starters or paths, so it
-  cannot re-derive the fixture. Open M3.3 item.
-* **All eight fixtures set `align_rng_after_starter_offer`.** An unaligned
-  route is not currently replayable at all (see `SCHEMA.md`'s RNG-alignment
-  section for the measurement). The pre-alignment divergence is still compared,
-  and frozen, at checkpoints 0-1 of every scenario.
+* **`question`** — 4 cross-runtime resolutions; `resolveQuestionMark` runs on
+  both runtimes and the resolved types agree at zero difference.
+* **Underground submaps** — the complete lifecycle plus a boss-loss route.
+* **The swap-screen submap reward branch** (`fossil` / Distortion legendaries)
+  — pending and resolved, through the source's own listener.
 
-These are harness-coverage gaps, not parity claims. Nothing about them is
-asserted either way.
+**Closed by the M4 repair** (`docs/prompts/M4-repair.md`, driven by
+`docs/audits/M4-independent-closure-audit.md`'s FAIL finding): every family
+that audit found unbridged or unrouted now has both a real `choice` bridge
+*and* cross-runtime route evidence, not just source-traced Python:
+
+* **`legendary` and `shiny` nodes** — the ordinary-legendary lifecycle (win +
+  room accept/decline, win + full-team replace/decline) and shiny-node
+  accept/decline all have real routes, verified zero-difference on both
+  runtimes.
+* **`move-tutor` and `trade`** have real `choice` bridges (`driver.js`'s
+  `shiny-screen`/`trade-screen` branches, `run_scenario.py`'s matching
+  `_pending_projection` cases) and routed accept/decline/tier-boundary
+  scenarios.
+* **Distortion submaps** — entry, boss win, boss loss, subexit, exact parent
+  restoration, continued parent progress, and the guaranteed-legendary reward
+  branch (`distortion_reward_resolved` — only reachable on a run's
+  **second-ever** Distortion visit, see `_distortion_legendary`,
+  `pokelike/map_gen.py:912-927`) are all routed and verified.
+* **The `sacrifice` and `stat10` reward branches** now route through the real
+  team-picker bridge (`showTeamPickerModal`'s `#submap-pick-modal`, detected
+  directly via DOM presence, never inferred from `currentScreen`).
+* **The three overlays that never call `showScreen`** — `openItemEquipModal`
+  (79419, shared `#item-equip-modal` id with `doMoveTutorNode` at 80464,
+  disambiguated by button family, not by which node type opened it),
+  `showBranchingChoice`'s `#eevee-choice-overlay` (70560), and
+  `showTeamPickerModal`'s `#submap-pick-modal` (76845) — all three now have
+  real bridges and routed scenarios.
+* Consequently `RunState` phases `MOVE_TUTOR_CHOICE`, `ITEM_EQUIP_CHOICE`,
+  `TRADE_CHOICE`, `EVOLUTION_CHOICE` and `REWARD_TEAM_PICK` are folded into
+  the phase↔screen projection via `run_scenario.py`'s `_screen_for` (see
+  SCHEMA.md's Phase↔screen table for the exact source citation behind each).
+
+**Still open — no parity claim is made in either direction:**
+
+* **`ESCAPE_ROPE_CHOICE`** still has no `choice` bridge and no route through
+  it — explicitly out of the M4 repair's scope, unchanged from M3.
+
+These are harness-coverage gaps, not parity claims.
 
 ## Current result
 
-**Route coverage: 15/15 required tags earned. Parity gate: BLOCKED** on five
-bounded, source-backed differences, all frozen as M4 inputs in
-`findings/M3-parity-blockers.md` and none repaired:
+**Route coverage: 32/32 required tags earned, independently on both runtimes.
+Parity gate: PASS — `python route-oracle/compare.py --all` exits 0 with 24/24
+scenarios agreeing checkpoint-for-checkpoint, including RNG state and draw
+counts, in manifest, reverse and sorted execution order.**
 
-1. `rng.draws` / `rng.state` — the source's Story starter screen calls
-   `rollShiny()` once per offered starter (bundle.deobfuscated.js:76175-76194;
-   `rollShiny` always draws, line 74921) for **3 draws** before the player
-   clicks; `engine._dispatch_action`'s `CHOOSE_STARTER` branch makes **0**.
-2. `map.nodes[N].accessible` — `onNodeClick` locks same-layer siblings
-   **eagerly, before** dispatching (77312-77316, ahead of the switch at
-   77334); the port locks them only when a node *resolves*.
-3. `current_node` — `showSwapScreen` clears `state.currentNode` on all three
-   of its exits (79186 / 79231 / 79256); `engine._resolve_swap_choice` leaves
-   it set.
-4. `event.battle.status_events[len]` — the source logs `sleep_wake` /
-   `sleep_skip` status ticks (55687-55710); the port's `_status_tick_round`
-   logs burn and poison only. Sleep *is* modelled (same rng draw), so winner,
-   rounds, draw counts and final state all agree — this is a logging gap.
-5. `counters.any_fainted` — `state.anyFainted` (81372) has no counterpart in
-   `RunState` at all.
+M4 repaired the five bounded differences M3 had frozen, plus two more:
 
-Findings 3-5 were surfaced by the M3.1 coverage completion; the paths that
-reach them did not exist before. Everything else agrees: map topology and node
-identity, battle outcomes, round counts, RNG state after the alignment point,
-team/level/HP/evolution, items, every other counter and flag, submap entry and
-generation, boss wins, reward resolution, subexit and exact parent
-restoration, map transitions, and terminal state.
+1. **starter offer** — `Engine.reset` now materialises three real starter
+   instances and consumes the same three `rollShiny()` draws the source's
+   `showStarterSelect` does (bundle.deobfuscated.js:76175-76194), and
+   `ChooseStarter` installs the offered object rather than rebuilding it, so a
+   shiny starter is reachable and the Stream-B offset is gone;
+2. **eager sibling locking** — `_visit_node` locks already-accessible
+   same-layer siblings at `onNodeClick`'s own point (77312-77316), before
+   dispatch, so a suspended choice screen or a run-ending loss observes it;
+3. **`current_node`** — `_resolve_swap_choice` clears it on all three
+   `showSwapScreen` exits (79186 / 79231 / 79256), while `catchPokemon`'s room
+   path deliberately still does not;
+4. **sleep ticks** — the whole pre-turn `status_tick` family
+   (`flinch`, `freeze_skip`, `sleep_wake`, `sleep_skip`, 55647-55710) is now
+   emitted; behaviour was already correct, only the log was missing;
+5. **`any_fainted`** — a real `RunState` field, set only when a won Nuzlocke
+   battle actually culls (81371-81372);
+6. **ordinary-map `LEGENDARY`** — `doLegendaryNode`'s win callback ends in an
+   unconditional `showSwapScreen` (80457), so the incoming legendary is now
+   pending until an explicit accept or decline even with room. Ordinary catch
+   (79036) and shiny (80962) keep their room-based auto-add;
+7. **Mirror Coat counter-hit** — the source pushes it as a real `type:
+   "attack"` entry (58108-58142); the port applied the damage silently. Found
+   because the tightened cross-runtime search gate rejected nine candidate
+   routes on it.
 
-`align_rng_after_starter_offer` is an oracle instrument that isolates the
-others from (1); it is symmetric, uses each side's own seeding primitive, and
-is documented in `SCHEMA.md`. The M3.1 routes are direct evidence that it
-hides nothing: three independent differences surfaced *through* it.
+**`align_rng_after_starter_offer` is retired.** It was an instrument that
+re-seeded past repair 1's divergence; with that repaired it isolates nothing,
+and no fixture sets it. Seven routes were re-derived unaligned with
+`search_route.py --cross-runtime`; a focused test asserts no fixture carries
+the key.
 
 ### Audit mode — the frozen parity signature
 
@@ -313,7 +413,7 @@ Every changed difference must be traced to source and recorded in
 | `extract-prefix.js` | cuts the audited JS prefix out of the bundle (dependency-free) |
 | `scan-toplevel-danger.js` | AST audit of the prefix's load-time side effects: guard analysis + pinned allow-list (needs `acorn`) |
 | `toplevel-allowlist.json` | the audited load-time exceptions, pinned to the prefix sha256 |
-| `fixtures/scanner/` | adversarial fixtures the scanner must fail, and legitimate ones it must pass |
+| `fixtures/scanner/` | adversarial fixtures the scanner must fail, and legitimate ones it must pass. Every one is run and asserted by `pokelike/tests/test_scanner_fixtures.py` in ordinary discovery |
 | `package.json` / `package-lock.json` | pinned `acorn` for the scanner; `npm --prefix route-oracle ci` |
 | `frozen_signature.py` / `frozen_signature.json` | the exact frozen parity signature and its comparator |
 | `run-scenario.js` | JS sandbox + DOM bridge; loads `driver.js` |
@@ -322,7 +422,8 @@ Every changed difference must be traced to source and recorded in
 | `checkpoints.py` | canonical JSON, hashing, field-level diff (shared with the tests) |
 | `coverage.py` | derives the M3 coverage tags from observed checkpoints |
 | `compare.py` | the harness entry point, all self-checks, the coverage gate and `--audit-frozen` |
-| `plan_route.py` | fixture-authoring helper; not part of either gate |
+| `plan_route.py` | greedy fixture-authoring helper; not part of either gate |
+| `search_route.py` | deterministic bounded route search + both-runtime fixture verification; not part of either gate |
 | `scenarios/` | the route matrix, its `manifest.json` and the pinned coverage evidence |
 | `prefix.sha256` | expected prefix hash, checked in for freshness verification |
 | `SCHEMA.md` | the versioned checkpoint schema and every exclusion |

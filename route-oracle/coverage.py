@@ -42,6 +42,30 @@ REQUIRED_TAGS = (
     "winning_progression",
     "nuzlocke_permadeath",
     "terminal_loss",
+    "swap_release",
+    # -- M4 repair (docs/prompts/M4-repair.md item 3): the families the
+    # M4-independent-closure-audit found reachable but unenforced --
+    # ordinary LEGENDARY, SHINY, MOVE_TUTOR, TRADE, the Distortion submap,
+    # the `sacrifice`/`stat10` team-picker rewards, and the item-equip /
+    # branching-evolution overlays. Every one below is earned the same way
+    # as everything above: a real TRANSITION in the observed stream, never a
+    # scenario name or a search predicate's own opinion.
+    "legendary_swap_accept",
+    "legendary_swap_decline",
+    "shiny_resolved",
+    "move_tutor_resolved",
+    "trade_resolved",
+    "item_equip_resolved",
+    "branching_evolution_resolved",
+    "sacrifice_reward_resolved",
+    "stat10_reward_resolved",
+    "distortion_entry",
+    "distortion_boss_win",
+    "distortion_boss_loss",
+    "distortion_reward_resolved",
+    "distortion_subexit",
+    "distortion_exact_parent_return",
+    "distortion_continued_progress",
 )
 
 
@@ -254,6 +278,183 @@ def derive(checkpoints: list[dict]) -> dict[str, list[int]]:
                 _add(ev, "resolved_submap_reward", j)
                 break
 
+    # -- ordinary LEGENDARY swap lifecycle (M4 repair) ----------------------
+    # `_visit_legendary` (engine.py:2366-2421) ALWAYS presents `showSwapScreen`
+    # on a won battle, never auto-adding even with room -- a different
+    # lifecycle from the ordinary catch/shiny auto-add (see that function's
+    # own docstring). The pending is raised by a node_pre whose type is
+    # "legendary"; unlike admin/trainer/silver, the node is NOT yet `visited`
+    # at the immediately-following node_post (the swap choice is still
+    # pending), so the resolution has to be found at the LATER `choice_post`
+    # that actually clears `pending`, exactly like the submap reward pattern
+    # above -- not at node_post.
+    for i in range(1, len(checkpoints)):
+        prev, cp = checkpoints[i - 1], checkpoints[i]
+        if (
+            cp["in_sub_map"] is None
+            and cp["pending"] is not None
+            and cp["screen"] == "swap-screen"
+            and prev["kind"] == "node_pre"
+            and prev["event"].get("node_type") == "legendary"
+        ):
+            for j in range(i + 1, len(checkpoints)):
+                nxt = checkpoints[j]
+                if nxt["kind"] == "choice_post" and nxt["pending"] is None:
+                    if nxt["event"].get("index") is None:
+                        _add(ev, "legendary_swap_decline", j)
+                    else:
+                        _add(ev, "legendary_swap_accept", j)
+                    break
+
+    # -- resolved pending-choice families bridged by M4 ---------------------
+    # `doShinyNode`/`doMoveTutorNode`/`doTradeNode`/`openItemEquipModal`/
+    # `showBranchingChoice` each earn their tag at the `choice_post` that
+    # follows a `choice_pre` parked on the matching `pending.phase` -- the
+    # phase identity is compared cross-runtime already (SCHEMA.md), so this
+    # is a real observed transition, not a name lookup. `phase` is read off
+    # the PRE-resolution checkpoint, since `choice_post` may already show a
+    # DIFFERENT pending (e.g. shiny/item-equip cascading into a full-team
+    # swap) or none at all.
+    _PENDING_PHASE_TAG = {
+        "shiny_choice": "shiny_resolved",
+        "move_tutor_choice": "move_tutor_resolved",
+        "trade_choice": "trade_resolved",
+        "item_equip_choice": "item_equip_resolved",
+        "evolution_choice": "branching_evolution_resolved",
+    }
+    for i in range(1, len(checkpoints)):
+        prev, cp = checkpoints[i - 1], checkpoints[i]
+        if cp["kind"] != "choice_post" or prev["kind"] != "choice_pre":
+            continue
+        pre_pending = prev.get("pending") or {}
+        tag = _PENDING_PHASE_TAG.get(pre_pending.get("phase"))
+        if tag is not None:
+            _add(ev, tag, i)
+        if pre_pending.get("phase") == "reward_team_pick":
+            # `sacrifice`/`stat10` share one phase; which reward this is
+            # comes from the REWARD NODE's own `extra.reward.kind`, read off
+            # the most recent `node_pre` that raised a "reward" node -- the
+            # same node the picker itself is currently resolving.
+            reward_kind = None
+            for k in range(i - 1, -1, -1):
+                if checkpoints[k]["kind"] == "node_pre" and checkpoints[k]["event"].get("node_type") == "reward":
+                    reward_node_id = checkpoints[k]["event"].get("node")
+                    node = _nodes_by_id(checkpoints[k]).get(reward_node_id) or {}
+                    reward_kind = (node.get("reward") or {}).get("kind")
+                    break
+            if reward_kind == "sacrifice":
+                _add(ev, "sacrifice_reward_resolved", i)
+            elif reward_kind == "stat10":
+                _add(ev, "stat10_reward_resolved", i)
+
+    # -- Distortion-specific submap lifecycle (M4 repair) --------------------
+    # Mirrors the generic submap-lifecycle block above exactly, but qualified
+    # on `in_sub_map == "distortion"` specifically: the generic tags never
+    # discriminate Underground from Distortion (both are just "not None"),
+    # so a matrix that only ever entered Underground could otherwise pass
+    # them without Distortion ever having been observed.
+    distortion_entry_topology: Optional[dict] = None
+    distortion_entry_index: Optional[int] = None
+    for i in range(1, len(checkpoints)):
+        prev, cp = checkpoints[i - 1], checkpoints[i]
+
+        if prev["in_sub_map"] is None and cp["in_sub_map"] == "distortion":
+            smr = cp.get("sub_map_return") or {}
+            if smr.get("has_map"):
+                _add(ev, "distortion_entry", i)
+                distortion_entry_topology = smr.get("map_topology")
+                distortion_entry_index = i
+
+        if prev["in_sub_map"] == "distortion" and cp["in_sub_map"] is None:
+            left = (prev.get("sub_map_return") or {}).get("node_id")
+            if (
+                distortion_entry_topology is not None
+                and distortion_entry_index is not None
+                and distortion_entry_index < i
+                and left
+                and _is_exact_advance(distortion_entry_topology, cp.get("map"), left)
+            ):
+                _add(ev, "distortion_exact_parent_return", i)
+
+        if cp["kind"] == "battle" and cp["in_sub_map"] == "distortion":
+            battle = cp["event"].get("battle") or {}
+            node_id = cp["event"].get("node")
+            if _node_type(cp, node_id) == "boss":
+                for j in range(i + 1, len(checkpoints)):
+                    nxt = checkpoints[j]
+                    if nxt["kind"] != "node_post" or nxt["event"].get("node") != node_id:
+                        continue
+                    if battle.get("player_won") and _visited(nxt, node_id):
+                        _add(ev, "distortion_boss_win", j)
+                    elif not battle.get("player_won") and nxt["game_over"]:
+                        _add(ev, "distortion_boss_loss", j)
+                    break
+
+    # Distortion subexit: the same per-node "subexit" resolution as the
+    # generic tag above, qualified on having been raised FROM a Distortion
+    # submap specifically.
+    for i, cp in enumerate(checkpoints):
+        if cp["kind"] != "node_pre" or cp["event"].get("node_type") != "subexit" or cp["in_sub_map"] != "distortion":
+            continue
+        for j in range(i + 1, len(checkpoints)):
+            nxt = checkpoints[j]
+            if nxt["kind"] == "node_post" and nxt["event"].get("node") == cp["event"].get("node"):
+                if not nxt["in_sub_map"]:
+                    _add(ev, "distortion_subexit", j)
+                break
+            if nxt["kind"] == "node_pre":
+                break
+
+    # Distortion reward resolved: the same choice_post pattern as the generic
+    # `resolved_submap_reward` tag, qualified on the submap being Distortion.
+    for i in range(1, len(checkpoints)):
+        prev, cp = checkpoints[i - 1], checkpoints[i]
+        if (
+            cp["in_sub_map"] == "distortion"
+            and cp["pending"] is not None
+            and cp["screen"] == "swap-screen"
+            and prev["kind"] == "node_pre"
+            and prev["event"].get("node_type") == "reward"
+            and not _visited(cp, prev["event"]["node"])
+        ):
+            reward_node = prev["event"]["node"]
+            for j in range(i + 1, len(checkpoints)):
+                nxt = checkpoints[j]
+                if nxt["kind"] == "choice_post" and nxt["pending"] is None and _visited(nxt, reward_node):
+                    _add(ev, "distortion_reward_resolved", j)
+                    break
+
+    # Continued parent progress: a node resolved on the PARENT map, with the
+    # run still alive, strictly after an exact Distortion return -- proves
+    # the run doesn't just return and stop, it keeps going. "Resolved" is
+    # NOT always `node_post`: a node type that suspends on a pending choice
+    # (e.g. `item`) only gets `visited=True` at the later `choice_post` that
+    # actually resolves it, exactly like every other node type this module
+    # already handles that way (legendary, catch, submap reward, ...) -- an
+    # earlier version checked only `node_post` and missed this route.
+    for r in ev.get("distortion_exact_parent_return", []):
+        for j in range(r + 1, len(checkpoints)):
+            cp = checkpoints[j]
+            if cp["kind"] != "node_pre":
+                continue
+            node_id = cp["event"].get("node")
+            if not node_id:
+                break
+            # Keep scanning PAST an unresolved `node_post` (a node type that
+            # suspends on a pending choice reports it there, not yet
+            # visited) until the node is really visited or a NEW node_pre
+            # shows the walk moved on without resolving it.
+            for k in range(j + 1, len(checkpoints)):
+                nxt = checkpoints[k]
+                if nxt["kind"] == "node_pre":
+                    break
+                if nxt["kind"] not in ("node_post", "choice_post"):
+                    continue
+                if not nxt["game_over"] and nxt["in_sub_map"] is None and _visited(nxt, node_id):
+                    _add(ev, "distortion_continued_progress", k)
+                    break
+            break
+
     # -- evolution or reward transition ------------------------------------
     for i in range(1, len(checkpoints)):
         prev, cp = checkpoints[i - 1], checkpoints[i]
@@ -302,6 +503,52 @@ def derive(checkpoints: list[dict]) -> dict[str, list[int]]:
         fainted = [m for m in battle.get("player_team", []) if m and m["current_hp"] == 0]
         if fainted and len(cp["team"]) < len(prev["team"]):
             _add(ev, "nuzlocke_permadeath", i)
+
+    # -- full-team swap RELEASE --------------------------------------------
+    # `showSwapScreen`'s *replace* branch (bundle.deobfuscated.js:79202-79246).
+    # The release loop is guarded by `!(iu || ip)` where `iu` is
+    # `state.team.length < 6` (79144), so cards exist ONLY with a full team;
+    # each card is `state.team[B2a]`, and its click handler splices that same
+    # index out for the incoming Pokemon (79230: `state.team.splice(B2j,1,B)`).
+    #
+    # Merely PARKING on the screen proves nothing -- the affordance has to be
+    # clicked -- so the tag is earned at the `choice_post` that resolves it,
+    # and only when the observed team really shows a single-slot in-place
+    # replacement: same cardinality, exactly one slot changed. That is the
+    # unique observable signature of `splice(i, 1, incoming)`, and it is what
+    # distinguishes this branch from the room branch's append (79171-79201),
+    # from cancel (79249-79258, which changes nothing) and from a release that
+    # dropped or duplicated a member.
+    # Keyed on the `choice_pre`/`choice_post` PAIR -- one record per click, so
+    # a route that lingers on the screen across several checkpoints cannot
+    # inflate the evidence.
+    for j, cp in enumerate(checkpoints):
+        if cp["kind"] != "choice_post" or cp["pending"] is not None:
+            continue
+        pre = None
+        for k in range(j - 1, -1, -1):
+            if checkpoints[k]["kind"] == "choice_pre":
+                pre = checkpoints[k]
+                break
+            if checkpoints[k]["kind"] == "choice_post":
+                break
+        if pre is None or pre.get("screen") != "swap-screen":
+            continue
+        pending = pre.get("pending")
+        options = (pending or {}).get("options") or []
+        if not options or any(o.get("role") != "swap_release" for o in options):
+            continue
+        # One card per team member, in team order -- the source builds exactly
+        # `state.team.length` of them, and only when the team is full.
+        if [o.get("slot") for o in options] != list(range(len(pre["team"]))):
+            continue
+        if len(cp["team"]) != len(pre["team"]):
+            continue
+        changed = [
+            slot for slot, (was, now) in enumerate(zip(pre["team"], cp["team"])) if was != now
+        ]
+        if len(changed) == 1:
+            _add(ev, "swap_release", j)
 
     # -- terminal loss ------------------------------------------------------
     for i, cp in enumerate(checkpoints):

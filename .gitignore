@@ -1,10 +1,25 @@
 .claude*
 internal_docs*
+docs/archive*
+docs/audits
+docs/prompts
 CLAUDE.md
 CODEX.md
 PLAN.md
 pokelike/data/*
 tools/
+
+# route-oracle: everything is tracked EXCEPT three regenerable artifacts.
+#   * `out/` -- the derived JS prefix, a 3.4 MB slice of the (tracked) bundle.
+#     `route-oracle/prefix.sha256` pins its expected hash and `compare.py`
+#     re-extracts and verifies it on every run, so nothing required is
+#     invisible -- see route-oracle/README.md.
+#   * `findings/streams/` -- deterministically regenerable via `compare.py --dump`.
+#   * `node_modules/` (already covered by the global rule below) -- installed
+#     from the TRACKED `route-oracle/package.json` + `package-lock.json` with
+#     `npm --prefix route-oracle ci`. Only `scan-toplevel-danger.js` needs it.
+route-oracle/out/
+route-oracle/findings/streams/
 
 
 # Python caches, test output, and local environments

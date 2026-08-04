@@ -244,8 +244,9 @@ def _assign_legendary_species_id(node_id: str, map_index: int, run_seed: int, ge
     """Port of `B2P`, the legendary-node species assigner
     (bundle.deobfuscated.js:53250-53303) -- called once per LEGENDARY node
     at map-generation time in the source (`B2a`'s dispatch, line 53310),
-    **not** RNG-stream-based: a deterministic hash of `run_seed ^
-    imul(map_index, 0x9e3779b1)` further mixed with the node's own id
+    **not** RNG-stream-based: a deterministic hash of `run_seed ^ map_index`
+    (see below -- NOT `imul(map_index, 0x9e3779b1)`, a real divergence this
+    docstring itself used to claim) further mixed with the node's own id
     string (DJB2-ish: `hash = hash*31 + charCode` per character), indexed
     into the gen-appropriate legendary id range. This is what actually
     determines a map's legendary encounter (cached onto the node and
@@ -253,6 +254,18 @@ def _assign_legendary_species_id(node_id: str, map_index: int, run_seed: int, ge
     80405-80409) -- **not** `get_random_legendary()` below, which is
     confirmed dead code in the source (declared, never called anywhere in
     the bundle).
+
+    **Repaired during M4 route-oracle work.** The source's `Math.imul(Bcs+1,
+    0x9e3779b1)` mixing (53290-53293) applies ONLY in Endless mode, to
+    `Bcs` (a region/stage-derived index), never to `map_index`. The
+    ordinary (non-Endless) branch that Story/Nuzlocke always takes is bare
+    `Bcq = O | 0x0` (53283) -- `O` is `map_index` itself, unmultiplied. A
+    prior version of this function applied the golden-ratio multiply to
+    `map_index` UNCONDITIONALLY, which happened to be invisible for every
+    previously-tested route because `imul(0, k) == 0 == 0` -- map_index 0
+    hides the bug -- and only a route reaching a LEGENDARY node on map
+    index >= 1 (which no scenario did until the M4 route-oracle work added
+    one) could ever observe it diverge from the real source.
 
     Endless-mode's region-hash mixing and `activeEncounterType()` themed-
     type filtering (both gated behind `state`/`endlessState` in the
@@ -271,7 +284,7 @@ def _assign_legendary_species_id(node_id: str, map_index: int, run_seed: int, ge
         return None
     pool = tuple(sorted(pool))
 
-    seed = _to_int32(_imul32(_to_int32(map_index), 0x9E3779B1)) ^ _to_int32(run_seed)
+    seed = _to_int32(map_index) ^ _to_int32(run_seed)
     seed = _to_int32(seed)
     for ch in node_id:
         seed = _to_int32(_imul32(seed, 0x1F) + ord(ch))

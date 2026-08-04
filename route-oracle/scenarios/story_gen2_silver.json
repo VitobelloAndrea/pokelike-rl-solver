@@ -1,26 +1,15 @@
 {
   "schema_version": 1,
   "scenario": "story_gen2_silver",
-  "description": "Story/Gen2. Reaches map 1 and fights Silver at n4_1 (the Gen2-only rival placement, bundle.deobfuscated.js:53444-53450), then loses. Covers Silver, a boss win, a map transition, an evolution (Cyndaquil->Quilava), a pokecenter, and run termination on a non-Nuzlocke loss.",
-  "covers": [
-    "silver",
-    "boss_win",
-    "map_transition",
-    "evolution",
-    "pokecenter",
-    "ordinary_trainer",
-    "battle",
-    "run_termination"
-  ],
+  "description": "Story/Gen2. Reaches Silver at the Gen2-only rival placement (bundle.deobfuscated.js:53444-53450) and LOSES there, so it proves the placement and the encounter without the win branch -- it earns terminal_loss, not `silver`. Re-derived UNALIGNED for M4 by search_route.py --target silver_loss --cross-runtime.",
   "mode": {
     "nuzlocke": false,
     "gen2": true,
     "gen3": false,
     "gen4": false
   },
-  "seed": 123456789,
+  "seed": 1,
   "starter_index": 1,
-  "align_rng_after_starter_offer": 31415926,
   "actions": [
     {
       "kind": "visit",
@@ -28,19 +17,23 @@
     },
     {
       "kind": "visit",
-      "node": "n2_1"
+      "node": "n2_2"
+    },
+    {
+      "kind": "choice",
+      "index": null
     },
     {
       "kind": "visit",
-      "node": "n3_1"
+      "node": "n3_2"
     },
     {
       "kind": "visit",
-      "node": "n4_0"
+      "node": "n4_1"
     },
     {
       "kind": "visit",
-      "node": "n5_0"
+      "node": "n5_1"
     },
     {
       "kind": "visit",
@@ -59,11 +52,19 @@
     },
     {
       "kind": "visit",
-      "node": "n1_1"
+      "node": "n1_0"
+    },
+    {
+      "kind": "choice",
+      "index": null
     },
     {
       "kind": "visit",
-      "node": "n2_1"
+      "node": "n2_0"
+    },
+    {
+      "kind": "choice",
+      "index": null
     },
     {
       "kind": "visit",

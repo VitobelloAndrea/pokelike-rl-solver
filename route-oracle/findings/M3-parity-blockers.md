@@ -1,5 +1,40 @@
 # M3 parity blockers — frozen source/Python differences
 
+> **STATUS (2026-08-03): ALL FIVE BLOCKERS BELOW ARE REPAIRED IN M4.**
+> This document is retained unchanged below the line as the historical record
+> of what M3 found and deliberately froze. Nothing in it has been rewritten to
+> pretend the differences never existed, and the M3 signature it describes
+> (`bde87cbbedfd5abf459ef6aa3b2a8c6d62eeddf30b6cb0d77c75567176a93ef`, 40
+> difference records over 9 scenarios) is preserved verbatim.
+>
+> Current state after M4:
+>
+> | | M3 (this document) | M4 |
+> |---|---|---|
+> | `python route-oracle/compare.py --all` | exit **1** | exit **0** |
+> | scenarios | 9 | 11 |
+> | difference records | 40 | **0** |
+> | frozen signature | `bde87cbb…76a93ef` | `777c1316bac57f8e2e49e1727ed170a30fdbb6334a5258917de1a127eed381bd` |
+> | `align_rng_after_starter_offer` | set by all 9 fixtures | **retired; set by none** |
+>
+> | blocker | repaired by |
+> |---|---|
+> | 1 + 1(b) starter offer draws / instances | `Engine.reset` materialises three real starters, three `rollShiny` draws, and `ChooseStarter` installs the offered object |
+> | 2 eager same-layer sibling locking | `_visit_node` locks at `onNodeClick`'s own point, for every node type |
+> | 3 `showSwapScreen` clears `currentNode` | `_resolve_swap_choice` clears it on all three exits |
+> | 4 `status_events` omits sleep ticks | `battle_loop` emits the whole pre-turn `status_tick` family |
+> | 5 `state.anyFainted` unported | `RunState.any_fainted`, set only by a real Nuzlocke cull |
+>
+> Two claims in the text below are **wrong** and are corrected in
+> `docs/audits/M4-implementation.md` §2.8: the port function is
+> `battle.resolve_pre_turn_status`, not `battle.is_incapacitated`; and no
+> battle-oracle fixture inflicts sleep at all (the oracle compares live JS to
+> live Python, not stored expectations).
+>
+> Full M4 evidence: `docs/audits/M4-implementation.md`.
+
+---
+
 Produced 2026-08-01 by the M3 route oracle at repository revision
 `964985b1724f86d8ba675ff645f5dd0330d3e412`. Findings 1-2 were recorded by the
 original M3 session over a 4-scenario matrix; findings 3-5 were surfaced by
@@ -52,13 +87,13 @@ divergence set is small enough to state exhaustively.
 | `story_gen4_submap_full` | 59 / 59 | 386 / 383 | `1460fee5c4272f4dbe444125fa949761e272b8fac543812ec4251a030cac2b75` | `0af395bb3f327b443e95ce2278267776a45a3218b6791db1dc6a45637ee0cee9` |
 | `story_gen3_admin` | 84 / 84 | 611 / 608 | `e997aca35105ddf30fb9664db8dad7aab4387666de8c3d2f375b06a550da29ef` | `14246ca094d824da3d6a0d3ac2ef5fa1db9835aec76aa289221652db12270220` |
 
-Checkpoint counts and event order agree **exactly** in all eight scenarios.
+Checkpoint counts and event order agree **exactly** in all nine scenarios.
 Every scenario's RNG draw count differs by exactly **3**, and by nothing else.
 
 ## Complete set of differing field paths
 
-This is the whole divergence surface across all eight scenarios — there is
-nothing else:
+This is the whole divergence surface across all nine scenarios — there is
+nothing else. The ninth was added by M3.5; see the re-freeze note below.
 
 | scenario | path | count | first checkpoints |
 |---|---|---:|---|
@@ -89,6 +124,64 @@ nothing else:
 | | `rng.state` | 2 | 0, 1 |
 | | `map.nodes[i].accessible` | 8 | 5, 6, 33, 34, 59, 60 |
 | | **`event.battle.status_events[len]`** | 1 | 70 |
+| `story_gen1_swap_release` | `rng.draws` | 84 | all |
+| | `rng.state` | 2 | 0, 1 |
+| | `map.nodes[i].accessible` | 20 | 5, 6, 33, 34, 59, 60, 63, 64 |
+| | **`current_node`** | 2 | 81, 82 |
+
+### M3.5 re-freeze — a ninth scenario, no new blocker
+
+`story_gen1_swap_release.json` was added by M3.5 to close M3.4 **Defect A**:
+`showSwapScreen`'s full-team *replace* branch
+(bundle.deobfuscated.js:79202-79246) was implemented on both runtimes but no
+scenario ever reached a six-member team, so the release affordance was never
+built and never clicked. The route was derived by
+`route-oracle/search_route.py --target swap_release --choice-order accept-first
+--cross-runtime`, not hand-authored, and it verifies on **both** runtimes
+(`swap_release EARNED at [82]` on each).
+
+The signature was re-frozen for this and **only** this reason. Diffed record by
+record against the previous signature:
+
+| | before | after |
+|---|---:|---:|
+| scenarios | 8 | 9 |
+| difference records | 35 | 40 |
+| total occurrences | 520 | 637 |
+
+* **added: 5** — every one of them belongs to `story_gen1_swap_release.json`,
+  and every one is an already-approved blocker class: `rng.draws` (84×,
+  blocker 1), `rng.state` (2×, blocker 1), `map.nodes[i].accessible` (20×,
+  blocker 2), `current_node` (2×, blocker 3), `pending.options[i].instance`
+  (9×, blocker 1(b));
+* **removed: 0**;
+* **changed: 0** — every pre-existing record kept its count, its checkpoint
+  indices, its kinds and its canonical value hash.
+
+No new difference *class* appeared: the search's `_cross_runtime_gate` rejects
+any candidate route whose JS-vs-Python difference set strays outside the frozen
+paths, so a fresh parity finding cannot enter the matrix disguised as tooling
+work. The five frozen blockers, blocker 1(b), the ordinary-map `LEGENDARY`
+lifecycle and Origin Giratina's stats are untouched and remain M4/M5 inputs.
+
+| | |
+|---|---|
+| signature before | `d5cc8b7d2822cc718c6dd993c4251b79fba4984bb38ba063d82ccb33d307a25d` |
+| signature after | `bde87cdbbedfd5abf459ef6aa3b2a8c6d62eeddf30b6cb0d77c75567176a93ef` |
+
+**M3.3b addition.** Every scenario additionally carries
+`pending.options[i].instance` 9× at checkpoints 0-2 — see blocker 1(b). That
+is the only path M3.3b added; the per-scenario rows above are otherwise
+unchanged,
+and the re-freeze removed no record. The per-scenario stream hashes in the
+table above predate M3.3b's observation fields and are superseded; regenerate
+them with `--dump` if needed.
+
+The ordered per-turn battle-event projection M3.3b added
+(`event.battle.turns`, workstream 5) produced **no** difference in any
+scenario: every attack, in every turn, on both runtimes, matches in acting
+side, attacker/target index, move name and type, damage, type effectiveness,
+crit, special flag and both post-hit HP values.
 
 Everything else agrees: map topology, node identity and every other node
 flag, edge lists, battle winners, exact round counts, per-battle RNG draws,
@@ -141,6 +234,44 @@ never be shiny.
 2. A shiny starter is unreachable in the port.
 
 **Not repaired here.** M3 is an oracle-building iteration.
+
+### 1(b) — the same cause, seen without the RNG counters (new in M3.3b)
+
+M3.3b's pending-choice option-identity projection (workstream 3) exposed a
+second, non-RNG face of exactly this difference:
+
+```
+pending.options[i].instance   js = {…full normalized instance…}   python = null
+```
+
+9 occurrences per scenario, in all eight scenarios, at the three checkpoints
+where the starter screen is up (`run_init`, `starter_offered`, `rng_aligned`)
+× the three offered starters.
+
+**Source.** The loop at bundle.deobfuscated.js:76175-76194 builds a real
+`createInstance(BIj, B2l, BIV, 0x0)` per card *before* the player clicks, and
+the card's own click listener closes over that instance
+(`addEventListener("click", () => selectStarter(BIv))`, 76186). So at offer
+time the source holds three fully-materialised Pokemon, each with its own
+rolled shininess, level, HP and base stats.
+
+**Port.** `Engine.reset` (`pokelike/engine.py:536-543`) offers
+`{"species_id", "name"}` pairs from `data.get_starter_ids(generation)` and
+builds nothing; the chosen species is instantiated at click time by
+`_dispatch_action`'s `CHOOSE_STARTER` branch.
+
+The runners therefore report the instance where one exists and `null` where
+none does, rather than omitting the field — the same discipline
+`counters.any_fainted` follows (blocker 5). This is **not a sixth finding**:
+it is blocker 1's mechanism observed in a field that does not depend on draw
+counting, and it is what makes the difference survive the `align_rng_after_
+starter_offer` instrument. It is frozen as part of the M3.3b re-freeze; the
+re-freeze added these 8 aggregate records and removed none.
+
+Catch, item and swap option identities — species/form identity, full
+instances, item ids, and the incoming-versus-team roles — **agree exactly**
+on both runtimes in all eight scenarios. That agreement is new information:
+before M3.3b only `{phase, optional, option_count}` was compared.
 
 **Note on the oracle's own handling.** Because this offset would otherwise
 mask every independent difference, the scenarios use
