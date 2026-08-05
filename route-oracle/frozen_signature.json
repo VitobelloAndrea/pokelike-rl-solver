@@ -30,6 +30,10 @@
       "scenario": "story_gen1_shiny"
     },
     {
+      "file": "story_gen1_shiny_accept.json",
+      "scenario": "story_gen1_shiny_accept"
+    },
+    {
       "file": "story_gen1_swap_release.json",
       "scenario": "story_gen1_swap_release"
     },
@@ -82,6 +86,14 @@
       "scenario": "story_gen4_legendary_decline"
     },
     {
+      "file": "story_gen4_legendary_full_decline.json",
+      "scenario": "story_gen4_legendary_full_decline"
+    },
+    {
+      "file": "story_gen4_legendary_full_replace.json",
+      "scenario": "story_gen4_legendary_full_replace"
+    },
+    {
       "file": "story_gen4_sacrifice.json",
       "scenario": "story_gen4_sacrifice"
     },
@@ -98,7 +110,7 @@
       "scenario": "story_gen4_underground"
     }
   ],
-  "schema_version": 1,
-  "signature_sha256": "244f17e83d0bde275191c5d04fcb083a1db47a8441c71dc2cf02494a0240d655",
+  "schema_version": 2,
+  "signature_sha256": "b7ab9749ba5c8b3912698ef853a81b7648d1690cb8e751fabd9d49326342f5e4",
   "signature_version": 1
 }

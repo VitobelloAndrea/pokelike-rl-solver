@@ -758,6 +758,55 @@
     return null;
   }
 
+  // ======================= live resume guards (M4.2) =======================
+  // The three node-scoped records the source keeps so a run saved while
+  // parked on a choice screen resumes onto the SAME offer rather than
+  // re-rolling it: `state.savedQuestionResolve` (written 77332, read 77328),
+  // `state.savedCatch` (written 78765, read 78441) and
+  // `state.savedShinyNode` (written 80919, read 80887). They are read here
+  // straight off the source's own run state -- nothing is reconstructed.
+  //
+  // They matter to a PARITY oracle because which of them an exit clears is
+  // branch-specific, and clearing the wrong one (or failing to clear the
+  // right one) is invisible in every other compared field: a shiny room
+  // accept clears `savedShinyNode` and RETAINS `savedQuestionResolve`
+  // (80962), while a catch room accept clears `savedCatch` AND
+  // `savedQuestionResolve` and leaves `savedShinyNode` alone (79041-79042).
+  //
+  // Only deterministic semantic identity is projected -- the key each record
+  // is guarded by, plus the offer it pins. `savedCatch.rerollPool` /
+  // `.rerolled` / `.level` are Endless-and-reroll bookkeeping the Python
+  // port does not model; the offer's `instances` already carry every level
+  // and identity the comparison needs, in the source's own order.
+  //
+  // These are LIVE fields. What `saveRun()` last persisted is a different
+  // fact and is not projected: `saveRun` is stubbed out here (see the
+  // persistence-stubs section), and neither accept nor decline handler calls
+  // it, so the last snapshot on a shiny accept still holds the PRE-accept
+  // team and a non-null `savedShinyNode`. See SCHEMA.md.
+  function resumeState() {
+    var q = state.savedQuestionResolve;
+    var c = state.savedCatch;
+    var s = state.savedShinyNode;
+    return {
+      saved_question_resolve: q
+        ? {
+            key: q.key === undefined ? null : q.key,
+            resolved_type: q.resolvedType === undefined ? null : q.resolvedType,
+          }
+        : null,
+      saved_catch: c
+        ? {
+            key: c.nodeId === undefined ? null : c.nodeId,
+            instances: (c.instances || []).map(function (m, i) { return monOption('saved_catch', m, i); }),
+          }
+        : null,
+      saved_shiny_node: s
+        ? { key: s.key === undefined ? null : s.key, species_id: num(s.speciesId) }
+        : null,
+    };
+  }
+
   function checkpoint(kind, event) {
     var cp = {
       schema_version: SC.schema_version,
@@ -805,6 +854,7 @@
       }),
       game_over: gameOverSeen,
       pending: pendingState(),
+      resume_state: resumeState(),
     };
     OUT.checkpoints.push(cp);
     return cp;

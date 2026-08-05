@@ -74,7 +74,7 @@ def main(argv: list[str]) -> int:
 
     prefer = [p.strip() for p in args.prefer.split(",") if p.strip()]
     base = {
-        "schema_version": 1,
+        "schema_version": 2,
         "scenario": args.name,
         "description": "planned by plan_route.py",
         "mode": {

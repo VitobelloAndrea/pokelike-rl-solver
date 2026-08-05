@@ -1,15 +1,15 @@
 {
   "schema_version": 2,
-  "scenario": "story_gen4_distortion_full",
-  "description": "Backtracking-derived route for distortion_full.",
+  "scenario": "story_gen4_legendary_full_decline",
+  "description": "M4.1: an ordinary doLegendaryNode win (bundle.deobfuscated.js:80446-80458) resolved at showSwapScreen with a FULL (6) team, which the M4 matrix never routed -- both of its legendary swap screens sat at team size 1, and the only full-team release in the whole matrix was raised by a CATCH node. Derived by route-oracle/search_route.py over the real Python engine and verified against the JavaScript source on both runtimes. Raw seed, with no post-starter RNG alignment key. This route takes the #btn-cancel-swap DECLINE exit (79247-79258) from the same full-team legendary swap screen: the team is left byte-identical, the node is still advanced, and currentNode is cleared at 79256. It shares the replace route's seed and node prefix so the two are a matched pair over one offer, differing only in the final choice index.",
   "mode": {
     "nuzlocke": false,
     "gen2": false,
     "gen3": false,
     "gen4": true
   },
-  "seed": 4,
-  "starter_index": 1,
+  "seed": 1,
+  "starter_index": 2,
   "actions": [
     {
       "kind": "visit",
@@ -20,6 +20,10 @@
       "node": "n2_2"
     },
     {
+      "kind": "choice",
+      "index": 0
+    },
+    {
       "kind": "visit",
       "node": "n3_2"
     },
@@ -28,79 +32,8 @@
       "node": "n4_1"
     },
     {
-      "kind": "choice",
-      "index": 0
-    },
-    {
-      "kind": "choice",
-      "index": 0
-    },
-    {
       "kind": "visit",
       "node": "n5_1"
-    },
-    {
-      "kind": "visit",
-      "node": "n6_1"
-    },
-    {
-      "kind": "visit",
-      "node": "n7_0"
-    },
-    {
-      "kind": "visit",
-      "node": "n8_0"
-    },
-    {
-      "kind": "advance_map"
-    },
-    {
-      "kind": "visit",
-      "node": "n1_0"
-    },
-    {
-      "kind": "choice",
-      "index": null
-    },
-    {
-      "kind": "visit",
-      "node": "n2_1"
-    },
-    {
-      "kind": "visit",
-      "node": "n3_1"
-    },
-    {
-      "kind": "choice",
-      "index": 0
-    },
-    {
-      "kind": "choice",
-      "index": 0
-    },
-    {
-      "kind": "visit",
-      "node": "n4_0"
-    },
-    {
-      "kind": "visit",
-      "node": "n1_0"
-    },
-    {
-      "kind": "visit",
-      "node": "n2_0"
-    },
-    {
-      "kind": "visit",
-      "node": "n3_0"
-    },
-    {
-      "kind": "visit",
-      "node": "n5_0"
-    },
-    {
-      "kind": "choice",
-      "index": 0
     },
     {
       "kind": "visit",
@@ -123,7 +56,62 @@
     },
     {
       "kind": "choice",
+      "index": 1
+    },
+    {
+      "kind": "visit",
+      "node": "n2_1"
+    },
+    {
+      "kind": "visit",
+      "node": "n3_1"
+    },
+    {
+      "kind": "choice",
+      "index": 0
+    },
+    {
+      "kind": "visit",
+      "node": "n4_1"
+    },
+    {
+      "kind": "visit",
+      "node": "n5_1"
+    },
+    {
+      "kind": "choice",
       "index": null
+    },
+    {
+      "kind": "visit",
+      "node": "n6_0"
+    },
+    {
+      "kind": "choice",
+      "index": null
+    },
+    {
+      "kind": "visit",
+      "node": "n7_0"
+    },
+    {
+      "kind": "choice",
+      "index": 2
+    },
+    {
+      "kind": "visit",
+      "node": "n8_0"
+    },
+    {
+      "kind": "advance_map"
+    },
+    {
+      "kind": "visit",
+      "node": "n1_0"
+    },
+    {
+      "kind": "choice",
+      "index": 1
     },
     {
       "kind": "visit",
@@ -135,7 +123,82 @@
     },
     {
       "kind": "visit",
+      "node": "n4_1"
+    },
+    {
+      "kind": "choice",
+      "index": 1
+    },
+    {
+      "kind": "choice",
+      "index": 2
+    },
+    {
+      "kind": "visit",
+      "node": "n5_1"
+    },
+    {
+      "kind": "visit",
+      "node": "n6_1"
+    },
+    {
+      "kind": "visit",
+      "node": "n7_0"
+    },
+    {
+      "kind": "visit",
+      "node": "n8_0"
+    },
+    {
+      "kind": "advance_map"
+    },
+    {
+      "kind": "visit",
+      "node": "n1_0"
+    },
+    {
+      "kind": "choice",
+      "index": 1
+    },
+    {
+      "kind": "choice",
+      "index": 0
+    },
+    {
+      "kind": "visit",
+      "node": "n2_1"
+    },
+    {
+      "kind": "choice",
+      "index": null
+    },
+    {
+      "kind": "visit",
+      "node": "n3_1"
+    },
+    {
+      "kind": "choice",
+      "index": 0
+    },
+    {
+      "kind": "choice",
+      "index": 2
+    },
+    {
+      "kind": "visit",
       "node": "n4_0"
+    },
+    {
+      "kind": "visit",
+      "node": "n1_1"
+    },
+    {
+      "kind": "visit",
+      "node": "n2_0"
+    },
+    {
+      "kind": "visit",
+      "node": "n3_0"
     },
     {
       "kind": "visit",
@@ -150,47 +213,8 @@
       "node": "n7_1"
     },
     {
-      "kind": "visit",
-      "node": "n8_0"
-    },
-    {
-      "kind": "advance_map"
-    },
-    {
-      "kind": "visit",
-      "node": "n1_1"
-    },
-    {
-      "kind": "visit",
-      "node": "n2_2"
-    },
-    {
-      "kind": "visit",
-      "node": "n3_3"
-    },
-    {
       "kind": "choice",
       "index": null
-    },
-    {
-      "kind": "visit",
-      "node": "n4_2"
-    },
-    {
-      "kind": "visit",
-      "node": "n1_0"
-    },
-    {
-      "kind": "visit",
-      "node": "n2_0"
-    },
-    {
-      "kind": "visit",
-      "node": "n3_0"
-    },
-    {
-      "kind": "visit",
-      "node": "n5_3"
     }
   ]
 }

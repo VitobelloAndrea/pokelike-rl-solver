@@ -1136,17 +1136,365 @@ class MoveTutorAndItemTests(unittest.TestCase):
         self.assertIn(item_id, state.items)
         self.assertIsNone(state.team[0].held_item)
 
+    # -- M5: `state.itemOffer`, the fourth resume guard --------------------
+    #
+    # Source facts these pin (bundle.deobfuscated.js):
+    #   79371-79375  the rolled offer is pinned as {nodeId, ids}
+    #   79360-79364  a pinned offer for THIS node id is rebuilt from the saved
+    #                ids through the COMBINED pools, drawing no RNG; ids that
+    #                do not resolve are dropped, and only an empty result
+    #                falls through to a fresh roll
+    #   79419-79422  the usable pick nulls it
+    #   79424-79428  the equip modal's onComplete nulls it
+    #   79433-79437  #btn-skip-item nulls it
+    #   79563-79569  #btn-equip-cancel does NONE of that -- its whole body is
+    #                `B2O.remove()`
+    #   76228-76245  startMap clears none of the resume guards
+    #
+    # Directly observed on the real source (probe over the audited prefix,
+    # seeds 333333333 and 222222222): first visit 20 draws, cancel 0 draws,
+    # second visit 0 draws with a byte-identical id list.
+
+    def _item_node_offer(self, seed=12):
+        eng, state = _start(seed=seed)
+        node = next(n for n in state.map.nodes.values() if n.accessible)
+        node.type = map_gen.ITEM
+        state = eng.step(engine.VisitNode(node_id=node.id))
+        return eng, state, node
+
+    def test_item_offer_is_pinned_at_the_roll(self):
+        _, state, node = self._item_node_offer()
+        self.assertEqual(state.item_offer["node_id"], node.id)
+        self.assertEqual(
+            state.item_offer["item_ids"],
+            [o["id"] for o in state.pending.options],
+        )
+
+    def test_item_offer_cleared_by_skip(self):
+        eng, state, _ = self._item_node_offer()
+        state = eng.step(engine.SelectOption(index=None))
+        self.assertIsNone(state.item_offer)
+
+    def test_item_offer_cleared_by_usable_pick(self):
+        eng, state = _start(seed=12)
+        node = next(n for n in state.map.nodes.values() if n.accessible)
+        node.type = map_gen.ITEM
+        with patch.object(engine.data, "get_passive_items", return_value=()):
+            state = eng.step(engine.VisitNode(node_id=node.id))
+        idx = next(i for i, o in enumerate(state.pending.options) if o["usable"])
+        state = eng.step(engine.SelectOption(index=idx))
+        self.assertIsNone(state.item_offer)
+
+    def test_item_offer_cleared_by_equip_and_by_keep_in_bag(self):
+        for pick in (0, None):
+            eng, state, _ = self._item_node_offer()
+            passive = next(i for i, o in enumerate(state.pending.options) if not o["usable"])
+            state = eng.step(engine.SelectOption(index=passive))
+            self.assertEqual(state.phase, engine.Phase.ITEM_EQUIP_CHOICE)
+            state = eng.step(engine.SelectOption(index=pick))
+            self.assertIsNone(state.item_offer, f"equip exit index={pick}")
+
+    def test_equip_cancel_consumes_nothing_and_keeps_the_offer(self):
+        """`#btn-equip-cancel` (79563-79569) is `B2O.remove()` and nothing
+        else: no equip, no bank, no onComplete, so no advance and no clear."""
+        eng, state, node = self._item_node_offer()
+        pinned = dict(state.item_offer)
+        bag_before = list(state.items)
+        passive = next(i for i, o in enumerate(state.pending.options) if not o["usable"])
+        state = eng.step(engine.SelectOption(index=passive))
+        state = eng.step(engine.SelectOption(cancel=True))
+
+        self.assertEqual(state.phase, engine.Phase.ON_MAP)
+        self.assertIsNone(state.pending)
+        self.assertEqual(state.items, bag_before)          # nothing banked
+        self.assertIsNone(state.team[0].held_item)          # nothing equipped
+        self.assertFalse(state.map.nodes[node.id].visited)  # not advanced
+        self.assertTrue(state.map.nodes[node.id].accessible)
+        self.assertEqual(state.item_offer, pinned)          # still pinned
+
+    def test_revisit_after_cancel_restores_the_same_offer_with_no_rng(self):
+        """The decisive transition: the restore branch draws NO RNG and
+        reproduces the offer exactly (79360-79364)."""
+        eng, state, node = self._item_node_offer()
+        first = [o["id"] for o in state.pending.options]
+        passive = next(i for i, o in enumerate(state.pending.options) if not o["usable"])
+        eng.step(engine.SelectOption(index=passive))
+        state = eng.step(engine.SelectOption(cancel=True))
+
+        before = eng._rng_stream.state
+        state = eng.step(engine.VisitNode(node_id=node.id))
+        self.assertEqual(eng._rng_stream.state, before, "restore must not draw RNG")
+        self.assertEqual([o["id"] for o in state.pending.options], first)
+
+    def test_restore_ignores_eligibility_and_drops_unresolvable_ids(self):
+        """`B2P` resolves ids through the COMBINED pools with no eligibility
+        re-test, and `.filter(Boolean)` drops what does not resolve."""
+        eng, state, node = self._item_node_offer()
+        real = state.item_offer["item_ids"][0]
+        eng.step(engine.SelectOption(index=None))  # clear, then re-pin by hand
+        state.item_offer = {"node_id": node.id, "item_ids": [real, "no_such_item_id"]}
+        state.map.nodes[node.id].visited = False
+        state.map.nodes[node.id].accessible = True
+        state.phase = engine.Phase.ON_MAP
+
+        before = eng._rng_stream.state
+        state = eng.step(engine.VisitNode(node_id=node.id))
+        self.assertEqual(eng._rng_stream.state, before)
+        self.assertEqual([o["id"] for o in state.pending.options], [real])
+
+    def test_pinned_offer_for_another_node_is_not_restored(self):
+        """The guard is `state.itemOffer.nodeId === B.id` (79361), so an
+        offer pinned for a DIFFERENT node must not be reused -- it must roll
+        fresh. Without this control, dropping the node-id test entirely is
+        invisible: every other test pins the offer on the node it visits."""
+        eng, state, node = self._item_node_offer()
+        eng.step(engine.SelectOption(index=None))  # clears the real offer
+        state.item_offer = {"node_id": "n99_9", "item_ids": ["rare_candy"]}
+
+        other = next(
+            n for n in state.map.nodes.values()
+            if n.accessible and n.id != node.id
+        )
+        other.type = map_gen.ITEM
+        before = eng._rng_stream.state
+        state = eng.step(engine.VisitNode(node_id=other.id))
+        self.assertNotEqual(before, eng._rng_stream.state, "must roll fresh")
+        self.assertEqual(state.item_offer["node_id"], other.id)
+        self.assertNotEqual([o["id"] for o in state.pending.options], ["rare_candy"])
+
+    def test_restore_falls_through_to_a_fresh_roll_when_nothing_resolves(self):
+        eng, state, node = self._item_node_offer()
+        eng.step(engine.SelectOption(index=None))
+        state.item_offer = {"node_id": node.id, "item_ids": ["nope_a", "nope_b"]}
+        state.map.nodes[node.id].visited = False
+        state.map.nodes[node.id].accessible = True
+        state.phase = engine.Phase.ON_MAP
+
+        before = eng._rng_stream.state
+        state = eng.step(engine.VisitNode(node_id=node.id))
+        self.assertNotEqual(eng._rng_stream.state, before, "empty restore must re-roll")
+        self.assertTrue(state.pending.options)
+
+    def test_pinned_offer_is_keyed_by_bare_node_id_not_by_map(self):
+        """`state.itemOffer.nodeId === B.id` (79361) is the BARE id, exactly
+        like `savedCatch` (78441), and `startMap` clears none of the guards --
+        so a cancelled offer really can be restored at the same node id on a
+        LATER map. Mirrored, not tidied away."""
+        eng, state, node = self._item_node_offer()
+        pinned = dict(state.item_offer)
+        passive = next(i for i, o in enumerate(state.pending.options) if not o["usable"])
+        eng.step(engine.SelectOption(index=passive))
+        state = eng.step(engine.SelectOption(cancel=True))
+
+        engine._start_map(state, 1)
+        self.assertEqual(state.current_map, 1)
+        self.assertEqual(state.item_offer, pinned)
+
+    # --- M5.1: the "restore does not re-test eligibility" contract -----------
+    #
+    # The M5 independent closure audit (docs/audits/M5-independent-closure-
+    # audit.md, blocker B1) found this contract had NO detector: a
+    # non-equivalent mutant that re-applies `passive_eligible`/
+    # `usable_eligible` while resolving a non-empty pinned offer survived the
+    # whole discovery suite, the focused route-oracle suite and the strict
+    # route gate.
+    #
+    # The reason is structural, not accidental: every restore test above pins
+    # and restores against UNCHANGED eligibility -- same map, immediately
+    # after the roll -- so the filter is a no-op there and re-applying it
+    # cannot change the result. `test_restore_ignores_eligibility_and_drops_
+    # unresolvable_ids` proves only the second half of its name. The tests
+    # below change eligibility BETWEEN the pin and the restore, which is the
+    # only state in which the two behaviours differ at all.
+    #
+    # Source facts (bundle.deobfuscated.js):
+    #   79279-79289  the fresh roll's passive pool IS filtered
+    #   79306-79317  the fresh roll's usable pool IS filtered; in a non-Endless
+    #                run `moon_stone` is eligible only while
+    #                `state.currentMap <= 2` (79309-79315)
+    #   79348-79358  `B2P` is a BARE id lookup over the combined pools plus a
+    #                mega-stone fallback -- it applies no eligibility test
+    #   79360-79364  the restore maps the pinned ids through `B2P` and, if
+    #                anything survives, skips the roll (and its RNG) entirely
+    #   79371-79375  the pin's key is the BARE node id, so it survives startMap
+
+    BOUNDARY_ITEM = "moon_stone"
+
+    def _fresh_roll_ids_at_map(self, seed, map_index):
+        """Roll a REAL item node through the production path with the pool
+        narrowed to the boundary item plus one always-eligible usable
+        (`rare_candy`), and return the offered ids. This measures the
+        fresh-roll eligibility predicate itself rather than asserting it."""
+        eng, state = _start(seed=seed)
+        if map_index != 0:
+            engine._start_map(state, map_index)
+        node = next(n for n in state.map.nodes.values() if n.accessible)
+        node.type = map_gen.ITEM
+        pool = tuple(i for i in data.get_usable_items() if i.id in (self.BOUNDARY_ITEM, "rare_candy"))
+        self.assertEqual(len(pool), 2, "both control items must exist in the usable pool")
+        with patch.object(engine.data, "get_passive_items", return_value=()), \
+             patch.object(engine.data, "get_usable_items", return_value=pool):
+            state = eng.step(engine.VisitNode(node_id=node.id))
+        self.assertIsNotNone(state.pending, "the control roll must produce a real offer")
+        return [o["id"] for o in state.pending.options]
+
+    @staticmethod
+    def _counting_draws():
+        """Patch the one draw path (`_shuffle` -> `rng.rng()`, engine.py:819)
+        with a counter, so "no RNG" is measured as a draw COUNT rather than
+        inferred from the generator state alone."""
+        real = engine.rng.rng
+        counter = {"draws": 0}
+
+        def counting():
+            counter["draws"] += 1
+            return real()
+
+        return counter, patch.object(engine.rng, "rng", counting)
+
+    def _boundary_offer(self):
+        """Derive -- never hard-code -- a seed whose REAL rolled offer contains
+        the boundary item and at least one passive, AND whose node id is still
+        a reachable, unvisited node on the later map. Every precondition the
+        detector depends on is asserted here, on real engine state."""
+        for seed in range(1, 64):
+            eng, state, node = self._item_node_offer(seed=seed)
+            offered = state.pending.options
+            if self.BOUNDARY_ITEM not in [o["id"] for o in offered]:
+                continue
+            if not any(not o["usable"] for o in offered):
+                continue
+            probe_eng, probe_state = _start(seed=seed)
+            engine._start_map(probe_state, 3)
+            later = probe_state.map.nodes.get(node.id)
+            if later is None or later.visited or not later.accessible:
+                continue
+            return seed, eng, state, node
+        self.fail(
+            f"no seed in 1..63 rolled a {self.BOUNDARY_ITEM} offer with a passive "
+            f"on a node id that is still reachable on map 3"
+        )
+
+    def test_fresh_roll_rejects_the_boundary_item_after_the_map_boundary(self):
+        """Precondition control for the detector below, measured on the real
+        fresh-roll path: `moon_stone` is offered while `currentMap <= 2` and
+        filtered out from map 3 on (79309-79315)."""
+        seed, _, _, _ = self._boundary_offer()
+        for map_index in (0, 1, 2):
+            self.assertIn(self.BOUNDARY_ITEM, self._fresh_roll_ids_at_map(seed, map_index))
+        for map_index in (3, 4):
+            self.assertNotIn(self.BOUNDARY_ITEM, self._fresh_roll_ids_at_map(seed, map_index))
+
+    def test_restore_keeps_an_item_a_fresh_roll_would_now_reject(self):
+        """The M5.1 detector. Eligibility genuinely changes between the pin and
+        the restore, and the restore still reproduces the pinned list byte for
+        byte for zero draws -- because `B2P` (79348-79358) applies no
+        eligibility predicate at all."""
+        seed, eng, state, node = self._boundary_offer()
+        pinned = dict(state.item_offer)
+        self.assertIn(self.BOUNDARY_ITEM, pinned["item_ids"])
+        self.assertLessEqual(state.current_map, 2, "the boundary item must be eligible AT THE PIN")
+
+        # The real cancel path: `#btn-equip-cancel` (79563-79569) is
+        # `B2O.remove()` and nothing else, so the offer survives.
+        passive = next(i for i, o in enumerate(state.pending.options) if not o["usable"])
+        eng.step(engine.SelectOption(index=passive))
+        state = eng.step(engine.SelectOption(cancel=True))
+        self.assertEqual(state.item_offer, pinned)
+        self.assertFalse(state.map.nodes[node.id].visited)
+
+        # The real map transition. `startMap` (76228-76245) clears no offer,
+        # and the pin's key is the bare node id, so the offer follows.
+        engine._start_map(state, 3)
+        self.assertEqual(state.current_map, 3)
+        self.assertEqual(state.item_offer, pinned)
+
+        # The eligibility predicate really has flipped by now.
+        self.assertNotIn(self.BOUNDARY_ITEM, self._fresh_roll_ids_at_map(seed, 3))
+
+        # Same BARE node id, a real reachable and unvisited node on this map.
+        same = state.map.nodes[node.id]
+        self.assertTrue(same.accessible)
+        self.assertFalse(same.visited)
+        same.type = map_gen.ITEM
+
+        before = eng._rng_stream.state
+        counter, counting = self._counting_draws()
+        with counting:
+            state = eng.step(engine.VisitNode(node_id=node.id))
+
+        self.assertEqual(counter["draws"], 0, "the restore path must draw no RNG")
+        self.assertEqual(eng._rng_stream.state, before)
+        restored = [o["id"] for o in state.pending.options]
+        self.assertEqual(restored, pinned["item_ids"], "the pinned list must be reproduced exactly")
+        self.assertIn(
+            self.BOUNDARY_ITEM,
+            restored,
+            "the restore must NOT re-apply the eligibility filter (79348-79358)",
+        )
+        self.assertEqual(state.item_offer, pinned)
+
+    def test_restore_still_falls_through_when_nothing_resolves_after_the_boundary(self):
+        """Control for the detector: the contract is not "always restore". In
+        the SAME changed-eligibility state, an offer whose ids all fail to
+        resolve falls through to a fresh roll and really does draw RNG
+        (`!B2a || !B2a.length`, 79364)."""
+        _, eng, state, node = self._boundary_offer()
+        passive = next(i for i, o in enumerate(state.pending.options) if not o["usable"])
+        eng.step(engine.SelectOption(index=passive))
+        state = eng.step(engine.SelectOption(cancel=True))
+        engine._start_map(state, 3)
+
+        state.item_offer = {"node_id": node.id, "item_ids": ["nope_a", "nope_b"]}
+        same = state.map.nodes[node.id]
+        same.type = map_gen.ITEM
+
+        before = eng._rng_stream.state
+        counter, counting = self._counting_draws()
+        with counting:
+            state = eng.step(engine.VisitNode(node_id=node.id))
+
+        self.assertGreater(counter["draws"], 0, "an empty restore must fall through and roll")
+        self.assertNotEqual(eng._rng_stream.state, before)
+        self.assertTrue(state.pending.options)
+        self.assertEqual(state.item_offer["node_id"], node.id)
+        self.assertNotIn(
+            self.BOUNDARY_ITEM,
+            [o["id"] for o in state.pending.options],
+            "a FRESH roll at map 3 must not offer the boundary item",
+        )
+
+    def test_cancel_is_rejected_on_every_other_pending_phase(self):
+        eng, state, _ = self._item_node_offer()
+        self.assertEqual(state.phase, engine.Phase.ITEM_CHOICE)
+        with self.assertRaises(ValueError):
+            eng.step(engine.SelectOption(cancel=True))
+
+    def test_cancel_with_an_index_is_rejected(self):
+        eng, state, _ = self._item_node_offer()
+        passive = next(i for i, o in enumerate(state.pending.options) if not o["usable"])
+        eng.step(engine.SelectOption(index=passive))
+        with self.assertRaises(ValueError):
+            eng.step(engine.SelectOption(index=0, cancel=True))
+
     def test_mega_question_resolution_reuses_item_handler(self):
         eng, state = _start(seed=12)
         node = next(n for n in state.map.nodes.values() if n.accessible)
         node.type = map_gen.QUESTION
-        # The cache key is map-qualified (`_resolve_question`, CODEX.md issue
-        # 9). Seeding the bare node id never hit it, so this test used to fall
-        # through to a live `rng()` roll and merely assert that whatever came
-        # back was one of two phases -- it was passing on the roll, not on the
-        # "mega" dispatch it names. Seed the real key so the pinned type is
-        # actually used and no RNG is consumed.
-        state.question_cache[f"m{state.current_map}:{node.id}"] = "mega"
+        # The record's key is map-qualified (`_resolve_question`, CODEX.md
+        # issue 9). Seeding the bare node id never hit it, so this test used
+        # to fall through to a live `rng()` roll and merely assert that
+        # whatever came back was one of two phases -- it was passing on the
+        # roll, not on the "mega" dispatch it names. Seed the real key so the
+        # pinned type is actually used and no RNG is consumed.
+        #
+        # M4.2: this used to be a `question_cache` dict entry. The source
+        # keeps ONE `savedQuestionResolve` record (bundle.deobfuscated.js:
+        # 77326-77332), so the port does too; the key is unchanged.
+        state.saved_question_resolve = {
+            "key": f"m{state.current_map}:{node.id}",
+            "resolved_type": "mega",
+        }
         state = eng.step(engine.VisitNode(node_id=node.id))
         # `case "mega": doItemNode(B)` (77385-77386) -- the item handler
         # verbatim, so either an item offer or, with nothing offerable, a
@@ -1381,15 +1729,36 @@ class TradeAndLegendaryAndShinyTests(unittest.TestCase):
         self.assertTrue(state.pending.options[0]["is_shiny"])
         state = eng.step(engine.SelectOption(index=0))
         self.assertTrue(state.team[-1].is_shiny)
-        # `doShinyNode`'s accept handler (bundle.deobfuscated.js:80947-80970)
-        # never calls `catchPokemon`/`recordMonOrigin` -- it inlines its own
-        # team push -- so `gotViaQuestion` is NEVER set for a shiny catch,
-        # unlike an ordinary question-resolved catch (which DOES go through
-        # `catchPokemon`). Found tracing the exact source for the M4
-        # route-oracle shiny-screen bridge: a prior version of this test
-        # asserted the opposite, matching a real bug where `_visit_shiny`
-        # shared its origin tag with the ordinary question-catch path.
-        self.assertFalse(state.got_via_question)
+        # M4.1 INVERTED this assertion, against the real source.
+        #
+        # It previously read `assertFalse`, justified by "`doShinyNode`'s
+        # accept handler never calls `catchPokemon`/`recordMonOrigin` -- it
+        # inlines its own team push". Only the first half of that is true.
+        # The handler does not call `catchPokemon`, but the body it inlines
+        # contains a bare `recordMonOrigin(B)` at bundle.deobfuscated.js:80967,
+        # in the room branch's comma sequence between the `maxTeamSize` update
+        # and `advanceFromNode`.
+        #
+        # `B` is still the QUESTION-typed node: `onNodeClick` sets
+        # `iu = B.type` (77317), replaces `iu` with `resolveQuestionMark()`
+        # for a QUESTION node (77318-77332), and dispatches on `iu` via
+        # `case "shiny"` (77384) WITHOUT rebinding `B`. There is no
+        # `NODE_TYPES.SHINY` -- "shiny" exists only as a resolved type -- so
+        # `recordMonOrigin` always takes its QUESTION branch here and sets
+        # `state.gotViaQuestion = true`.
+        #
+        # This test is Python-only, so it could assert the port's belief
+        # rather than the source's behavior for as long as no route executed
+        # the branch. Every shiny resolution in the M4 route matrix was a
+        # DECLINE, and `#btn-skip-shiny` (80984-80989) really does skip
+        # `recordMonOrigin`. `route-oracle/scenarios/story_gen1_shiny_accept.json`
+        # executes the accept branch cross-runtime and the JavaScript source
+        # reports `counters.got_via_question = true`.
+        self.assertTrue(state.got_via_question)
+        # ...and the shiny path must still NOT look like a ball catch:
+        # `recordMonOrigin`'s CATCH branch is a different arm of the same
+        # ternary (79051-79052).
+        self.assertFalse(state.used_ball_catch)
 
     def test_shiny_node_uses_move_tier_for_map_and_does_not_evolve(self):
         # CODEX.md issues 9-10: `doShinyNode` passes `getMoveTierForMap`

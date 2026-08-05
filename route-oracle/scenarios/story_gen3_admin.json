@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "scenario": "story_gen3_admin",
   "description": "Story/Gen3. Resolves a real Team Magma ADMIN node (the Gen3-only placement, bundle.deobfuscated.js:53451-53463) through doAdminNode and the source's own runBattleScreen, with the run still alive afterwards. Re-derived UNALIGNED for M4 by search_route.py --target admin --cross-runtime; nine earlier candidates were REJECTED by the cross-runtime gate for a real `event.battle.turns[i].events[len]` difference, which turned out to be the unlogged Mirror Coat counter-hit (M4 repair 7).",
   "mode": {

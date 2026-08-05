@@ -51,6 +51,33 @@ def _pending_json(pending: Optional["engine.PendingChoice"]) -> Optional[dict]:
     }
 
 
+def _resolved_question_marks(state: engine.RunState) -> dict:
+    """`{node_id: resolved_type}` for the question nodes on the map being
+    drawn, which is the shape `app.js`'s `nodeSymbol` looks up.
+
+    The source keeps ONE `{key, resolvedType}` record, not a map -- a second
+    question node overwrites the first (bundle.deobfuscated.js:77326-77332)
+    -- and `RunState` models that single slot as `saved_question_resolve`
+    (M4.2), so this holds at most one entry.
+
+    The record's key is map-qualified (`"m<currentMap>:<nodeId>"`, CODEX.md
+    issue 9) while `nodeSymbol` indexes by BARE node id, so the prefix is
+    stripped here and a record belonging to another map contributes nothing.
+    The former `dict(state.question_cache)` passed the qualified keys through
+    unchanged, so this lookup never matched and a resolved question mark was
+    always drawn as `?`; that mismatch predates M4.2 and is renderer-track
+    (R2) behavior, noted rather than expanded on here.
+    """
+    record = state.saved_question_resolve
+    if not record:
+        return {}
+    prefix = f"m{state.current_map}:"
+    key = record.get("key") or ""
+    if not key.startswith(prefix):
+        return {}
+    return {key[len(prefix):]: record["resolved_type"]}
+
+
 def encode_state(state: engine.RunState, *, recent_log: int = 5) -> dict:
     """The full state a browser client needs to render every core-loop
     screen. `recent_log` trims `state.log` to its trailing N entries (the
@@ -63,7 +90,7 @@ def encode_state(state: engine.RunState, *, recent_log: int = 5) -> dict:
             "current_node_id": state.current_node_id,
             "nodes": [_node_json(n) for n in state.map.nodes.values()],
             "edges": [list(e) for e in state.map.edges],
-            "question_cache": dict(state.question_cache),
+            "question_cache": _resolved_question_marks(state),
         }
     return {
         "phase": state.phase.value,

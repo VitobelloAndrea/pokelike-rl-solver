@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "scenario": "story_gen1_branching_evolution",
   "description": "Greedy-derived route reaching a branching evolution (Eevee/Tyrogue-line) choice.",
   "mode": {

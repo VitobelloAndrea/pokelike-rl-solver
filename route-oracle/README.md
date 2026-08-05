@@ -238,7 +238,10 @@ Anything else fails the run.
 | `story_gen4_underground` | Story / Gen4 | 45 | special-submap **entry**, submap generation/topology and the saved locked parent, observed on a route that **loses** the submap boss and never returns |
 | `story_gen4_submap_full` | Story / Gen4 | 53 | the **complete submap lifecycle**: entry → boss win → pending reward on the source's own `showSwapScreen` → resolved reward → subexit → **exact parent restore** → continue on the parent |
 | `story_gen3_admin` | Story / Gen3 | 73 | **Team Magma Admin resolved** through `doAdminNode` with the run still alive |
-| `story_gen1_swap_release` | Story / Gen1 | 73 | grows the team to **six**, then really clicks a release card, so `showSwapScreen`'s full-team **replace** branch (79202-79246) is exercised |
+| `story_gen1_swap_release` | Story / Gen1 | 73 | grows the team to **six**, then really clicks a release card, so `showSwapScreen`'s full-team **replace** branch (79202-79246) is exercised. Raised by a **catch** node — which is why it cannot stand in for the legendary full-team routes below |
+| `story_gen1_shiny_accept` | Story / Gen1 | 51 | **M4.1** — `doShinyNode`'s **accept-with-room** branch (80961-80970). Matched pair with `story_gen1_shiny`: same seed and node prefix, opposite final choice |
+| `story_gen4_legendary_full_replace` | Story / Gen4 | 126 | **M4.1** — a won ordinary legendary resolved at `showSwapScreen` with a **full (6) team**, taking the per-member **release** exit |
+| `story_gen4_legendary_full_decline` | Story / Gen4 | 126 | **M4.1** — the same full-team legendary swap screen, taking the **cancel** exit (79247-79258); matched pair with the replace route |
 | `story_gen3_sleep_ticks` | Story / Gen3 | 18 | the matrix's **sleep** observation — both `sleep_wake` and `sleep_skip`, so a mutation omitting either is killed on its own |
 | `story_gen3_mirror_coat` | Story / Gen3 | 76 | the matrix's **Mirror Coat counter-hit** observation — 9 counter-hit attack events |
 
@@ -251,8 +254,9 @@ never a fabricated continuation past game over.
 
 ### Machine-enforced coverage
 
-`compare.py --all` **fails** unless the observed checkpoints earn all sixteen
-required tags in `coverage.REQUIRED_TAGS`, and unless each scenario earns
+`compare.py --all` **fails** unless the observed checkpoints earn every
+required tag in `coverage.REQUIRED_TAGS` (16 at M3, 32 after the M4 repair,
+35 after M4.1, **36** after M4.2), and unless each scenario earns
 exactly the evidence indices pinned in `scenarios/manifest.json`. Coverage is
 derived from what actually happened (`coverage.derive`), never from a
 scenario's own `covers` list — so a source citation, a planned route, a
@@ -268,11 +272,15 @@ pass while the port reached a different set of paths. `RouteCoverageTests` in
 `pokelike/tests/test_route_oracle.py` still enforces the Python side
 in-process and without node, as a second, independent check.
 
-Required tags: `starter_selection`, `ordinary_trainer`, `silver`, `admin`,
-`submap_entry`, `submap_boss_win`, `pending_submap_reward`,
+The canonical list is `coverage.REQUIRED_TAGS`, mirrored exactly by
+`manifest.json`'s `required_coverage` (`compare.py` hard-fails if the two
+disagree). The M3 core is `starter_selection`, `ordinary_trainer`, `silver`,
+`admin`, `submap_entry`, `submap_boss_win`, `pending_submap_reward`,
 `resolved_submap_reward`, `subexit`, `exact_parent_return`,
 `evolution_or_reward_transition`, `map_transition`, `winning_progression`,
-`nuzlocke_permadeath`, `terminal_loss`.
+`nuzlocke_permadeath`, `terminal_loss` and `swap_release`; the M4 repair and
+M4.1 added the lifecycle-family tags listed in the module itself. Read the
+module rather than this paragraph when the exact set matters.
 
 ### Declared coverage gaps
 
@@ -291,10 +299,19 @@ Stated plainly rather than implied by omission.
 that audit found unbridged or unrouted now has both a real `choice` bridge
 *and* cross-runtime route evidence, not just source-traced Python:
 
-* **`legendary` and `shiny` nodes** — the ordinary-legendary lifecycle (win +
-  room accept/decline, win + full-team replace/decline) and shiny-node
-  accept/decline all have real routes, verified zero-difference on both
-  runtimes.
+* **`legendary` and `shiny` nodes** — the ordinary-legendary **room**
+  accept/decline (`story_gen4_legendary_accept` / `_decline`, both at team
+  size 1) and a shiny-node **decline** have real routes, verified
+  zero-difference on both runtimes.
+
+  This bullet used to also claim the legendary **full-team replace/decline**
+  and the shiny **accept** as covered. That was **false as written** and
+  `docs/audits/M4-repair-independent-closure-audit.md` §8 (findings F1/F2)
+  caught it: all five shiny resolutions in the M4 matrix were declines, and
+  both legendary swap screens sat at team size 1, with the only full-team
+  release in the matrix raised by a **catch** node. Those three branches are
+  routed by M4.1 below; the correction is recorded here rather than by
+  silently rewriting the claim.
 * **`move-tutor` and `trade`** have real `choice` bridges (`driver.js`'s
   `shiny-screen`/`trade-screen` branches, `run_scenario.py`'s matching
   `_pending_projection` cases) and routed accept/decline/tier-boundary
@@ -327,10 +344,78 @@ These are harness-coverage gaps, not parity claims.
 
 ## Current result
 
-**Route coverage: 32/32 required tags earned, independently on both runtimes.
-Parity gate: PASS — `python route-oracle/compare.py --all` exits 0 with 24/24
-scenarios agreeing checkpoint-for-checkpoint, including RNG state and draw
-counts, in manifest, reverse and sorted execution order.**
+**Route coverage: 36/36 required tags earned, independently on both runtimes.
+Parity gate: PASS — `python route-oracle/compare.py --all` exits 0 with 27/27
+scenarios agreeing checkpoint-for-checkpoint, including RNG state, draw
+counts and the live save/resume guards, in manifest, reverse and sorted
+execution order.**
+
+### M4.2 — the evidence contract behind those branches
+
+M4.1's repair of `doShinyNode`'s `gotViaQuestion` behaviour is correct and
+unchanged. What M4.2 fixes is the *evidence* around it, on two counts.
+
+**1. The saved-node state is now observed, not declared unobservable.**
+Checkpoints carry a new compared top-level field, `resume_state`, projecting
+the source's three live resume guards — `savedQuestionResolve`, `savedCatch`
+and `savedShinyNode` — from real run state on both runtimes (see
+`SCHEMA.md`). It matters because *which* record an exit clears is
+branch-specific and invisible everywhere else: a shiny room accept clears
+`savedShinyNode` and **retains** `savedQuestionResolve` (80962), while a
+catch room accept clears `savedCatch` **and** `savedQuestionResolve`
+(79041-79042). The shiny accept route now proves exactly that transition, and
+a new required tag, `catch_room_accept_resume_cleared`, pins the opposite
+contract on the ordinary-catch control. The Python port gained real
+`RunState` fields for all three; `saved_question_resolve` replaces the former
+`question_cache` dict, which was the right behaviour in the wrong shape.
+
+This is **live-field parity only** — the port has no persistence layer, and
+`SCHEMA.md` records why the last `saveRun()` snapshot is a separate fact.
+
+**2. The branch predicates no longer accept malformed transitions.** M4.1's
+four branch tags checked cardinality and a choice index but never the raising
+node family, the offered instance's identity, or the transition itself. Four
+independent corruptions still earned their tag: a `catch`-typed raiser on a
+shiny exit, a decline that left a fresh pending behind, a legendary full swap
+with no `pending.context.incoming`, and an arbitrary wrong Pokemon installed
+in the selected replacement slot. All four now lose it. Each tag additionally
+requires the node to have really advanced (`_is_exact_advance` over the
+observed maps), the correct screen and `current_node`, the correct
+`resume_state` before and after, and RNG unmoved across the click handler.
+`search_route.py`'s three matching targets were hardened the same way — they
+inspect `before` and `after` rather than the choice index alone.
+
+Twenty focused adversarial probes and twenty mutants cover the above; see
+`docs/audits/M4.2-implementation.md`.
+
+### M4.1 — the three branches M4 certified with a sibling's evidence
+
+`docs/audits/M4-repair-independent-closure-audit.md` returned FAIL on two
+bounded gaps plus the README overstatement corrected above. M4.1 routes all
+three branches and separates their coverage so no branch can inherit
+another's credit:
+
+| Scenario | Branch | Source |
+|---|---|---|
+| `story_gen1_shiny_accept` | shiny **accept with room** | `doShinyNode` 80961-80970 |
+| `story_gen4_legendary_full_replace` | legendary **full-team replace** | `showSwapScreen` 79202-79246 |
+| `story_gen4_legendary_full_decline` | legendary **full-team decline** | `showSwapScreen` 79247-79258 |
+
+Three new required tags — `shiny_accept_resolved`,
+`legendary_swap_full_replace`, `legendary_swap_full_decline` — are derived
+only from ordered observed checkpoints (the raising node's type, the pending
+option shape, the team cardinality, and the resolved transition), and
+`shiny_resolved` is **tightened to the decline only**, so the five existing
+decline routes can no longer certify an acceptance.
+
+`story_gen1_shiny_accept` also exposed a real port divergence that the whole
+24-scenario matrix was blind to: `doShinyNode`'s room branch calls
+`recordMonOrigin(B)` at 80967, and `B` is still the **QUESTION**-typed node
+(`onNodeClick` dispatches on the *resolved* type at `case "shiny"`, 77384,
+but never rebinds `B`), so the source sets `gotViaQuestion` and the port did
+not. Every shiny resolution in the M4 matrix was a decline, and the decline
+handler genuinely does skip `recordMonOrigin` — so the defect was invisible
+until the accept branch was routed. Fixed in `_try_add_to_team`.
 
 M4 repaired the five bounded differences M3 had frozen, plus two more:
 

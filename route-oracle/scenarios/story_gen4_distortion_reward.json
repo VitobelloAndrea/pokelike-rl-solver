@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "scenario": "story_gen4_distortion_reward",
   "description": "Targeted route reaching distortion_reward_resolved: two Distortion World visits at the fixed map_index 3/5 n4_2 slot, the second guaranteeing a legendary swap-screen reward at n2_0.",
   "mode": {

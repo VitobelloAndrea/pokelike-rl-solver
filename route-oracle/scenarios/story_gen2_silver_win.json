@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "scenario": "story_gen2_silver_win",
   "description": "Story/Gen2. BEATS Silver, incrementing state.silverBeaten through doSilverNode's win branch -- the scenario that actually earns the `silver` tag. Re-derived UNALIGNED for M4 by search_route.py --target silver --cross-runtime.",
   "mode": {

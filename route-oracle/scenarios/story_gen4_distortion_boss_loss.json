@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "scenario": "searched",
   "description": "Derived by route-oracle/search_route.py: bounded deterministic search for the `distortion_boss_loss` coverage tag over the real Python engine, verified against observed checkpoints.",
   "mode": {

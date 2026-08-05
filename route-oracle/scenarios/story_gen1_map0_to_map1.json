@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "scenario": "story_gen1_map0_to_map1",
   "description": "Story/Gen1. The ordinary-progression spine: starter selection, map-0 generation and node identity, wild/trainer battles, a catch decline, a boss win, and the map 0 -> map 1 transition, continuing on the new map. Re-derived UNALIGNED for M4 by route-oracle/search_route.py --target second_map_progress --cross-runtime.",
   "mode": {

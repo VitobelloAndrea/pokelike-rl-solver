@@ -404,15 +404,36 @@ class QuestionCacheMapQualifiedTests(unittest.TestCase):
         self.assertEqual(second, "mega")
         self.assertNotEqual(first, second)
 
-    def test_start_map_clears_the_cache(self):
+    def test_a_map_advance_strands_the_record_rather_than_clearing_it(self):
+        """M4.2 replaced the `question_cache` dict with the single
+        `savedQuestionResolve` slot the source actually keeps
+        (bundle.deobfuscated.js:77326-77332), and dropped `_start_map`'s
+        `question_cache.clear()` with it.
+
+        That clear was documented as belt-and-suspenders, and the source has
+        no counterpart for it: `savedQuestionResolve` is nulled only by
+        `#btn-skip-catch` (78957), `catchPokemon`'s room accept (79042),
+        `showSwapScreen`'s three exits (79183/79228/79253) and run teardown
+        (84449). A map advance leaves the record STRANDED instead, which is
+        harmless precisely because the key is map-qualified -- so this test
+        now asserts both halves: the record survives, and it can no longer be
+        matched."""
         eng, state = _start(seed=9)
         node = next(n for n in state.map.nodes.values() if n.accessible)
         node.type = map_gen.QUESTION
         with patch.object(engine.rng, "rng", return_value=0.10):
-            engine._resolve_question(state, node)
-        self.assertTrue(state.question_cache)
+            first = engine._resolve_question(state, node)
+        record = state.saved_question_resolve
+        self.assertEqual(record, {"key": f"m{state.current_map}:{node.id}", "resolved_type": first})
+
         engine._start_map(state, 1)
-        self.assertEqual(state.question_cache, {})
+        self.assertEqual(state.saved_question_resolve, record, "the source never clears it here")
+        # ... and the stranded record cannot be reused on the new map, so a
+        # fresh roll really happens.
+        moved = next(n for n in state.map.nodes.values() if n.id == node.id)
+        moved.type = map_gen.QUESTION
+        with patch.object(engine.rng, "rng", return_value=0.90):  # -> "mega"
+            self.assertEqual(engine._resolve_question(state, moved), "mega")
 
 
 # ---------------------------------------------------------------------------

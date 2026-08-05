@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "required_coverage": [
     "starter_selection",
     "ordinary_trainer",
@@ -32,7 +32,11 @@
     "distortion_reward_resolved",
     "distortion_subexit",
     "distortion_exact_parent_return",
-    "distortion_continued_progress"
+    "distortion_continued_progress",
+    "shiny_accept_resolved",
+    "legendary_swap_full_replace",
+    "legendary_swap_full_decline",
+    "catch_room_accept_resume_cleared"
   ],
   "scenarios": [
     {
@@ -253,6 +257,9 @@
         "parent_return"
       ],
       "expected_coverage": {
+        "catch_room_accept_resume_cleared": [
+          40
+        ],
         "evolution_or_reward_transition": [
           44
         ],
@@ -309,6 +316,9 @@
         "swap_release"
       ],
       "expected_coverage": {
+        "catch_room_accept_resume_cleared": [
+          50
+        ],
         "evolution_or_reward_transition": [
           54,
           65
@@ -573,11 +583,11 @@
           36,
           45
         ],
-        "starter_selection": [
-          2
-        ],
         "shiny_resolved": [
           49
+        ],
+        "starter_selection": [
+          2
         ],
         "winning_progression": [
           26
@@ -594,6 +604,10 @@
         "winning_progression"
       ],
       "expected_coverage": {
+        "catch_room_accept_resume_cleared": [
+          66,
+          90
+        ],
         "distortion_entry": [
           99
         ],
@@ -763,6 +777,10 @@
         "run_termination"
       ],
       "expected_coverage": {
+        "catch_room_accept_resume_cleared": [
+          66,
+          90
+        ],
         "distortion_boss_loss": [
           102
         ],
@@ -1168,6 +1186,187 @@
           88,
           122,
           152
+        ]
+      }
+    },
+    {
+      "file": "story_gen1_shiny_accept.json",
+      "covers": [
+        "starter_selection",
+        "ordinary_trainer",
+        "shiny_accept_resolved",
+        "map_transition",
+        "winning_progression"
+      ],
+      "expected_coverage": {
+        "evolution_or_reward_transition": [
+          35
+        ],
+        "map_transition": [
+          29
+        ],
+        "ordinary_trainer": [
+          9,
+          12,
+          15,
+          36,
+          45
+        ],
+        "shiny_accept_resolved": [
+          49
+        ],
+        "starter_selection": [
+          2
+        ],
+        "winning_progression": [
+          26
+        ]
+      }
+    },
+    {
+      "file": "story_gen4_legendary_full_replace.json",
+      "covers": [
+        "starter_selection",
+        "ordinary_trainer",
+        "submap_entry",
+        "submap_boss_win",
+        "subexit",
+        "exact_parent_return",
+        "full_team",
+        "swap_release",
+        "legendary_swap_accept",
+        "legendary_swap_full_replace",
+        "map_transition",
+        "winning_progression"
+      ],
+      "expected_coverage": {
+        "evolution_or_reward_transition": [
+          65,
+          80,
+          108,
+          111,
+          115
+        ],
+        "exact_parent_return": [
+          113
+        ],
+        "legendary_swap_accept": [
+          124
+        ],
+        "legendary_swap_full_replace": [
+          124
+        ],
+        "map_transition": [
+          28,
+          59,
+          88
+        ],
+        "ordinary_trainer": [
+          12,
+          15,
+          35,
+          66,
+          69,
+          78,
+          81,
+          116,
+          119
+        ],
+        "starter_selection": [
+          2
+        ],
+        "subexit": [
+          113
+        ],
+        "submap_boss_win": [
+          109
+        ],
+        "submap_entry": [
+          106
+        ],
+        "swap_release": [
+          75,
+          94,
+          104,
+          124
+        ],
+        "winning_progression": [
+          25,
+          56,
+          85
+        ]
+      }
+    },
+    {
+      "file": "story_gen4_legendary_full_decline.json",
+      "covers": [
+        "starter_selection",
+        "ordinary_trainer",
+        "submap_entry",
+        "submap_boss_win",
+        "subexit",
+        "exact_parent_return",
+        "full_team",
+        "swap_release",
+        "legendary_swap_decline",
+        "legendary_swap_full_decline",
+        "map_transition",
+        "winning_progression"
+      ],
+      "expected_coverage": {
+        "evolution_or_reward_transition": [
+          65,
+          80,
+          108,
+          111,
+          115
+        ],
+        "exact_parent_return": [
+          113
+        ],
+        "legendary_swap_decline": [
+          124
+        ],
+        "legendary_swap_full_decline": [
+          124
+        ],
+        "map_transition": [
+          28,
+          59,
+          88
+        ],
+        "ordinary_trainer": [
+          12,
+          15,
+          35,
+          66,
+          69,
+          78,
+          81,
+          116,
+          119
+        ],
+        "starter_selection": [
+          2
+        ],
+        "subexit": [
+          113
+        ],
+        "submap_boss_win": [
+          109
+        ],
+        "submap_entry": [
+          106
+        ],
+        "swap_release": [
+          75,
+          94,
+          104
+        ],
+        "winning_progression": [
+          25,
+          56,
+          85
         ]
       }
     }

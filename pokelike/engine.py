@@ -239,9 +239,23 @@ class SelectOption:
     variable-cardinality "pick 1 of N, or skip" shape as a real Gym-design
     concern for Phase 3; this is the single action type every such decision
     in this engine funnels through).
+
+    `cancel` (M5) is a THIRD exit, distinct from both a pick and a skip, and
+    is currently valid only for `Phase.ITEM_EQUIP_CHOICE`. The item-equip
+    overlay is the one screen where the source offers three genuinely
+    different affordances rather than two: `[data-idx]` equips
+    (bundle.deobfuscated.js:79535-79551), `#btn-equip-to-bag` banks the item
+    and advances (79552-79562) -- which is what `index=None` means here --
+    and `#btn-equip-cancel` (79563-79569) does neither. Its whole body is
+    `B2O.remove()`: no equip, no bank, no `onComplete`, no
+    `advanceFromNode`, and no clearing of `state.itemOffer`. Modelling it as
+    `index=None` would silently bank an item the source did not, so it needs
+    its own flag. `_resolve_pending` rejects it for every other phase rather
+    than letting it degrade into a skip.
     """
 
     index: Optional[int] = None
+    cancel: bool = False
 
 
 @dataclass(frozen=True)
@@ -353,7 +367,53 @@ class RunState:
     # that future consumer, exactly like `entered_sub_map` below. Never reset once set.
     escaped_via_rope: bool = False  # `state._escapedViaRope` (bundle.deobfuscated.js:81412), CODEX.md P0.6
 
-    question_cache: dict = field(default_factory=dict)  # node id -> resolved type string
+    # -- live save/resume guards ------------------------------------------
+    # The source's three node-scoped resume records, modelled as the SINGLE
+    # slots they really are (`state.savedQuestionResolve` declared at
+    # bundle.deobfuscated.js:20030, `state.savedCatch` at 16827,
+    # `state.savedShinyNode` at 22178; all three nulled wholesale at run
+    # teardown, 84447-84449). Each exists so a save parked on a choice screen
+    # can be resumed without re-rolling the offer, so each is written at the
+    # moment the offer is first computed and cleared by whichever exit
+    # consumes it -- and WHICH of them an exit clears differs per branch,
+    # which is exactly the behavior `route-oracle`'s `resume_state`
+    # projection compares (see `_try_add_to_team`, `_resolve_catch_choice`
+    # and `_resolve_swap_choice`).
+    #
+    # `saved_question_resolve` replaces the former `question_cache` dict
+    # (M4.2). The source keeps ONE `{key, resolvedType}` record, not a map:
+    # `onNodeClick` reuses it only when `savedQuestionResolve.key` equals the
+    # node's own map-qualified key and otherwise overwrites it outright
+    # (77326-77332). The dict was observationally equivalent for every route
+    # this port can express -- a question node that raises a pending choice
+    # is not revisitable until it advances, and the key is map-qualified
+    # either way -- but it was a different shape from the field the oracle
+    # now compares, so the single slot is modelled directly.
+    saved_question_resolve: Optional[dict] = None  # {"key": str, "resolved_type": str}
+    saved_catch: Optional[dict] = None  # {"key": node id, "instances": [Combatant, ...]}
+    saved_shiny_node: Optional[dict] = None  # {"key": str, "species_id": int}
+    # `state.itemOffer` (declared bundle.deobfuscated.js:22541) -- the FOURTH
+    # member of the resume-guard family above, added in M5. `doItemNode` pins
+    # the rolled offer at 79372 and restores it at 79361-79363 when
+    # `state.itemOffer.nodeId === B.id`, rebuilding the cards from the saved
+    # ids and drawing NO RNG; all three of its consuming exits null it
+    # (79420 usable pick / 79425 equip-modal onComplete / 79437 skip).
+    #
+    # It is observable because `#btn-equip-cancel` (79563-79569) is only
+    # `B2O.remove()`: it does not call `onComplete`, does not clear the
+    # offer, and does not `advanceFromNode`, so the node stays unvisited and
+    # accessible with the offer still pinned. Re-clicking it then restores
+    # the SAME three items for zero draws. Directly observed on the real
+    # source: seeds 333333333 and 222222222, first visit 20 draws, cancel 0
+    # draws, second visit 0 draws with a byte-identical id list.
+    #
+    # Keyed by the BARE node id, exactly like `savedCatch` (78441) and
+    # unlike the map-qualified `savedQuestionResolve`/`savedShinyNode`; and
+    # `startMap` (76228-76245) clears none of the four, so a cancelled offer
+    # survives a map advance and can be restored at the same node id on a
+    # LATER map. That is the source's behaviour, mirrored rather than
+    # "corrected".
+    item_offer: Optional[dict] = None  # {"node_id": str, "item_ids": [str, ...]}
 
     # Special submap system (docs/logic-notes-submaps.md) -- Gen4/Sinnoh-only,
     # UNDERGROUND/DISTORTION node types (SILVER/MAGMA/AQUA never touch these).
@@ -689,11 +749,16 @@ def _start_map(state: RunState, map_index: int) -> None:
     if map_index > 0:
         for mon in state.team:
             mon.current_hp = mon.max_hp
-    # Belt-and-suspenders alongside `_resolve_question`'s now map-qualified
-    # cache key (CODEX.md issue 9): entries from a previous map can never be
-    # looked up again once the key includes `current_map`, but dropping them
-    # here keeps `question_cache` from growing unboundedly across a long run.
-    state.question_cache.clear()
+    # `saved_question_resolve` is deliberately NOT cleared here (M4.2): the
+    # source's only clear sites for it are `#btn-skip-catch` (78957),
+    # `catchPokemon`'s room accept (79042), `showSwapScreen`'s three exits
+    # (79183/79228/79253) and run teardown (84449) -- a map advance is not
+    # among them. A stale record is harmless because `_resolve_question`'s
+    # key is map-qualified (CODEX.md issue 9), so a later map's question node
+    # can never match it. The former `question_cache.clear()` here was
+    # described as belt-and-suspenders for exactly that reason; with a single
+    # slot there is nothing to bound, and keeping the clear would have been a
+    # divergence the new `resume_state` projection compares.
     state.current_node_id = "n0_0"
     state.phase = Phase.ON_MAP
     state.pending = None
@@ -704,6 +769,15 @@ def _resolve_pending(state: RunState, action: SelectOption) -> None:
     pending = state.pending
     if pending is None:
         raise ValueError(f"no pending choice for phase {state.phase.value}")
+    if action.cancel:
+        # `#btn-equip-cancel` exists on exactly one screen; see SelectOption.
+        # Rejected everywhere else so a caller cannot get a silent skip.
+        if state.phase != Phase.ITEM_EQUIP_CHOICE:
+            raise ValueError(f"{state.phase.value} has no cancel affordance")
+        if action.index is not None:
+            raise ValueError("cancel takes no option index")
+        _PENDING_RESOLVERS[state.phase](state, action)
+        return
     if action.index is not None and not (0 <= action.index < len(pending.options)):
         raise ValueError(f"index {action.index} out of range for {len(pending.options)} options")
     if action.index is None and not pending.optional:
@@ -784,14 +858,56 @@ def _try_add_to_team(state: RunState, mon: Combatant, node_id: str, origin: Opti
     bridge work: a prior version set these flags unconditionally at CHOICE
     time (in `_resolve_catch_choice`, before this function even ran), which
     was a real divergence for a question/shiny catch with a full team, not a
-    simplification."""
+    simplification.
+
+    `origin` is exactly the RAISING NODE'S OWN `type`, which is what
+    `recordMonOrigin` switches on -- `"catch"` is `NODE_TYPES.CATCH`, and
+    both `"question"` and `"shiny_node"` are `NODE_TYPES.QUESTION`. A shiny
+    encounter is reachable ONLY as a QUESTION resolution: `onNodeClick`
+    computes `iu = resolveQuestionMark()` for a QUESTION node
+    (77318-77332) and dispatches on `iu` via `case "shiny"` (77384), but
+    never rebinds `B`, so `doShinyNode(B)` -- and therefore its
+    `recordMonOrigin(B)` at 80967 -- still receives the QUESTION node.
+    There is no `NODE_TYPES.SHINY`; `"shiny"` exists only as a resolved
+    type. `"shiny_node"` is kept as a DISTINCT origin string purely so
+    `run_scenario.py:_is_shiny_origin` can tell a shiny offer apart from an
+    ordinary question-resolved catch (both use `Phase.CATCH_CHOICE`) -- it
+    is a projection discriminator, not a different `recordMonOrigin`
+    outcome.
+
+    M4.1: this used to set NO flag for `"shiny_node"`, on the strength of a
+    `_visit_shiny` docstring claiming `doShinyNode`'s accept handler "never
+    calls `catchPokemon`/`recordMonOrigin` at all". That claim is false
+    against the current source -- 80967 is a bare `recordMonOrigin(B)` in
+    the room branch's comma sequence. The divergence was invisible to the
+    whole 24-scenario matrix because all five of its shiny resolutions were
+    DECLINES, and the decline handler (`#btn-skip-shiny`, 80984-80989)
+    genuinely does not call `recordMonOrigin`. Routing a shiny
+    accept-with-room (`story_gen1_shiny_accept`) exposed it immediately as
+    `counters.got_via_question` js=true / py=false."""
     if len(state.team) < TEAM_CAP:
         state.team.append(mon)
         state.max_team_size = max(state.max_team_size, len(state.team))
         if origin == "catch":
             state.used_ball_catch = True
-        elif origin == "question":
+        elif origin in ("question", "shiny_node"):
             state.got_via_question = True
+        # Which resume record a ROOM ACCEPT consumes is branch-specific, and
+        # the two branches clear DIFFERENT fields (M4.2):
+        #   * `doShinyNode`'s room branch (80962) clears `savedShinyNode`
+        #     alone -- it leaves `savedQuestionResolve` set, even though a
+        #     shiny node is always a QUESTION node, and never touches
+        #     `savedCatch`;
+        #   * `catchPokemon`'s room branch (79041-79042) clears `savedCatch`
+        #     and `savedQuestionResolve`, and never touches `savedShinyNode`.
+        # Collapsing the two into one "clear everything" would be invisible
+        # to the team/counter projection and is precisely what the
+        # `resume_state` checkpoint field exists to catch.
+        if origin == "shiny_node":
+            state.saved_shiny_node = None
+        else:
+            state.saved_catch = None
+            state.saved_question_resolve = None
         _log(state, "catch", species_id=mon.species_id, name=mon.name, is_shiny=mon.is_shiny)
         _advance(state, node_id)
         state.phase = Phase.ON_MAP
@@ -1797,20 +1913,30 @@ def _elite4_fight_step(state: RunState, step: dict) -> None:
 
 def _resolve_question(state: RunState, node: MapNode) -> str:
     """Port of `resolveQuestionMark` (Story-mode branch only; Endless mode's
-    different cutoff ladder is out of scope). Cached per `"m<currentMap>:
-    <nodeId>"` key -- matching `onNodeClick`'s own cache key
-    (bundle.deobfuscated.js:77315-77324, Endless mode's region-qualified key
-    variant not modeled) -- so revisiting the same question node always
-    yields the same resolved type, matching `state.savedQuestionResolve`.
-    CODEX.md issue 9: this used to key on bare node id only, and node ids
-    repeat every map, so a question at `n4_1` on map 0 could pin every
-    LATER map's `n4_1` question to the same resolved type without consuming
-    RNG -- the map-qualified key here makes that collision impossible.
+    different cutoff ladder is out of scope), plus `onNodeClick`'s own
+    `savedQuestionResolve` guard around it (bundle.deobfuscated.js:
+    77318-77332).
+
+    The guard is a SINGLE `{key, resolvedType}` slot keyed
+    `"m<currentMap>:<nodeId>"` (Endless mode's region-qualified key variant
+    is not modeled). The source reuses the stored `resolvedType` only when
+    the key matches exactly, and otherwise rolls fresh and OVERWRITES the
+    slot -- so a second question node does not merely add an entry, it
+    evicts the first. M4.2 models that single slot directly; it used to be a
+    `question_cache` dict, which is observationally equivalent for every
+    route this port can express (a question node that suspends on a pending
+    choice is not revisitable until it advances) but is a different shape
+    from the field `route-oracle`'s `resume_state` now compares.
+
+    CODEX.md issue 9: the key used to be the bare node id, and node ids
+    repeat every map, so a question at `n4_1` on map 0 could pin every LATER
+    map's `n4_1` question to the same resolved type without consuming RNG --
+    the map-qualified key makes that collision impossible.
     """
     cache_key = f"m{state.current_map}:{node.id}"
-    cached = state.question_cache.get(cache_key)
-    if cached is not None:
-        return cached
+    saved = state.saved_question_resolve
+    if saved is not None and saved.get("key") == cache_key:
+        return saved["resolved_type"]
     roll = rng.rng()
     # bundle.deobfuscated.js:77399-77406: additive +0.07 per condition, not the
     # multiplicative doubling `roll_shiny`/`_shiny_chance` use -- `hasShinyCharm()`
@@ -1831,7 +1957,7 @@ def _resolve_question(state: RunState, node: MapNode) -> str:
         resolved = "shiny"
     else:
         resolved = "mega"
-    state.question_cache[cache_key] = resolved
+    state.saved_question_resolve = {"key": cache_key, "resolved_type": resolved}
     return resolved
 
 
@@ -2228,7 +2354,25 @@ def _visit_catch(state: RunState, node: MapNode) -> None:
       don't require it" preference applies;
     - candidates are deduplicated by evolution line before the final
       top-3 slice, matching the source's own dedup step.
+
+    M4.2: `state.savedCatch` (78765) is now modelled. The source pins the
+    rolled instances on it -- keyed by the BARE node id, not the
+    map-qualified key `savedQuestionResolve`/`savedShinyNode` use (78441:
+    `savedCatch?.nodeId === B.id`) -- and skips the whole pool computation
+    when the key matches, so a save resumed on the catch screen re-offers
+    the same three Pokemon instead of re-rolling. `rerollPool`/`rerolled`
+    are Endless/reroll bookkeeping this port does not model and are not part
+    of the record here.
     """
+    saved = state.saved_catch
+    if saved is not None and saved.get("key") == node.id and isinstance(saved.get("instances"), list):
+        # bundle.deobfuscated.js:78440-78445 -- the saved offer is re-shown
+        # verbatim, consuming no RNG. Unreachable in a single session (the
+        # node cannot be re-clicked until it advances, and advancing clears
+        # or strands the record), so this is exercised by focused tests
+        # rather than by a route.
+        _offer_catch_choice(state, node, list(saved["instances"]))
+        return
     min_dex, max_dex = map_gen.get_catch_gen_range(state.gen2_mode, state.gen3_mode, state.gen4_mode)
     pool = list(
         map_gen.get_catch_choices(
@@ -2327,6 +2471,21 @@ def _visit_catch(state: RunState, node: MapNode) -> None:
         is_shiny = roll_shiny(state)
         mons.append(_make_wild_combatant(sid, level, is_shiny=is_shiny, move_tier=move_tier, gen2_mode=state.gen2_mode, gen4_mode=state.gen4_mode))
 
+    # `state.savedCatch = {nodeId, instances, rerollPool, level}` + `saveRun()`
+    # (bundle.deobfuscated.js:78765-78771), written from the just-rolled
+    # instances, immediately before the cards are built.
+    state.saved_catch = {"key": node.id, "instances": list(mons)}
+    _offer_catch_choice(state, node, mons)
+
+
+def _offer_catch_choice(state: RunState, node: MapNode, mons: list) -> None:
+    """Raise `doCatchNode`'s card screen over an already-decided offer.
+
+    Split out of `_visit_catch` (M4.2) because the source reaches this point
+    two ways -- from a freshly rolled pool, or from `state.savedCatch`'s
+    restored `instances` (78440-78445) -- and both must produce the identical
+    pending, since the source builds the same `#catch-choices` cards from
+    `B2n` either way."""
     origin = "catch" if node.type == map_gen.CATCH else "question"
     state.pending = PendingChoice(
         phase=Phase.CATCH_CHOICE,
@@ -2349,38 +2508,66 @@ def _visit_shiny(state: RunState, node: MapNode) -> None:
     candidate is NOT auto-evolved here the way catch/battle candidates
     elsewhere are.
 
-    `extra["origin"]` is `"shiny_node"`, deliberately NOT `"question"` even
-    though a shiny encounter is only ever reached via a resolved QUESTION
-    node: `doShinyNode`'s accept handler (80947-80970) never calls
-    `catchPokemon`/`recordMonOrigin` at all (it inlines its own
-    `state.team.push`/`showSwapScreen`), so `used_ball_catch`/
-    `got_via_question` must NOT be set for a shiny catch -- unlike an
-    ordinary question-resolved catch, which DOES go through `catchPokemon`
-    via `_visit_catch`'s own `"question"` origin. Sharing one origin string
-    for both was a real, previously undiscovered divergence (found tracing
-    the exact source for the M4 route-oracle shiny-screen bridge): a route
-    that took a shiny catch would incorrectly show `got_via_question=True`
-    on the Python side. The distinct value also lets `run_scenario.py`'s
-    `_is_shiny_origin` tell a shiny offer apart from an ordinary
-    question-resolved catch, which both use `Phase.CATCH_CHOICE`.
+    `extra["origin"]` is `"shiny_node"` rather than `"question"` so that
+    `run_scenario.py`'s `_is_shiny_origin` can tell a shiny offer apart
+    from an ordinary question-resolved catch -- both use
+    `Phase.CATCH_CHOICE`, and only the shiny one must project as a
+    `shiny-screen`. It is a PROJECTION DISCRIMINATOR ONLY.
+
+    M4.1 correction. This docstring previously asserted that
+    `doShinyNode`'s accept handler "never calls
+    `catchPokemon`/`recordMonOrigin` at all", and `_try_add_to_team` set no
+    origin flag for `"shiny_node"` on that basis. The assertion is FALSE
+    against the current source. `doShinyNode`'s room branch
+    (80961-80970) is a comma sequence that reads, in order:
+    `savedShinyNode = null`, `loadBuffsIntoPokemon`, `team.push`,
+    `maxTeamSize` update, **`recordMonOrigin(B)`** (80967),
+    `advanceFromNode`, `showMapScreen`. It is true that it does not call
+    `catchPokemon` -- it inlines an equivalent body -- but the inlined body
+    includes `recordMonOrigin`, and the half-true first clause was allowed
+    to carry the false second one.
+
+    `B` here is the node `onNodeClick` passed in, whose `type` is still
+    `NODE_TYPES.QUESTION`: the `case "shiny"` dispatch (77384) switches on
+    the RESOLVED type `iu`, not on `B.type`, and never rebinds `B`. So
+    `recordMonOrigin` takes its QUESTION branch and sets
+    `state.gotViaQuestion = true`. See `_try_add_to_team` for the full
+    trace and for why the 24-scenario matrix could not see this (every
+    shiny resolution in it was a decline, and the decline handler really
+    does skip `recordMonOrigin`).
     """
     level = map_gen.get_level_for_node(node.layer, state.current_map, state.gen2_mode, state.gen3_mode, state.gen4_mode)
-    min_dex, max_dex = map_gen.get_catch_gen_range(state.gen2_mode, state.gen3_mode, state.gen4_mode)
-    candidates = map_gen.get_catch_choices(
-        state.current_map,
-        3,
-        max_dex,
-        min_dex,
-        exclude_starters=True,
-        gen2_mode=state.gen2_mode,
-        gen3_mode=state.gen3_mode,
-        gen4_mode=state.gen4_mode,
-    )
-    if not candidates:
-        _advance(state, node.id)
-        state.phase = Phase.ON_MAP
-        return
-    species_id = candidates[0]
+    # `state.savedShinyNode` (M4.2), keyed exactly like `savedQuestionResolve`
+    # -- `"m" + currentMap + ":" + node.id` (80879-80884). A matching record
+    # short-circuits the whole candidate roll and re-fetches the pinned
+    # species (80886-80890); otherwise the first candidate is rolled and
+    # pinned with a `saveRun()` (80917-80923). Only the SPECIES is saved, not
+    # the instance: the source rebuilds it with `createInstance` either way.
+    # As with `saved_catch`, the reuse arm is unreachable inside one session
+    # and is covered by focused tests rather than by a route.
+    key = f"m{state.current_map}:{node.id}"
+    saved = state.saved_shiny_node
+    species_id = saved.get("species_id") if saved is not None and saved.get("key") == key else None
+    if species_id is None:
+        min_dex, max_dex = map_gen.get_catch_gen_range(state.gen2_mode, state.gen3_mode, state.gen4_mode)
+        candidates = map_gen.get_catch_choices(
+            state.current_map,
+            3,
+            max_dex,
+            min_dex,
+            exclude_starters=True,
+            gen2_mode=state.gen2_mode,
+            gen3_mode=state.gen3_mode,
+            gen4_mode=state.gen4_mode,
+        )
+        if not candidates:
+            # 80925-80928: no candidate at all just advances the node. The
+            # source writes no record on this path, so none is written here.
+            _advance(state, node.id)
+            state.phase = Phase.ON_MAP
+            return
+        species_id = candidates[0]
+        state.saved_shiny_node = {"key": key, "species_id": species_id}
     move_tier = map_gen.get_move_tier_for_map(state.current_map)
     mon = _make_wild_combatant(species_id, level, is_shiny=True, move_tier=move_tier, gen2_mode=state.gen2_mode, gen4_mode=state.gen4_mode)
     state.pending = PendingChoice(
@@ -2524,14 +2711,40 @@ def _visit_item(state: RunState, node: MapNode) -> None:
             return any(m.move_tier < 2 for m in state.team)
         return True  # rare_candy: always eligible
 
-    pool = [it for it in data.get_passive_items() if passive_eligible(it)]
-    pool += [it for it in data.get_usable_items() if usable_eligible(it)]
-    if not pool:
-        _advance(state, node.id)
-        state.phase = Phase.ON_MAP
-        return
-    _shuffle(pool)
-    offered = pool[:3]
+    # `state.itemOffer` restore (bundle.deobfuscated.js:79360-79364), M5. A
+    # pinned offer for THIS node id is rebuilt from its saved ids and short-
+    # circuits the roll entirely -- so no `rng()` is drawn. Two source
+    # details are mirrored exactly rather than tidied:
+    #   * the ids are resolved through the COMBINED pools (`B2P`, 79347-79358)
+    #     with NO eligibility re-test, so a restored offer may contain an item
+    #     that would no longer be offered on a fresh roll;
+    #   * unresolvable ids are dropped (`.filter(Boolean)`), and only if
+    #     NOTHING survives does it fall through to a fresh roll (`!B2a ||
+    #     !B2a.length`).
+    restored: Optional[list] = None
+    offer = state.item_offer
+    if isinstance(offer, dict) and offer.get("node_id") == node.id:
+        ids = offer.get("item_ids")
+        if isinstance(ids, list):
+            by_id = {it.id: it for it in data.get_passive_items()}
+            by_id.update({it.id: it for it in data.get_usable_items()})
+            resolved = [by_id[i] for i in ids if i in by_id]
+            if resolved:
+                restored = resolved
+
+    if restored is not None:
+        offered = restored
+    else:
+        pool = [it for it in data.get_passive_items() if passive_eligible(it)]
+        pool += [it for it in data.get_usable_items() if usable_eligible(it)]
+        if not pool:
+            _advance(state, node.id)
+            state.phase = Phase.ON_MAP
+            return
+        _shuffle(pool)
+        offered = pool[:3]
+        # `state.itemOffer = {nodeId, ids}` (79371-79375), pinned at the roll.
+        state.item_offer = {"node_id": node.id, "item_ids": [it.id for it in offered]}
     state.pending = PendingChoice(
         phase=Phase.ITEM_CHOICE,
         options=[{"id": it.id, "name": it.name, "usable": it.usable} for it in offered],
@@ -3046,13 +3259,23 @@ def _resolve_reward_team_pick(state: RunState, action: SelectOption) -> None:
 def _resolve_catch_choice(state: RunState, action: SelectOption) -> None:
     extra = state.pending.extra
     node_id = extra["node_id"]
+    origin = extra.get("origin")
     if action.index is None:
+        # The two DECLINE buttons clear different resume records, exactly
+        # like the two room accepts above (M4.2): `#btn-skip-shiny`
+        # (80984-80989) nulls `savedShinyNode` and nothing else, while
+        # `#btn-skip-catch` (78953-78959) nulls `savedCatch` and
+        # `savedQuestionResolve` and leaves `savedShinyNode` alone.
+        if origin == "shiny_node":
+            state.saved_shiny_node = None
+        else:
+            state.saved_catch = None
+            state.saved_question_resolve = None
         state.pending = None
         _advance(state, node_id)
         state.phase = Phase.ON_MAP
         return
     mon = extra["candidates"][action.index]
-    origin = extra.get("origin")
     state.pending = None
     _try_add_to_team(state, mon, node_id, origin=origin)
 
@@ -3093,6 +3316,17 @@ def _resolve_swap_choice(state: RunState, action: SelectOption) -> None:
             state.team[action.index] = incoming
             state.max_team_size = max(state.max_team_size, len(state.team))
             _log(state, "catch", species_id=incoming.species_id, name=incoming.name, is_shiny=incoming.is_shiny, released=released.name)
+    # UNLIKE the two room accepts and the two decline buttons in
+    # `_try_add_to_team`/`_resolve_catch_choice`, all THREE of
+    # `showSwapScreen`'s exits clear ALL THREE resume records -- the
+    # room accept (79182-79184), the release-and-replace handler
+    # (79227-79229) and `#btn-cancel-swap` (79252-79254) each read the same
+    # `savedCatch = savedQuestionResolve = savedShinyNode = null` sequence.
+    # That is why the swap screen, whichever node raised it, is the one
+    # place the branch-specific asymmetry disappears (M4.2).
+    state.saved_catch = None
+    state.saved_question_resolve = None
+    state.saved_shiny_node = None
     state.pending = None
     _advance(state, node_id)
     state.current_node_id = None
@@ -3134,6 +3368,9 @@ def _resolve_item_choice(state: RunState, action: SelectOption) -> None:
     extra = state.pending.extra
     node_id = extra["node_id"]
     if action.index is None:
+        # `#btn-skip-item` (79433-79440): `state.itemOffer = null` FIRST,
+        # then advance.
+        state.item_offer = None
         state.pending = None
         _advance(state, node_id)
         state.phase = Phase.ON_MAP
@@ -3143,6 +3380,8 @@ def _resolve_item_choice(state: RunState, action: SelectOption) -> None:
     if item.usable:
         state.items.append(item.id)
         _log(state, "item", name=item.name, usable=True)
+        # The usable branch's own `state.itemOffer = null` (79419-79422).
+        state.item_offer = None
         state.pending = None
         _advance(state, node_id)
         state.phase = Phase.ON_MAP
@@ -3166,14 +3405,30 @@ def _resolve_item_equip_choice(state: RunState, action: SelectOption) -> None:
     source for the M4 route-oracle bridge work: `PendingChoice.optional` was
     `False` and this resolver had no `action.index is None` branch at all, a
     real gap since the source always offers this exit, not a simplification.
-    `#btn-equip-cancel` (79563-79569) is deliberately NOT modelled: it
-    neither equips nor banks the item nor calls `onComplete`, so nothing in
-    the source advances either -- a genuine dead end, not a decline."""
+    `#btn-equip-cancel` (79563-79569) is `SelectOption(cancel=True)` as of
+    M5. It is NOT a decline: its entire body is `B2O.remove()`, so it does
+    not equip, does not bank the item, does not call `onComplete` and
+    therefore never reaches `onComplete`'s `state.itemOffer = null;
+    advanceFromNode(...)` pair (79424-79429). The node stays unvisited and
+    accessible with `state.itemOffer` still pinned, so re-visiting it
+    restores the same three items for zero RNG draws -- which is the whole
+    reason `RunState.item_offer` exists. A previous version of this
+    docstring called it "a genuine dead end"; that was right about the click
+    and wrong about the run, and the offer-pinning consequence was missed."""
     extra = state.pending.extra
     node_id = extra["node_id"]
+    if action.cancel:
+        # Back to the map with NOTHING consumed: no bag change, no held-item
+        # change, the node not advanced, and `item_offer` deliberately kept.
+        _log(state, "item_equip_cancelled", name=extra["item_id"], node_id=node_id)
+        state.pending = None
+        state.phase = Phase.ON_MAP
+        return
     if action.index is None:
         state.items.append(extra["item_id"])
         _log(state, "item", name=extra["item_id"], usable=False, kept_in_bag=True)
+        # `onComplete` (79424-79428): clear the pinned offer, then advance.
+        state.item_offer = None
         state.pending = None
         _advance(state, node_id)
         state.phase = Phase.ON_MAP
@@ -3183,6 +3438,7 @@ def _resolve_item_equip_choice(state: RunState, action: SelectOption) -> None:
         state.items.append(mon.held_item.id)
     mon.held_item = HeldItem(id=extra["item_id"])
     _log(state, "item", name=extra["item_id"], usable=False, equipped_on=mon.name)
+    state.item_offer = None
     state.pending = None
     _advance(state, node_id)
     state.phase = Phase.ON_MAP

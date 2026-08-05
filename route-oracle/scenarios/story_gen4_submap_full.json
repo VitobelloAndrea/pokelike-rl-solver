@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "scenario": "story_gen4_submap_full",
   "description": "Story/Gen4. The COMPLETE special-submap lifecycle in one route: UNDERGROUND entry (the Gen4-only placement, bundle.deobfuscated.js:53464-53474) -> a WON submap boss -> a PENDING reward suspended on the source's own showSwapScreen (doSubMapReward's swap-screen branches, 77065-77097) -> the RESOLVED reward -> SUBEXIT (returnFromSubMap, 76708-76730) -> the EXACT restored parent map -> continuing on the parent. Re-derived UNALIGNED for M4 by route-oracle/search_route.py --target submap_full_lifecycle --choice-order accept-first --cross-runtime. The target names the swap-screen reward ids explicitly: a reward that resolves in place earns neither pending_submap_reward nor resolved_submap_reward, and an earlier M4 draft that accepted any visited reward node silently lost both.",
   "mode": {

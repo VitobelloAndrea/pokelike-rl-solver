@@ -16,7 +16,7 @@ from typing import Any, Iterable, Optional
 # `map.edges[len]` (the length marker diff_values emits) is left alone.
 _INDEX_RE = re.compile(r"\[\d+\]")
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 # Fields recorded for human/diagnostic value but deliberately NOT compared.
 # Every entry here needs a reason in SCHEMA.md; the list is intentionally

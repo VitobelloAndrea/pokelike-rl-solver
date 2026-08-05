@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "scenario": "story_gen1_item_equip",
   "description": "Derived by route-oracle/search_route.py: bounded deterministic search for the `item_equip_resolved` coverage tag over the real Python engine, verified against observed checkpoints.",
   "mode": {

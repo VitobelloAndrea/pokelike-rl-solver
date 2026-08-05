@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "scenario": "nuzlocke_gen1_permadeath",
   "description": "Nuzlocke/Gen1. WINS a battle in which a party member faints, which is the only branch that culls: runBattleScreen's fainted-cull and held-item release sit inside the win branch opened at bundle.deobfuscated.js:81278, and the loss else (81388-81430) never touches state.team. Since M4 the same cull is what sets state.anyFainted (81371-81372), so this route is also the primary observation of the ported `any_fainted` flag. Re-derived UNALIGNED for M4 by route-oracle/search_route.py --target nuzlocke_permadeath --choice-order accept-first --cross-runtime.",
   "mode": {

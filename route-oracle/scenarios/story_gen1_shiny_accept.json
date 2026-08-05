@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
-  "scenario": "story_gen1_move_tutor",
-  "description": "Derived by route-oracle/search_route.py: bounded deterministic search for the `move_tutor_resolved` coverage tag over the real Python engine, verified against observed checkpoints.",
+  "scenario": "story_gen1_shiny_accept",
+  "description": "M4.1: the SHINY ACCEPT-WITH-ROOM branch of doShinyNode (bundle.deobfuscated.js:80961-80970), which no scenario executed before -- all five shiny resolutions in the M4 matrix were declines. Shares story_gen1_shiny's raw seed and node prefix so the two are a matched accept/decline pair over the same shiny offer at the same checkpoint boundary; the ONLY difference is the final choice index (0 = take the shiny, vs null = flee). Team is 1 at the offer, so the room branch is taken rather than showSwapScreen. Exposed a real port divergence: the source's recordMonOrigin(B) at 80967 receives the still-QUESTION-typed node and sets gotViaQuestion, which the port did not.",
   "mode": {
     "nuzlocke": false,
     "gen2": false,
@@ -84,46 +84,7 @@
     },
     {
       "kind": "choice",
-      "index": null
-    },
-    {
-      "kind": "visit",
-      "node": "n7_1"
-    },
-    {
-      "kind": "visit",
-      "node": "n8_0"
-    },
-    {
-      "kind": "advance_map"
-    },
-    {
-      "kind": "visit",
-      "node": "n1_0"
-    },
-    {
-      "kind": "choice",
-      "index": null
-    },
-    {
-      "kind": "visit",
-      "node": "n2_1"
-    },
-    {
-      "kind": "visit",
-      "node": "n3_1"
-    },
-    {
-      "kind": "choice",
-      "index": null
-    },
-    {
-      "kind": "visit",
-      "node": "n4_0"
-    },
-    {
-      "kind": "choice",
-      "index": null
+      "index": 0
     }
   ]
 }

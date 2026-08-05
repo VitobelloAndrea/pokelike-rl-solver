@@ -25,7 +25,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from pokelike import battle_loop, engine, map_gen, rng  # noqa: E402
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 # `RunState.phase` -> the source screen id `showScreen(...)` would be showing.
 # This is what makes the two streams comparable at all: the JS side has no
@@ -320,6 +320,46 @@ def _is_shiny_origin(pending) -> bool:
     until the M4 route-oracle bridge work traced the exact source and gave
     `_visit_shiny` its own distinct origin value."""
     return bool(pending) and pending.phase == engine.Phase.CATCH_CHOICE and (pending.extra or {}).get("origin") == "shiny_node"
+
+
+def _resume_state(st) -> dict:
+    """`RunState`'s three live resume guards -> the same record `driver.js`'s
+    `resumeState` reads off the source's own `state` (M4.2).
+
+    Read from real engine fields (`saved_question_resolve` / `saved_catch` /
+    `saved_shiny_node`), which `_resolve_question`, `_visit_catch`,
+    `_visit_shiny`, `_try_add_to_team`, `_resolve_catch_choice` and
+    `_resolve_swap_choice` maintain at the source's own write and clear
+    points -- nothing is synthesized here. Projecting them is what makes the
+    branch-specific clearing asymmetry observable at all: `doShinyNode`'s
+    room accept clears `savedShinyNode` and RETAINS `savedQuestionResolve`
+    (80962), `catchPokemon`'s clears `savedCatch` and `savedQuestionResolve`
+    (79041-79042), and `showSwapScreen`'s three exits clear all three
+    (79182-79184 / 79227-79229 / 79252-79254). None of those differences
+    reaches the team, counter, screen, node or RNG projections.
+
+    LIVE state only. What `saveRun()` last wrote to storage is a separate
+    fact this port has no persistence layer for; see SCHEMA.md.
+    """
+    q = st.saved_question_resolve
+    c = st.saved_catch
+    s = st.saved_shiny_node
+    return {
+        "saved_question_resolve": None
+        if not q
+        else {"key": q.get("key"), "resolved_type": q.get("resolved_type")},
+        "saved_catch": None
+        if not c
+        else {
+            "key": c.get("key"),
+            "instances": [
+                _mon_option("saved_catch", m, i) for i, m in enumerate(c.get("instances") or [])
+            ],
+        },
+        "saved_shiny_node": None
+        if not s
+        else {"key": s.get("key"), "species_id": _num(s.get("species_id"))},
+    }
 
 
 def _screen_for(st) -> str:
@@ -632,6 +672,9 @@ class Runner:
             # runtime will actually act on. See `_pending_projection` and
             # SCHEMA.md.
             "pending": _pending_projection(st),
+            # The three live save/resume guards, compared normally -- see
+            # `_resume_state` and SCHEMA.md.
+            "resume_state": _resume_state(st),
         }
         self.checkpoints.append(cp)
         self.seq += 1

@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "scenario": "story_gen4_legendary_decline",
   "description": "Backtracking-derived route for legendary_decline.",
   "mode": {

@@ -17,6 +17,9 @@ import json
 import os
 import sys
 import unittest
+from unittest.mock import patch as mock_patch
+
+from pokelike import map_gen as map_gen_mod
 
 _ROUTE_ORACLE = os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
@@ -475,6 +478,494 @@ class RouteCoverageTests(unittest.TestCase):
         ):
             self.assertIn(tag, tags, f"the full-submap route must earn {tag}")
 
+    # -- M4.1: the three branch-specific tags ------------------------------
+    # The M4 matrix certified each of these branches with a SIBLING branch's
+    # evidence: every shiny resolution in it was a decline, and both legendary
+    # swap screens sat at team size 1. These tests assert the separation
+    # itself -- that no route can earn one branch's tag by taking the other.
+
+    def test_a_shiny_decline_never_earns_the_accept_tag(self):
+        """`doShinyNode`'s two exits are different source code: the room
+        branch (80961-80970) pushes onto the team and calls
+        `recordMonOrigin`, while `#btn-skip-shiny` (80984-80989) only
+        advances the node. Before M4.1 one `shiny_resolved` tag covered both,
+        so five declines certified an auto-add nothing executed."""
+        decline = self._scenario_tags("story_gen1_shiny.json")
+        self.assertIn("shiny_resolved", decline)
+        self.assertNotIn("shiny_accept_resolved", decline)
+
+        accept = self._scenario_tags("story_gen1_shiny_accept.json")
+        self.assertIn("shiny_accept_resolved", accept)
+        self.assertNotIn("shiny_resolved", accept)
+
+    def test_the_shiny_accept_tag_requires_the_offered_instance_and_room(self):
+        tags = self._scenario_tags("story_gen1_shiny_accept.json")
+        cps = self.observed["story_gen1_shiny_accept.json"]
+        for index in tags["shiny_accept_resolved"]:
+            post, pre = cps[index], cps[index - 1]
+            self.assertEqual(pre["kind"], "choice_pre")
+            self.assertLess(len(pre["team"]), 6, "the ROOM branch requires room")
+            self.assertEqual(len(post["team"]), len(pre["team"]) + 1)
+            offered = pre["pending"]["options"][0]["instance"]
+            installed = {k: v for k, v in post["team"][-1].items() if k != "slot"}
+            self.assertEqual(installed, offered, "the OFFERED instance must be installed")
+
+    def test_a_full_team_catch_swap_never_earns_the_legendary_full_tags(self):
+        """`story_gen1_swap_release` is a full-team release raised by a CATCH
+        node. It shares `showSwapScreen` with the legendary route, which is
+        exactly why it must not be able to stand in for one: the M4 matrix
+        reached the full-team branch only this way, and the audit still
+        recorded the legendary full-team exits as unrouted."""
+        tags = self._scenario_tags("story_gen1_swap_release.json")
+        self.assertIn("swap_release", tags)
+        self.assertNotIn("legendary_swap_full_replace", tags)
+        self.assertNotIn("legendary_swap_full_decline", tags)
+
+    def test_legendary_full_team_replace_and_decline_are_separate_routes(self):
+        replace = self._scenario_tags("story_gen4_legendary_full_replace.json")
+        decline = self._scenario_tags("story_gen4_legendary_full_decline.json")
+        self.assertIn("legendary_swap_full_replace", replace)
+        self.assertNotIn("legendary_swap_full_decline", replace)
+        self.assertIn("legendary_swap_full_decline", decline)
+        self.assertNotIn("legendary_swap_full_replace", decline)
+
+    def test_legendary_full_team_pending_offers_six_slots_in_team_order(self):
+        """`showSwapScreen` builds one release card per member, in team order,
+        and only when the team is full (79202-79246). Both exits must show
+        that same pending shape before they diverge."""
+        for name in (
+            "story_gen4_legendary_full_replace.json",
+            "story_gen4_legendary_full_decline.json",
+        ):
+            with self.subTest(scenario=name):
+                cps = self.observed[name]
+                index = cov_mod.derive(cps)[
+                    "legendary_swap_full_replace"
+                    if "replace" in name
+                    else "legendary_swap_full_decline"
+                ][0]
+                pre = cps[index - 1]
+                options = pre["pending"]["options"]
+                self.assertEqual(len(pre["team"]), 6)
+                self.assertEqual([o["role"] for o in options], ["swap_release"] * 6)
+                self.assertEqual([o["slot"] for o in options], list(range(6)))
+                # All three `showSwapScreen` exits clear `currentNode`.
+                self.assertIsNone(cps[index]["current_node"])
+
+    def test_legendary_full_team_replace_changes_exactly_one_slot(self):
+        name = "story_gen4_legendary_full_replace.json"
+        cps = self.observed[name]
+        for index in cov_mod.derive(cps)["legendary_swap_full_replace"]:
+            before, after = cps[index - 1]["team"], cps[index]["team"]
+            self.assertEqual(len(after), 6, "a release keeps cardinality at 6")
+            changed = [i for i in range(6) if before[i] != after[i]]
+            self.assertEqual(changed, [cps[index]["event"]["index"]])
+
+    def test_legendary_full_team_decline_leaves_the_team_untouched(self):
+        name = "story_gen4_legendary_full_decline.json"
+        cps = self.observed[name]
+        for index in cov_mod.derive(cps)["legendary_swap_full_decline"]:
+            self.assertIsNone(cps[index]["event"]["index"])
+            self.assertEqual(cps[index]["team"], cps[index - 1]["team"])
+
+    # -- M4.2: adversarial probes against the four branch predicates -------
+    # Each of these starts from a REAL passing stream, applies exactly one
+    # independent corruption, and asserts the tag disappears. Corruptions 1,
+    # 2, 6 and 8 all still EARNED their tag before M4.2: the M4.1 predicates
+    # checked cardinality and a choice index but never the raising family,
+    # the offer's identity, or the transition itself.
+
+    def _corrupt(self, filename: str):
+        """A deep copy of an observed stream, safe to mutate in place."""
+        return copy.deepcopy(self.observed[filename])
+
+    def _shiny_boundary(self, filename: str, tag: str):
+        """(stream copy, resolving index) for a shiny exit's own evidence."""
+        cps = self._corrupt(filename)
+        index = cov_mod.derive(cps)[tag][0]
+        return cps, index
+
+    def _raising_index(self, cps: list, index: int) -> int:
+        for k in range(index - 1, -1, -1):
+            if cps[k]["kind"] == "node_pre":
+                return k
+        raise AssertionError("no raising node_pre")
+
+    def test_probe_1_a_non_question_raiser_loses_both_shiny_tags(self):
+        """There is no `NODE_TYPES.SHINY`: `onNodeClick` reaches
+        `doShinyNode` only through `case "shiny"` on a resolved QUESTION node
+        (77318-77332, 77384), which is also why `recordMonOrigin(B)` at 80967
+        sets `gotViaQuestion`. A `catch`-typed raiser is therefore impossible,
+        and must not certify the branch."""
+        for name, tag in (
+            ("story_gen1_shiny_accept.json", "shiny_accept_resolved"),
+            ("story_gen1_shiny.json", "shiny_resolved"),
+        ):
+            with self.subTest(scenario=name):
+                cps, index = self._shiny_boundary(name, tag)
+                raiser = self._raising_index(cps, index)
+                cps[raiser]["event"]["node_type"] = "catch"
+                self.assertNotIn(tag, cov_mod.derive(cps))
+
+    def test_probe_1b_a_forged_map_node_type_also_loses_the_shiny_tags(self):
+        """The raiser's family is asserted from the `node_pre` event AND from
+        that checkpoint's own map, so forging either half alone is not
+        enough to keep the tag."""
+        cps, index = self._shiny_boundary("story_gen1_shiny_accept.json", "shiny_accept_resolved")
+        raiser = self._raising_index(cps, index)
+        node_id = cps[raiser]["event"]["node"]
+        for node in cps[raiser]["map"]["nodes"]:
+            if node["id"] == node_id:
+                node["type"] = "catch"
+        self.assertNotIn("shiny_accept_resolved", cov_mod.derive(cps))
+
+    def test_probe_2_a_shiny_decline_that_leaves_a_pending_earns_nothing(self):
+        """`#btn-skip-shiny` (80984-80989) advances the node and returns to
+        the map. A decline still parked on a swap screen with a fresh pending
+        did not resolve anything, and used to earn `shiny_resolved` anyway.
+
+        The two halves are corrupted SEPARATELY, so each is independently
+        load-bearing: a predicate that dropped only the pending check, or
+        only the screen check, still fails one of these."""
+        with self.subTest(corruption="a pending is left behind"):
+            cps, index = self._shiny_boundary("story_gen1_shiny.json", "shiny_resolved")
+            cps[index]["pending"] = copy.deepcopy(cps[index - 1]["pending"])
+            self.assertNotIn("shiny_resolved", cov_mod.derive(cps))
+        with self.subTest(corruption="the swap screen is still up"):
+            cps, index = self._shiny_boundary("story_gen1_shiny.json", "shiny_resolved")
+            cps[index]["screen"] = "swap-screen"
+            self.assertNotIn("shiny_resolved", cov_mod.derive(cps))
+
+    def test_probe_3_a_null_or_wrong_shiny_offer_instance_earns_nothing(self):
+        """`doShinyNode` returns early WITHOUT raising the screen when it has
+        no candidate (80925-80928), so a null instance behind a shiny card is
+        malformed. A wrong-species instance breaks the `savedShinyNode`
+        agreement instead."""
+        for name, tag in (
+            ("story_gen1_shiny_accept.json", "shiny_accept_resolved"),
+            ("story_gen1_shiny.json", "shiny_resolved"),
+        ):
+            with self.subTest(scenario=name, corruption="null instance"):
+                cps, index = self._shiny_boundary(name, tag)
+                cps[index - 1]["pending"]["options"][0]["instance"] = None
+                self.assertNotIn(tag, cov_mod.derive(cps))
+            with self.subTest(scenario=name, corruption="wrong species"):
+                cps, index = self._shiny_boundary(name, tag)
+                cps[index - 1]["pending"]["options"][0]["instance"]["species_id"] = 1
+                self.assertNotIn(tag, cov_mod.derive(cps))
+
+    def test_probe_4_not_clearing_saved_shiny_node_loses_the_shiny_tags(self):
+        """Both shiny exits null `savedShinyNode` -- the room accept at 80962
+        and the skip button at 80986."""
+        for name, tag in (
+            ("story_gen1_shiny_accept.json", "shiny_accept_resolved"),
+            ("story_gen1_shiny.json", "shiny_resolved"),
+        ):
+            with self.subTest(scenario=name):
+                cps, index = self._shiny_boundary(name, tag)
+                cps[index]["resume_state"]["saved_shiny_node"] = copy.deepcopy(
+                    cps[index - 1]["resume_state"]["saved_shiny_node"]
+                )
+                self.assertNotIn(tag, cov_mod.derive(cps))
+
+    def test_probe_5_clearing_retained_saved_question_resolve_loses_the_tags(self):
+        """Neither shiny exit touches `savedQuestionResolve`: it survives the
+        resolution byte for byte. That RETENTION is the behavioural
+        difference from `catchPokemon`'s room accept, which nulls it (79042),
+        so clearing it here is a real divergence even though every other
+        compared field is unchanged."""
+        for name, tag in (
+            ("story_gen1_shiny_accept.json", "shiny_accept_resolved"),
+            ("story_gen1_shiny.json", "shiny_resolved"),
+        ):
+            with self.subTest(scenario=name):
+                cps, index = self._shiny_boundary(name, tag)
+                cps[index]["resume_state"]["saved_question_resolve"] = None
+                self.assertNotIn(tag, cov_mod.derive(cps))
+
+    def _legendary_boundary(self, replace: bool):
+        name = (
+            "story_gen4_legendary_full_replace.json"
+            if replace
+            else "story_gen4_legendary_full_decline.json"
+        )
+        tag = "legendary_swap_full_replace" if replace else "legendary_swap_full_decline"
+        cps = self._corrupt(name)
+        return cps, cov_mod.derive(cps)[tag][0], tag
+
+    def test_probe_6_a_missing_pending_incoming_loses_the_legendary_tags(self):
+        """`showSwapScreen`'s incoming Pokemon lives only in the closure its
+        listeners capture (79141-79246); without it there is nothing to
+        verify the installed slot against, so the offer was never observed."""
+        for replace in (True, False):
+            with self.subTest(replace=replace):
+                cps, index, tag = self._legendary_boundary(replace)
+                cps[index - 1]["pending"]["context"]["incoming"]["instance"] = None
+                self.assertNotIn(tag, cov_mod.derive(cps))
+
+    def test_probe_7_a_corrupted_pending_context_team_order_loses_the_tags(self):
+        """`context.team` is the source's own `state.team` in its own order
+        (79202-79246 builds one card per `state.team[i]`), so a reordered
+        context is not the team the release cards refer to."""
+        for replace in (True, False):
+            with self.subTest(replace=replace):
+                cps, index, tag = self._legendary_boundary(replace)
+                team = cps[index - 1]["pending"]["context"]["team"]
+                team[0]["instance"], team[1]["instance"] = team[1]["instance"], team[0]["instance"]
+                self.assertNotIn(tag, cov_mod.derive(cps))
+
+    def test_probe_8_a_wrong_pokemon_in_the_selected_slot_loses_replace(self):
+        """`state.team.splice(B2j, 1, B)` (79226) installs the INCOMING
+        Pokemon. "Exactly one slot changed" is satisfied by any arbitrary
+        substitute, which is precisely how the M4.1 predicate passed this."""
+        cps, index, tag = self._legendary_boundary(replace=True)
+        idx = cps[index]["event"]["index"]
+        cps[index]["team"][idx]["species_id"] = 1
+        cps[index]["team"][idx]["name"] = "Bulbasaur"
+        derived = cov_mod.derive(cps)
+        self.assertNotIn(tag, derived)
+        # Still a single-slot change, so the weaker M4.1 shape is intact --
+        # which is what makes this probe meaningful rather than incidental.
+        self.assertEqual(
+            [i for i in range(6) if cps[index - 1]["team"][i] != cps[index]["team"][i]], [idx]
+        )
+
+    def test_probe_9_an_unadvanced_node_or_wrong_screen_loses_the_tags(self):
+        """All three `showSwapScreen` exits call `advanceFromNode` and return
+        to the map (79185-79187 / 79230-79232 / 79255-79257)."""
+        for replace in (True, False):
+            for corruption in ("unvisited", "screen"):
+                with self.subTest(replace=replace, corruption=corruption):
+                    cps, index, tag = self._legendary_boundary(replace)
+                    if corruption == "screen":
+                        cps[index]["screen"] = "swap-screen"
+                    else:
+                        node_id = cps[self._raising_index(cps, index)]["event"]["node"]
+                        for node in cps[index]["map"]["nodes"]:
+                            if node["id"] == node_id:
+                                node["visited"] = False
+                    self.assertNotIn(tag, cov_mod.derive(cps))
+
+    def test_probe_10_rng_movement_across_the_click_loses_every_tag(self):
+        """None of the accept, replace or decline handlers draws RNG. A
+        handler that rolled something is a divergence even when the visible
+        outcome matches."""
+        cases = [
+            ("story_gen1_shiny_accept.json", "shiny_accept_resolved"),
+            ("story_gen1_shiny.json", "shiny_resolved"),
+            ("story_gen4_legendary_full_replace.json", "legendary_swap_full_replace"),
+            ("story_gen4_legendary_full_decline.json", "legendary_swap_full_decline"),
+        ]
+        for name, tag in cases:
+            with self.subTest(scenario=name):
+                cps = self._corrupt(name)
+                index = cov_mod.derive(cps)[tag][0]
+                cps[index]["rng"]["draws"] += 1
+                self.assertNotIn(tag, cov_mod.derive(cps))
+
+    def test_probe_11_a_catch_raised_full_team_swap_cannot_earn_either_tag(self):
+        """`story_gen1_swap_release`'s full-team swap is a CASCADE: the catch
+        offer's own `choice_post` already sits between it and the node_pre,
+        so the raiser is reported as unknown. Even forging that node_pre's
+        type to `legendary` -- in the event AND in the map -- does not help,
+        which is the point: the walk-back stops at the intervening
+        `choice_post` rather than reaching back for a plausible raiser."""
+        cps = self._corrupt("story_gen1_swap_release.json")
+        self.assertIn("swap_release", cov_mod.derive(cps))
+        for cp in cps:
+            if cp["kind"] == "node_pre" and cp["event"].get("node_type") == "catch":
+                cp["event"]["node_type"] = "legendary"
+                for node in cp["map"]["nodes"]:
+                    if node["id"] == cp["event"]["node"]:
+                        node["type"] = "legendary"
+        derived = cov_mod.derive(cps)
+        self.assertNotIn("legendary_swap_full_replace", derived)
+        self.assertNotIn("legendary_swap_full_decline", derived)
+
+    def test_probe_12_relabelling_replace_as_decline_and_back_earns_nothing(self):
+        """The two exits are different source handlers, and the resolving
+        checkpoint's own `event.index` is what tells them apart. Relabelling
+        one as the other leaves a transition neither predicate accepts."""
+        cps, index, _ = self._legendary_boundary(replace=True)
+        cps[index]["event"]["index"] = None
+        derived = cov_mod.derive(cps)
+        self.assertNotIn("legendary_swap_full_replace", derived)
+        self.assertNotIn(
+            "legendary_swap_full_decline", derived, "the team really did change"
+        )
+
+        cps, index, _ = self._legendary_boundary(replace=False)
+        cps[index]["event"]["index"] = 0
+        derived = cov_mod.derive(cps)
+        self.assertNotIn("legendary_swap_full_decline", derived)
+        self.assertNotIn(
+            "legendary_swap_full_replace", derived, "no slot actually changed"
+        )
+
+    # -- M4.2: the ordinary-catch control ----------------------------------
+
+    def test_the_catch_control_proves_its_own_source_specific_clearing(self):
+        """`catchPokemon`'s room accept nulls `savedCatch` AND
+        `savedQuestionResolve` (79041-79042) and leaves `savedShinyNode`
+        alone -- the mirror image of `doShinyNode`'s room accept, which nulls
+        `savedShinyNode` and RETAINS `savedQuestionResolve` (80962). The
+        control has to show a real question resolution pending beforehand,
+        otherwise it proves nothing about the clear."""
+        found = 0
+        for entry in self.manifest["scenarios"]:
+            cps = self.observed[entry["file"]]
+            for index in cov_mod.derive(cps).get("catch_room_accept_resume_cleared", []):
+                found += 1
+                pre, post = cps[index - 1]["resume_state"], cps[index]["resume_state"]
+                self.assertIsNotNone(pre["saved_catch"])
+                self.assertIsNotNone(pre["saved_question_resolve"])
+                self.assertIsNone(post["saved_catch"])
+                self.assertIsNone(post["saved_question_resolve"])
+                self.assertEqual(post["saved_shiny_node"], pre["saved_shiny_node"])
+        self.assertGreater(found, 0, "no route earns the catch control tag")
+
+    def test_the_catch_control_and_the_shiny_accept_disagree_on_retention(self):
+        """The single fact the whole `resume_state` projection exists for: on
+        a room accept the two branches do the OPPOSITE thing to
+        `savedQuestionResolve`."""
+        shiny = self.observed["story_gen1_shiny_accept.json"]
+        index = cov_mod.derive(shiny)["shiny_accept_resolved"][0]
+        retained = shiny[index]["resume_state"]["saved_question_resolve"]
+        self.assertIsNotNone(retained, "the shiny accept RETAINS it")
+        self.assertEqual(retained, shiny[index - 1]["resume_state"]["saved_question_resolve"])
+
+        catch = self.observed["story_gen1_swap_release.json"]
+        index = cov_mod.derive(catch)["catch_room_accept_resume_cleared"][0]
+        self.assertIsNone(
+            catch[index]["resume_state"]["saved_question_resolve"], "the catch accept CLEARS it"
+        )
+
+    def test_not_clearing_saved_catch_loses_the_control_tag(self):
+        cps = self._corrupt("story_gen1_swap_release.json")
+        index = cov_mod.derive(cps)["catch_room_accept_resume_cleared"][0]
+        cps[index]["resume_state"]["saved_catch"] = copy.deepcopy(
+            cps[index - 1]["resume_state"]["saved_catch"]
+        )
+        self.assertNotIn("catch_room_accept_resume_cleared", cov_mod.derive(cps))
+
+    def test_not_clearing_saved_question_resolve_loses_the_control_tag(self):
+        cps = self._corrupt("story_gen1_swap_release.json")
+        index = cov_mod.derive(cps)["catch_room_accept_resume_cleared"][0]
+        cps[index]["resume_state"]["saved_question_resolve"] = copy.deepcopy(
+            cps[index - 1]["resume_state"]["saved_question_resolve"]
+        )
+        self.assertNotIn("catch_room_accept_resume_cleared", cov_mod.derive(cps))
+
+    def test_a_reordered_saved_catch_offer_loses_the_control_tag(self):
+        """`savedCatch.instances` is the live ORDERED offer the cards were
+        built from (78765, replaced in place on a reroll at 78896)."""
+        cps = self._corrupt("story_gen1_swap_release.json")
+        index = cov_mod.derive(cps)["catch_room_accept_resume_cleared"][0]
+        instances = cps[index - 1]["resume_state"]["saved_catch"]["instances"]
+        if len(instances) < 2:
+            self.skipTest("this boundary offers a single candidate")
+        instances[0]["instance"], instances[1]["instance"] = (
+            instances[1]["instance"],
+            instances[0]["instance"],
+        )
+        self.assertNotIn("catch_room_accept_resume_cleared", cov_mod.derive(cps))
+
+    # -- M4.3: the choice index must name the card that was really clicked --
+    # Every accept branch used to test `index is not None` and then either
+    # ignore the value or look the installed member up ANYWHERE in the offer.
+    # `999`, `-1`, `True` and `"0"` are all non-null, and `isinstance(True,
+    # int)` is True in Python, so all four could still certify a branch. The
+    # source builds exactly one clickable card per candidate and each card's
+    # listener closes over THAT candidate (`doCatchNode` 78776-78789's
+    # `() => catchPokemon(Bcg, B)`; `doShinyNode`'s single
+    # `#shiny-content .poke-card` at 80972), so none of these names an
+    # affordance that exists.
+
+    INVALID_INDICES = (999, -1, True, "0")
+
+    def test_the_untouched_shiny_boundaries_earn_exactly_one_tag_each(self):
+        """The control for the four corruptions below: without them, the
+        accept earns ONLY the accept tag and the decline ONLY the decline
+        tag, so a lost tag really is caused by the corruption."""
+        accept = self._scenario_tags("story_gen1_shiny_accept.json")
+        self.assertIn("shiny_accept_resolved", accept)
+        self.assertNotIn("shiny_resolved", accept)
+        decline = self._scenario_tags("story_gen1_shiny.json")
+        self.assertIn("shiny_resolved", decline)
+        self.assertNotIn("shiny_accept_resolved", decline)
+
+    def test_an_invalid_shiny_index_earns_neither_shiny_tag(self):
+        """`doShinyNode` offers ONE card, so 0 is the only accept index that
+        exists. An out-of-range, negative, boolean or string index is a
+        malformed stream and must earn neither tag -- not be coerced, and not
+        fall through to the accept branch merely for being non-null."""
+        for bad in self.INVALID_INDICES:
+            with self.subTest(index=repr(bad)):
+                cps, index = self._shiny_boundary(
+                    "story_gen1_shiny_accept.json", "shiny_accept_resolved"
+                )
+                cps[index]["event"]["index"] = bad
+                derived = cov_mod.derive(cps)
+                self.assertNotIn("shiny_accept_resolved", derived)
+                self.assertNotIn(
+                    "shiny_resolved", derived,
+                    "an invalid index is not a decline either -- only `None` is",
+                )
+
+    def _catch_control(self, filename="story_gen1_swap_release.json"):
+        cps = self._corrupt(filename)
+        return cps, cov_mod.derive(cps)["catch_room_accept_resume_cleared"][0]
+
+    def _catch_evidence(self, cps) -> list:
+        return cov_mod.derive(cps).get("catch_room_accept_resume_cleared", [])
+
+    def test_an_invalid_catch_index_loses_the_control_tag(self):
+        """Asserted at the EVIDENCE INDEX, not merely on the tag: two
+        scenarios earn this control twice, so a corruption at one boundary
+        must not be able to hide behind the other still passing."""
+        for bad in self.INVALID_INDICES:
+            with self.subTest(index=repr(bad)):
+                cps, index = self._catch_control()
+                cps[index]["event"]["index"] = bad
+                self.assertNotIn(index, self._catch_evidence(cps))
+
+    def test_the_catch_control_requires_the_INDEXED_card_to_be_installed(self):
+        """The defect this closes. `catchPokemon` is called by the clicked
+        card's own listener with the instance that card closed over, so the
+        appended member must be `options[index]` -- not merely one of the
+        offered instances. Both real boundaries used here offer three
+        DISTINCT candidates, so "somewhere in the list" and "at this index"
+        are genuinely different claims."""
+        for name in ("story_gen1_swap_release.json", "story_gen4_distortion_entry.json"):
+            with self.subTest(scenario=name):
+                cps, index = self._catch_control(name)
+                options = cps[index - 1]["pending"]["options"]
+                picked = cps[index]["event"]["index"]
+                self.assertGreaterEqual(len(options), 2, "need a real alternative to install")
+                other = next(k for k in range(len(options)) if k != picked)
+                # Keep the index pointing at `picked` but install `other` --
+                # still an offered instance, still exactly one member
+                # appended, still every other compared shape intact.
+                installed = copy.deepcopy(options[other]["instance"])
+                installed["slot"] = cps[index]["team"][-1]["slot"]
+                cps[index]["team"][-1] = installed
+                self.assertNotIn(index, self._catch_evidence(cps))
+
+    def test_the_catch_control_still_passes_when_the_indexed_card_is_installed(self):
+        """The positive control for the probe above: rewriting the appended
+        member with the instance the index really names leaves the evidence
+        untouched, so the rejection above is caused by the identity mismatch
+        and not by the rewrite itself."""
+        for name in ("story_gen1_swap_release.json", "story_gen4_distortion_entry.json"):
+            with self.subTest(scenario=name):
+                cps, index = self._catch_control(name)
+                options = cps[index - 1]["pending"]["options"]
+                picked = cps[index]["event"]["index"]
+                installed = copy.deepcopy(options[picked]["instance"])
+                installed["slot"] = cps[index]["team"][-1]["slot"]
+                cps[index]["team"][-1] = installed
+                self.assertIn(index, self._catch_evidence(cps))
+
     def test_a_losing_submap_attempt_earns_no_win_tag(self):
         """`story_gen4_underground` enters a submap and LOSES its boss. It must
         earn `submap_entry` and nothing downstream of a win."""
@@ -772,12 +1263,30 @@ class FrozenSignatureCliTests(unittest.TestCase):
         tags) closing the ordinary-legendary/shiny/move-tutor/trade/Distortion/
         overlay families the independent closure audit found unbridged --
         updating these literals is exactly the same "grow the count, don't
-        shrink the scope" motion this docstring already describes.
+        shrink the scope" motion this docstring already describes. M4.1 grew
+        it once more (24 -> 27, 32 -> 35) for the SHINY accept-with-room and
+        the two legendary full-team exits. M4.2 adds ONE required tag
+        (35 -> 36) and no scenario: `catch_room_accept_resume_cleared`, the
+        ordinary-catch CONTROL that pins `catchPokemon`'s own resume-record
+        clearing against `doShinyNode`'s opposite behaviour. It is earned by
+        routes already in the matrix, which is why the scenario count is
+        unchanged.
+
+        The counts are asserted TWICE on purpose. The literals pin the matrix
+        SIZE, which is what catches a scenario or a required tag being quietly
+        dropped; the manifest-derived values then pin the reported numbers to
+        the canonical sets, so this test cannot drift out of sync with the
+        manifest the way a lone literal can.
         """
         proc = self._run("--all")
         self.assertEqual(proc.returncode, 0, proc.stdout[-3000:] + proc.stderr[-3000:])
-        self.assertIn("24/24 scenarios agree", proc.stdout)
-        self.assertIn("32/32 required tags", proc.stdout)
+        with open(os.path.join(_ROUTE_ORACLE, "scenarios", "manifest.json"), encoding="utf-8") as fh:
+            manifest = json.load(fh)
+        n_scenarios = len(manifest["scenarios"])
+        n_tags = len(cov_mod.REQUIRED_TAGS)
+        self.assertEqual((n_scenarios, n_tags), (27, 36))
+        self.assertIn(f"{n_scenarios}/{n_scenarios} scenarios agree", proc.stdout)
+        self.assertIn(f"{n_tags}/{n_tags} required tags", proc.stdout)
 
     def test_no_scenario_uses_post_starter_rng_alignment(self):
         """`align_rng_after_starter_offer` is retired from the primary matrix.
@@ -825,9 +1334,15 @@ class FrozenSignatureCliTests(unittest.TestCase):
         with open(os.path.join(_ROUTE_ORACLE, "frozen_signature.json"), encoding="utf-8") as fh:
             frozen = json.load(fh)
         self.assertEqual(frozen["differences"], [])
-        # 11 -> 24 with the M4-repair scenarios; see the sibling strict-mode
-        # test's docstring for why growing this literal is expected, not drift.
-        self.assertEqual(len(frozen["scenarios"]), 24)
+        # 11 -> 24 with the M4-repair scenarios, 24 -> 27 with M4.1's shiny
+        # accept-with-room and two legendary full-team exits; see the sibling
+        # strict-mode test's docstring for why growing this literal is
+        # expected, not drift. The signature must also bind the COMPLETE
+        # manifest, not merely 27 of whatever happens to be checked in.
+        self.assertEqual(len(frozen["scenarios"]), 27)
+        with open(os.path.join(_ROUTE_ORACLE, "scenarios", "manifest.json"), encoding="utf-8") as fh:
+            manifest = json.load(fh)
+        self.assertEqual(len(frozen["scenarios"]), len(manifest["scenarios"]))
 
     def test_audit_frozen_is_order_independent(self):
         for order in ("manifest", "reverse", "sorted"):
@@ -1033,6 +1548,166 @@ class PendingOptionIdentityMutationTests(unittest.TestCase):
         def mutate(p):
             p["options"][0], p["options"][2] = p["options"][2], p["options"][0]
         self.assert_detected(pending, mutate, "pending.options[0].item_id")
+
+
+class ResumeStateProjectionTests(unittest.TestCase):
+    """M4.2. `resume_state` projects the source's three live save/resume
+    guards -- `savedQuestionResolve` (20030), `savedCatch` (16827) and
+    `savedShinyNode` (22178) -- from REAL `RunState` fields the engine
+    maintains at the source's own write and clear points. Nothing is
+    synthesized in the runner.
+
+    LIVE fields only. What `saveRun()` last persisted is a separate fact:
+    the accept and decline handlers call no `saveRun` at all, so the most
+    recent source snapshot after a shiny accept still holds the PRE-accept
+    team and a non-null `savedShinyNode`. This port has no persistence layer
+    and makes no claim about reload parity -- see SCHEMA.md.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        import run_scenario  # noqa: PLC0415 -- route-oracle is on sys.path above
+
+        from pokelike import engine as engine_mod  # noqa: PLC0415
+
+        cls.rs = run_scenario
+        cls.engine_mod = engine_mod
+
+    def _state(self, **kw):
+        st = self.engine_mod.RunState()
+        for key, value in kw.items():
+            setattr(st, key, value)
+        return st
+
+    def _started(self, seed=1):
+        """A run past the starter offer, so `state.map` really exists."""
+        engine_mod = self.engine_mod
+        eng = engine_mod.Engine()
+        state = eng.reset(seed=seed)
+        state = eng.step(
+            engine_mod.ChooseStarter(species_id=state.pending.options[0]["species_id"])
+        )
+        return eng, state
+
+    def test_a_fresh_run_projects_all_three_as_null(self):
+        self.assertEqual(
+            self.rs._resume_state(self._state()),
+            {"saved_question_resolve": None, "saved_catch": None, "saved_shiny_node": None},
+        )
+
+    def test_a_question_record_projects_its_key_and_resolved_type(self):
+        out = self.rs._resume_state(
+            self._state(saved_question_resolve={"key": "m1:n6_1", "resolved_type": "shiny"})
+        )
+        self.assertEqual(
+            out["saved_question_resolve"], {"key": "m1:n6_1", "resolved_type": "shiny"}
+        )
+        self.assertIsNone(out["saved_catch"])
+        self.assertIsNone(out["saved_shiny_node"])
+
+    def test_a_shiny_record_projects_its_key_and_species(self):
+        """The source pins only the SPECIES (80919), never the instance -- it
+        rebuilds the card with `createInstance` on resume either way."""
+        out = self.rs._resume_state(
+            self._state(saved_shiny_node={"key": "m1:n6_1", "species_id": 126})
+        )
+        self.assertEqual(out["saved_shiny_node"], {"key": "m1:n6_1", "species_id": 126})
+
+    def test_a_catch_record_projects_its_offer_in_order(self):
+        """`savedCatch` is keyed by the BARE node id (78441), not the
+        map-qualified key the other two records use, and its `instances` are
+        the live ordered offer the cards were built from (78765)."""
+        mons = [
+            self.engine_mod._make_wild_combatant(sid, 8) for sid in (19, 16, 10)
+        ]
+        out = self.rs._resume_state(
+            self._state(saved_catch={"key": "n2_1", "instances": mons})
+        )
+        record = out["saved_catch"]
+        self.assertEqual(record["key"], "n2_1")
+        self.assertEqual([o["species_id"] for o in record["instances"]], [19, 16, 10])
+        self.assertEqual([o["slot"] for o in record["instances"]], [0, 1, 2])
+        self.assertEqual({o["role"] for o in record["instances"]}, {"saved_catch"})
+        for option in record["instances"]:
+            self.assertIsNotNone(option["instance"], "the full instance must be carried")
+
+    def test_reordering_the_saved_offer_changes_the_projection(self):
+        """Ordered identity, not a set: the source re-shows the offer in its
+        own order, and a resumed catch screen that reordered the cards would
+        resolve `action.index` onto a different Pokemon."""
+        mons = [self.engine_mod._make_wild_combatant(sid, 8) for sid in (19, 16)]
+        first = self.rs._resume_state(self._state(saved_catch={"key": "n2_1", "instances": mons}))
+        second = self.rs._resume_state(
+            self._state(saved_catch={"key": "n2_1", "instances": list(reversed(mons))})
+        )
+        self.assertNotEqual(first["saved_catch"]["instances"], second["saved_catch"]["instances"])
+
+    # -- the engine really maintains these, at the source's own points -----
+
+    def test_the_engine_writes_and_reuses_a_question_record(self):
+        engine_mod = self.engine_mod
+        _eng, state = self._started(seed=9)
+        node = next(n for n in state.map.nodes.values() if n.accessible)
+        node.type = map_gen_mod.QUESTION
+        with mock_patch.object(engine_mod.rng, "rng", return_value=0.10):
+            first = engine_mod._resolve_question(state, node)
+        self.assertEqual(
+            state.saved_question_resolve,
+            {"key": f"m{state.current_map}:{node.id}", "resolved_type": first},
+        )
+        # A matching key is reused WITHOUT consuming RNG (77328-77330); a
+        # different roll would otherwise change the answer.
+        with mock_patch.object(engine_mod.rng, "rng", side_effect=AssertionError("rolled")):
+            self.assertEqual(engine_mod._resolve_question(state, node), first)
+
+    def test_a_second_question_node_evicts_the_first_record(self):
+        """The source keeps ONE slot, not a cache: a non-matching key is
+        overwritten outright (77332)."""
+        engine_mod = self.engine_mod
+        _eng, state = self._started(seed=9)
+        nodes = [n for n in state.map.nodes.values()][:2]
+        for node in nodes:
+            node.type = map_gen_mod.QUESTION
+        with mock_patch.object(engine_mod.rng, "rng", return_value=0.10):
+            engine_mod._resolve_question(state, nodes[0])
+            engine_mod._resolve_question(state, nodes[1])
+        self.assertEqual(
+            state.saved_question_resolve["key"], f"m{state.current_map}:{nodes[1].id}"
+        )
+
+    def test_a_shiny_visit_pins_the_species_and_a_reuse_consumes_no_rng(self):
+        engine_mod = self.engine_mod
+        _eng, state = self._started(seed=1)
+        node = next(n for n in state.map.nodes.values() if n.accessible)
+        engine_mod._visit_shiny(state, node)
+        record = state.saved_shiny_node
+        self.assertIsNotNone(record)
+        self.assertEqual(record["key"], f"m{state.current_map}:{node.id}")
+        offered = state.pending.extra["candidates"][0]
+        self.assertEqual(record["species_id"], offered.species_id)
+        # Re-visiting with the record in place must not re-roll the pool.
+        state.pending = None
+        with mock_patch.object(
+            engine_mod.map_gen, "get_catch_choices", side_effect=AssertionError("re-rolled")
+        ):
+            engine_mod._visit_shiny(state, node)
+        self.assertEqual(state.pending.extra["candidates"][0].species_id, record["species_id"])
+
+    def test_a_catch_visit_pins_the_offer_and_a_reuse_consumes_no_rng(self):
+        engine_mod = self.engine_mod
+        _eng, state = self._started(seed=1)
+        node = next(n for n in state.map.nodes.values() if n.accessible)
+        engine_mod._visit_catch(state, node)
+        record = state.saved_catch
+        self.assertIsNotNone(record)
+        self.assertEqual(record["key"], node.id)
+        self.assertEqual(record["instances"], state.pending.extra["candidates"])
+        state.pending = None
+        with mock_patch.object(
+            engine_mod.map_gen, "get_catch_choices", side_effect=AssertionError("re-rolled")
+        ):
+            engine_mod._visit_catch(state, node)
+        self.assertEqual(state.pending.extra["candidates"], record["instances"])
 
 
 class PendingOptionProjectionTests(unittest.TestCase):
@@ -2009,6 +2684,531 @@ class RouteSearchTests(unittest.TestCase):
 
     def test_an_unknown_target_is_rejected(self):
         self.assertNotIn("not_a_tag", self.sr.TARGETS)
+
+    # -- M4.2: the three hardened targets inspect the TRANSITION ------------
+    # Each case below keeps the choice index, the team size and the origin
+    # exactly as a real route has them -- everything M4.1's versions looked
+    # at -- and corrupts only the `after` half. All three used to accept
+    # these, because they never read `after` at all.
+
+    # M4.3 rebuilt both fixtures below. M4.2's versions were sentinel
+    # `object()`s on a map whose node was ALREADY `visited=True`, with
+    # `options=[]` and no pre-step topology at all -- so the "baseline passes"
+    # controls were passing over a pre-state the engine can never be in, and
+    # the corruption probes were correspondingly weak. Both now build a real
+    # pre-step `RunState` shape, snapshot it through the production
+    # `_pre_choice_facts`, and produce the `after` half by running the real
+    # `engine._advance`. The fixture and the code under test therefore agree
+    # by construction rather than by a hand-copied dict.
+
+    RNG_STATE = 0x1234ABCD
+
+    @staticmethod
+    def _mon(species_id, level=5):
+        from pokelike import engine as engine_mod  # noqa: PLC0415
+
+        return engine_mod._make_wild_combatant(species_id, level)
+
+    @staticmethod
+    def _map_with(node_id, node_type, *, layer, sibling_ids=(), successor_ids=()):
+        """A small real map: the raising node accessible and UNVISITED, its
+        same-layer siblings accessible, its successors hidden. That is the
+        shape `advanceFromNode` actually acts on, so every one of its three
+        effects is observable in the `after` half."""
+        import types  # noqa: PLC0415
+
+        nodes = {}
+        node = map_gen_mod.MapNode(id=node_id, type=node_type, layer=layer, col=0)
+        node.visited, node.accessible, node.revealed = False, True, True
+        nodes[node_id] = node
+        for col, sib in enumerate(sibling_ids, start=1):
+            other = map_gen_mod.MapNode(id=sib, type="trainer", layer=layer, col=col)
+            other.visited, other.accessible, other.revealed = False, True, True
+            nodes[sib] = other
+        edges = []
+        for col, succ in enumerate(successor_ids):
+            nxt = map_gen_mod.MapNode(id=succ, type="trainer", layer=layer + 1, col=col)
+            nxt.visited, nxt.accessible, nxt.revealed = False, False, False
+            nodes[succ] = nxt
+            edges.append((node_id, succ))
+        return types.SimpleNamespace(
+            nodes=nodes, edges=edges, map_index=1, is_sub_map=None,
+        )
+
+    def _fake_swap(self, *, index, incoming_installed=True, pre_over=None, **after_over):
+        """A semantically valid legendary full-team swap pair, corruptible via
+        `pre_over` (facts) and `after_over` (post-state).
+
+        Team members are real `Combatant`s because the target now requires the
+        pending's own option summaries to agree with the ordered pre-step team
+        -- which is what the runner projects as the six `swap_release` slots
+        and as `pending.context.team`. Identity assertions are still by
+        object, never by value."""
+        import types  # noqa: PLC0415
+
+        from pokelike import engine as engine_mod  # noqa: PLC0415
+
+        team = [self._mon(sid) for sid in (1, 4, 7, 25, 39, 52)]
+        incoming = self._mon(144, level=30)
+        gmap = self._map_with(
+            "n7_1", "legendary", layer=7,
+            sibling_ids=("n7_2",), successor_ids=("n8_0",),
+        )
+        pending = engine_mod.PendingChoice(
+            phase=engine_mod.Phase.SWAP_CHOICE,
+            options=[engine_mod._mon_summary(m) for m in team],
+            optional=True,
+            extra={"incoming": incoming, "node_id": "n7_1", "has_room": False},
+        )
+        pre = types.SimpleNamespace(
+            pending=pending, map=gmap, team=list(team), current_map=1,
+            current_node_id="n7_1", in_sub_map=None,
+            saved_question_resolve=None, saved_catch=None, saved_shiny_node=None,
+        )
+        facts = self.sr._pre_choice_facts(pre)
+        facts.update(pre_over or {})
+
+        before = types.SimpleNamespace(pending=pending, map=gmap, team=list(team))
+        after_team = list(team)
+        # An index that names no slot leaves the team alone: there is no card
+        # it could have been, so there is nothing for the resolver to install.
+        # The target has to reject on the index itself, not on the team shape.
+        names_a_slot = (
+            isinstance(index, int) and not isinstance(index, bool)
+            and 0 <= index < len(after_team)
+        )
+        if names_a_slot:
+            after_team[index] = incoming if incoming_installed else self._mon(19)
+        after = types.SimpleNamespace(
+            pending=None, phase=engine_mod.Phase.ON_MAP, team=after_team, map=gmap,
+            current_node_id=None, saved_catch=None, saved_question_resolve=None,
+            saved_shiny_node=None, got_via_question=False,
+        )
+        # The real `advanceFromNode`, over the same shared map object the
+        # production resolvers mutate in place.
+        engine_mod._advance(after, "n7_1")
+        for key, value in after_over.items():
+            setattr(after, key, value)
+        ctx = {
+            "pre_choice": facts, "choice_index": index,
+            "rng_before": self.RNG_STATE, "rng_after": self.RNG_STATE,
+        }
+        return before, after, ctx
+
+    def test_the_replace_target_accepts_the_real_transition(self):
+        before, after, ctx = self._fake_swap(index=2)
+        self.assertTrue(
+            self.sr._target_legendary_swap_full_replace(before, after, None, ctx),
+            "the baseline must pass, or the rejections below prove nothing",
+        )
+
+    def test_the_replace_target_rejects_a_wrong_installed_pokemon(self):
+        """Exactly one slot still changes and the index/team size/origin are
+        untouched -- only the identity in the selected slot is wrong."""
+        before, after, ctx = self._fake_swap(index=2, incoming_installed=False)
+        self.assertFalse(self.sr._target_legendary_swap_full_replace(before, after, None, ctx))
+
+    def test_the_replace_target_rejects_an_unfinished_exit(self):
+        for over in (
+            {"current_node_id": "n7_1"},          # 79231 nulls it
+            {"pending": "still open"},            # never resolved
+            {"saved_shiny_node": {"key": "x"}},   # 79229 nulls all three
+        ):
+            with self.subTest(corruption=sorted(over)[0]):
+                before, after, ctx = self._fake_swap(index=2, **over)
+                self.assertFalse(
+                    self.sr._target_legendary_swap_full_replace(before, after, None, ctx)
+                )
+
+    def test_the_replace_target_rejects_an_unadvanced_node(self):
+        before, after, ctx = self._fake_swap(index=2)
+        after.map.nodes["n7_1"].visited = False
+        self.assertFalse(self.sr._target_legendary_swap_full_replace(before, after, None, ctx))
+
+    def test_the_decline_target_rejects_a_team_that_actually_changed(self):
+        before, after, ctx = self._fake_swap(index=None)
+        self.assertTrue(self.sr._target_legendary_swap_full_decline(before, after, None, ctx))
+        after.team[3] = object()
+        self.assertFalse(self.sr._target_legendary_swap_full_decline(before, after, None, ctx))
+
+    def test_the_decline_target_rejects_an_unfinished_exit(self):
+        before, after, ctx = self._fake_swap(index=None, current_node_id="n7_1")
+        self.assertFalse(self.sr._target_legendary_swap_full_decline(before, after, None, ctx))
+
+    SHINY_SPECIES = 126
+
+    def _fake_shiny(self, *, install_offered=True, index=0, pre_over=None, **after_over):
+        """A semantically valid `doShinyNode` room-accept pair: a real
+        QUESTION node, still unvisited and accessible, one offered candidate,
+        both resume records pinned under the source's own map-qualified key,
+        and the real `advanceFromNode` applied to produce `after`."""
+        import types  # noqa: PLC0415
+
+        from pokelike import engine as engine_mod  # noqa: PLC0415
+
+        team = [self._mon(1)]
+        offered = self._mon(self.SHINY_SPECIES)
+        record = {"key": "m1:n6_1", "resolved_type": "shiny"}
+        gmap = self._map_with(
+            "n6_1", "question", layer=6,
+            sibling_ids=("n6_0", "n6_2"), successor_ids=("n7_0",),
+        )
+        pending = engine_mod.PendingChoice(
+            phase=engine_mod.Phase.CATCH_CHOICE,
+            options=[engine_mod._mon_summary(offered)],
+            optional=True,
+            extra={"candidates": [offered], "node_id": "n6_1", "origin": "shiny_node"},
+        )
+        pre = types.SimpleNamespace(
+            pending=pending, map=gmap, team=list(team), current_map=1,
+            current_node_id="n6_1", in_sub_map=None,
+            saved_question_resolve=record, saved_catch=None,
+            saved_shiny_node={"key": "m1:n6_1", "species_id": self.SHINY_SPECIES},
+        )
+        facts = self.sr._pre_choice_facts(pre)
+        facts.update(pre_over or {})
+
+        after = types.SimpleNamespace(
+            pending=None, phase=engine_mod.Phase.ON_MAP,
+            team=team + [offered if install_offered else self._mon(self.SHINY_SPECIES)],
+            map=gmap, current_node_id="n6_1", saved_catch=None,
+            saved_question_resolve=record, saved_shiny_node=None, got_via_question=True,
+        )
+        engine_mod._advance(after, "n6_1")
+        for key, value in after_over.items():
+            setattr(after, key, value)
+        before = types.SimpleNamespace(pending=pending, map=gmap, team=list(team))
+        ctx = {
+            "pre_choice": facts, "choice_index": index,
+            "rng_before": self.RNG_STATE, "rng_after": self.RNG_STATE,
+        }
+        return before, after, ctx
+
+    def test_the_shiny_accept_target_accepts_the_real_transition(self):
+        before, after, ctx = self._fake_shiny()
+        self.assertTrue(self.sr._target_shiny_accept_resolved(before, after, None, ctx))
+
+    def test_the_shiny_accept_target_rejects_a_rebuilt_instance(self):
+        """`state.team.push(B2B)` (80965) pushes the very object the card was
+        built from. A same-species rebuild is a different object, and that is
+        the divergence this target has to be able to see."""
+        before, after, ctx = self._fake_shiny(install_offered=False)
+        self.assertFalse(self.sr._target_shiny_accept_resolved(before, after, None, ctx))
+
+    def test_the_shiny_accept_target_rejects_a_wrong_resume_contract(self):
+        for over, why in (
+            ({"saved_shiny_node": {"key": "m1:n6_1"}}, "80962 nulls it"),
+            ({"saved_question_resolve": None}, "neither shiny exit clears it"),
+            ({"got_via_question": False}, "recordMonOrigin(B) at 80967"),
+            ({"current_node_id": None}, "the room branch RETAINS currentNode"),
+        ):
+            with self.subTest(reason=why):
+                before, after, ctx = self._fake_shiny(**over)
+                self.assertFalse(self.sr._target_shiny_accept_resolved(before, after, None, ctx))
+
+    # -- M4.3: the three targets must prove a REAL transition ---------------
+    # `search_route.py`'s module header calls its predicates "cheap
+    # approximations", which is fine for a target that only prunes a walk. It
+    # is not fine for these three: they exist to route branches nothing else
+    # in the matrix reaches, so a malformed candidate they accept becomes a
+    # scenario the matrix is then built on. `verify` catching it afterwards is
+    # not the same guarantee -- the search must not PROPOSE it.
+    #
+    # Every corruption below starts from a baseline that is itself
+    # semantically valid: real `Combatant`s, a real unvisited-and-accessible
+    # raising node with real siblings and successors, the pending's own option
+    # summaries agreeing with the ordered team, and the `after` half produced
+    # by running the real `engine._advance`.
+
+    def test_the_decline_target_accepts_the_real_transition(self):
+        before, after, ctx = self._fake_swap(index=None)
+        self.assertTrue(
+            self.sr._target_legendary_swap_full_decline(before, after, None, ctx),
+            "the baseline must pass, or the rejections below prove nothing",
+        )
+
+    def _retype_node(self, after, node_id, node_type, ctx):
+        """Change a node's family in BOTH the live map and the pre-step
+        snapshot, so `_exact_advance`'s own type comparison still agrees and
+        the only thing left to reject the pair is the raiser check itself."""
+        after.map.nodes[node_id].type = node_type
+        ctx["pre_choice"]["map"]["nodes"][node_id]["type"] = node_type
+
+    def test_the_shiny_target_rejects_a_non_question_raiser(self):
+        """`doShinyNode` is reachable only through `onNodeClick`'s
+        `case "shiny"` on a resolved QUESTION node (77318-77332, 77384) --
+        there is no `NODE_TYPES.SHINY`. The `origin` string stays
+        `"shiny_node"` here, so a target that trusted it would still pass."""
+        before, after, ctx = self._fake_shiny()
+        self._retype_node(after, "n6_1", "catch", ctx)
+        self.assertEqual(ctx["pre_choice"]["origin"], "shiny_node")
+        self.assertFalse(self.sr._target_shiny_accept_resolved(before, after, None, ctx))
+
+    def test_the_shiny_target_rejects_a_pre_visited_node(self):
+        """A node already consumed before the choice is not evidence that
+        this choice consumed it -- and `after.map` is the very object
+        `before.map` points at, so "visited afterwards" is true either way."""
+        before, after, ctx = self._fake_shiny()
+        ctx["pre_choice"]["map"]["nodes"]["n6_1"]["visited"] = True
+        self.assertFalse(self.sr._target_shiny_accept_resolved(before, after, None, ctx))
+
+    def test_the_shiny_target_rejects_a_broken_pre_step_resume_contract(self):
+        """The offer has to be PINNED by the source's own two records, under
+        the map-qualified key `"m<currentMap>:<nodeId>"` (77319-77326 /
+        80879-80884), with `savedShinyNode` naming the offered species."""
+        cases = {
+            "savedQuestionResolve missing on both sides": (
+                {"saved_question_resolve": None}, {"saved_question_resolve": None}),
+            "savedShinyNode missing": ({"saved_shiny_node": None}, {}),
+            "savedShinyNode keyed to another node": (
+                {"saved_shiny_node": {"key": "m1:n2_0", "species_id": self.SHINY_SPECIES}}, {}),
+            "savedShinyNode pins another species": (
+                {"saved_shiny_node": {"key": "m1:n6_1", "species_id": 1}}, {}),
+            # Corrupted on BOTH sides on purpose. With the `after` half left
+            # holding the real record, the pair is rejected by the RETENTION
+            # check instead and the `resolved_type` condition is never
+            # reached -- which is how a first draft of this probe let a
+            # mutant that deleted that condition survive. Keeping the two
+            # sides consistent leaves `resolved_type == "shiny"` as the only
+            # thing that can reject it.
+            "savedQuestionResolve resolved to something else": (
+                {"saved_question_resolve": {"key": "m1:n6_1", "resolved_type": "catch"}},
+                {"saved_question_resolve": {"key": "m1:n6_1", "resolved_type": "catch"}}),
+            "a non-null savedCatch wrongly cleared by the exit": (
+                {"saved_catch": {"key": "n6_1", "instances": []}}, {"saved_catch": None}),
+        }
+        for why, (pre_over, after_over) in cases.items():
+            with self.subTest(reason=why):
+                before, after, ctx = self._fake_shiny(pre_over=pre_over, **after_over)
+                self.assertFalse(
+                    self.sr._target_shiny_accept_resolved(before, after, None, ctx)
+                )
+
+    def test_the_shiny_target_rejects_an_invalid_index(self):
+        """One card exists (`#shiny-content .poke-card`, 80972), so 0 is the
+        only accept index. `True` is called out because `isinstance(True,
+        int)` is True and `True == 1`."""
+        for bad in (999, -1, True, "0", 1):
+            with self.subTest(index=repr(bad)):
+                before, after, ctx = self._fake_shiny(index=bad)
+                self.assertFalse(
+                    self.sr._target_shiny_accept_resolved(before, after, None, ctx)
+                )
+
+    def test_the_shiny_target_rejects_rng_movement(self):
+        """Neither `doShinyNode` exit calls `rng()`."""
+        before, after, ctx = self._fake_shiny()
+        ctx["rng_after"] = ctx["rng_before"] + 1
+        self.assertFalse(self.sr._target_shiny_accept_resolved(before, after, None, ctx))
+
+    def _both_legendary(self):
+        """(target, kwargs) for the replace and decline exits, so a
+        corruption can be asserted against both."""
+        return (
+            (self.sr._target_legendary_swap_full_replace, {"index": 2}),
+            (self.sr._target_legendary_swap_full_decline, {"index": None}),
+        )
+
+    def test_the_legendary_targets_reject_a_malformed_option_list(self):
+        """`showSwapScreen` builds exactly one release card per member, in
+        team order (79202-79246), and `_offer_swap_screen` mirrors that with
+        `[_mon_summary(m) for m in state.team]`. The runner projects THOSE
+        positions as `swap_release` slots 0..5 and the same ordered team as
+        `pending.context.team`, so an option list that disagrees with the
+        team cannot be the offer those cards were built from. An EMPTY list
+        used to pass -- nothing looked at the options at all."""
+        def empty(opts):
+            return []
+
+        def short(opts):
+            return opts[:5]
+
+        def reordered(opts):
+            swapped = list(opts)
+            swapped[0], swapped[1] = swapped[1], swapped[0]
+            return swapped
+
+        def wrong_card_at_a_real_slot(opts):
+            replaced = list(opts)
+            replaced[3] = dict(opts[0])
+            return replaced
+
+        for target, kwargs in self._both_legendary():
+            for mangle in (empty, short, reordered, wrong_card_at_a_real_slot):
+                with self.subTest(target=target.__name__, corruption=mangle.__name__):
+                    before, after, ctx = self._fake_swap(**kwargs)
+                    facts = ctx["pre_choice"]
+                    facts["options"] = mangle(facts["options"])
+                    self.assertFalse(target(before, after, None, ctx))
+
+    def test_the_legendary_targets_reject_a_missing_or_reordered_pre_team(self):
+        """The ordered pre-step team is what the runner projects as
+        `pending.context.team`; the port stores no literal field for it, so
+        this is the real engine fact rather than a synthesized answer."""
+        for target, kwargs in self._both_legendary():
+            for corruption in ("missing", "reordered"):
+                with self.subTest(target=target.__name__, corruption=corruption):
+                    before, after, ctx = self._fake_swap(**kwargs)
+                    facts = ctx["pre_choice"]
+                    if corruption == "missing":
+                        facts["team"] = []
+                    else:
+                        facts["team"][0], facts["team"][1] = facts["team"][1], facts["team"][0]
+                    self.assertFalse(target(before, after, None, ctx))
+
+    def test_the_legendary_targets_reject_a_missing_incoming(self):
+        """`showSwapScreen`'s incoming Pokemon lives only in the closure its
+        listeners capture; without it there is nothing for the selected slot
+        to be verified against."""
+        for target, kwargs in self._both_legendary():
+            with self.subTest(target=target.__name__):
+                before, after, ctx = self._fake_swap(**kwargs)
+                ctx["pre_choice"]["incoming"] = None
+                self.assertFalse(target(before, after, None, ctx))
+
+    def test_the_legendary_targets_reject_a_pre_visited_node(self):
+        for target, kwargs in self._both_legendary():
+            with self.subTest(target=target.__name__):
+                before, after, ctx = self._fake_swap(**kwargs)
+                ctx["pre_choice"]["map"]["nodes"]["n7_1"]["visited"] = True
+                self.assertFalse(target(before, after, None, ctx))
+
+    def test_the_legendary_targets_reject_a_non_legendary_raiser(self):
+        """Every other fact stays plausible -- full team, matching options,
+        a real incoming, a clean exit -- and only the node's actual family
+        changes. `doLegendaryNode`'s win callback is the one ordinary-map
+        caller that reaches `showSwapScreen` with no room test (80457)."""
+        for target, kwargs in self._both_legendary():
+            with self.subTest(target=target.__name__):
+                before, after, ctx = self._fake_swap(**kwargs)
+                self._retype_node(after, "n7_1", "catch", ctx)
+                self.assertFalse(target(before, after, None, ctx))
+
+    def test_the_legendary_targets_reject_rng_movement(self):
+        """None of `showSwapScreen`'s three exits calls `rng()`."""
+        for target, kwargs in self._both_legendary():
+            with self.subTest(target=target.__name__):
+                before, after, ctx = self._fake_swap(**kwargs)
+                ctx["rng_after"] = ctx["rng_before"] + 1
+                self.assertFalse(target(before, after, None, ctx))
+
+    def test_the_legendary_targets_reject_an_unfinished_saved_state(self):
+        """All three exits null all three resume records (79182-79184 /
+        79227-79229 / 79252-79254) as well as `currentNode`."""
+        for target, kwargs in self._both_legendary():
+            for over in (
+                {"saved_catch": {"key": "n7_1", "instances": []}},
+                {"saved_question_resolve": {"key": "m1:n7_1", "resolved_type": "shiny"}},
+                {"saved_shiny_node": {"key": "m1:n7_1", "species_id": 1}},
+                {"current_node_id": "n7_1"},
+                {"pending": "still open"},
+            ):
+                with self.subTest(target=target.__name__, corruption=sorted(over)[0]):
+                    before, after, ctx = self._fake_swap(**kwargs, **over)
+                    self.assertFalse(target(before, after, None, ctx))
+
+    def test_the_legendary_targets_reject_a_partial_advance(self):
+        """`advanceFromNode` does three things: consume the node, lock its
+        same-layer siblings, reveal and unlock its successors. Undoing any
+        ONE of them must lose the target -- the old `_advanced` check looked
+        only at the node's own two flags."""
+        cases = {
+            "node not consumed": ("n7_1", {"visited": False}),
+            "node still accessible": ("n7_1", {"accessible": True}),
+            "sibling not locked": ("n7_2", {"accessible": True}),
+            "successor not unlocked": ("n8_0", {"accessible": False}),
+            "successor not revealed": ("n8_0", {"revealed": False}),
+        }
+        for target, kwargs in self._both_legendary():
+            for why, (node_id, flags) in cases.items():
+                with self.subTest(target=target.__name__, corruption=why):
+                    before, after, ctx = self._fake_swap(**kwargs)
+                    for flag, value in flags.items():
+                        setattr(after.map.nodes[node_id], flag, value)
+                    self.assertFalse(target(before, after, None, ctx))
+
+    # -- M4.4: the last three search-predicate false positives --------------
+    # Each probe below starts from the SAME semantically valid fixture the
+    # M4.3 controls use and changes exactly one PRE-step fact. All four were
+    # independently reproduced against the M4.3 bytes, where every one of
+    # them still returned True.
+
+    def test_the_shiny_target_rejects_an_option_summary_that_is_not_the_offer(self):
+        """`doShinyNode` builds its one card from the offered instance
+        (80972-80980) and `_visit_shiny` mirrors that with
+        `options=[_mon_summary(mon)]` over the very object it puts in
+        `extra["candidates"]` (engine.py:2528-2533). Counting the options
+        proved a card existed; it did not prove whose card it was, so a
+        pending whose summary describes some other Pokemon entirely still
+        passed. The candidate, the appended object, the index and the whole
+        `after` half stay correct here -- only the shown card is wrong."""
+        # Each corruption is derived from the REAL summary rather than
+        # hardcoded, so none of them can silently be a no-op. A first draft
+        # forced `is_shiny=False` on a fixture whose offered instance is
+        # already non-shiny; the summary came back byte-identical and the
+        # target correctly still accepted it. That subcase proved nothing
+        # about the target and would have been recorded as a defect.
+        cases = {
+            "a different species": lambda s: dict(s, species_id=s["species_id"] + 1,
+                                                  name=s["name"] + "-OTHER"),
+            "a different level": lambda s: dict(s, level=s["level"] + 7),
+            "a different current_hp": lambda s: dict(s, current_hp=s["current_hp"] - 1),
+            "a shininess the offer does not have": lambda s: dict(s, is_shiny=not s["is_shiny"]),
+            "a held item the offer does not have": lambda s: dict(s, held_item="leftovers"),
+        }
+        for why, mangle in cases.items():
+            with self.subTest(corruption=why):
+                before, after, ctx = self._fake_shiny()
+                facts = ctx["pre_choice"]
+                shown = facts["options"][0]
+                corrupted = mangle(shown)
+                self.assertNotEqual(corrupted, shown, "the corruption must corrupt something")
+                # The candidate itself, the appended instance and the index
+                # are all untouched: only the summary the player was shown.
+                facts["options"][0] = corrupted
+                self.assertEqual(len(facts["candidates"]), 1)
+                self.assertIs(after.team[-1], facts["candidates"][0])
+                self.assertFalse(
+                    self.sr._target_shiny_accept_resolved(before, after, None, ctx)
+                )
+
+    def test_the_shiny_target_rejects_a_pre_step_current_node_that_is_not_the_raiser(self):
+        """`onNodeClick` sets `state.currentNode = B` (77311) before it
+        dispatches, so the shiny screen is up while its QUESTION node is the
+        live current node; the room branch is the exit that RETAINS it
+        (80961-80970). The post-step `after.current_node_id == node_id` alone
+        cannot see the difference between "this branch retained it" and "it
+        was never this node", which is why the pre-step identity is
+        required."""
+        for over in ({"current_node_id": None}, {"current_node_id": "n6_0"}):
+            with self.subTest(pre_current_node=over["current_node_id"]):
+                before, after, ctx = self._fake_shiny(pre_over=over)
+                self.assertEqual(after.current_node_id, "n6_1")
+                self.assertFalse(
+                    self.sr._target_shiny_accept_resolved(before, after, None, ctx)
+                )
+
+    def test_the_legendary_targets_reject_a_pre_step_current_node_that_is_not_the_raiser(self):
+        """All three `showSwapScreen` exits null `currentNode`
+        (79186/79231/79256) -- but `after.current_node_id is None` is equally
+        true of a pre-step pointer that was already null, so the exit is only
+        observable against the pre-step identity. Asserted for BOTH full-team
+        exits: they share one guard, in `_legendary_full_swap`."""
+        for target, kwargs in self._both_legendary():
+            for over in ({"current_node_id": None}, {"current_node_id": "n7_2"}):
+                with self.subTest(target=target.__name__,
+                                  pre_current_node=over["current_node_id"]):
+                    before, after, ctx = self._fake_swap(pre_over=over, **kwargs)
+                    self.assertIsNone(after.current_node_id)
+                    self.assertFalse(target(before, after, None, ctx))
+
+    def test_the_replace_target_rejects_an_out_of_range_or_boolean_index(self):
+        for bad in (999, -1, True):
+            with self.subTest(index=repr(bad)):
+                before, after, ctx = self._fake_swap(index=bad)
+                self.assertFalse(
+                    self.sr._target_legendary_swap_full_replace(before, after, None, ctx)
+                )
 
     def test_tightening_max_maps_makes_the_target_unreachable(self):
         """The admin node lives on map 2, so zero transitions cannot reach it.

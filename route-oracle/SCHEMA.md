@@ -1,10 +1,16 @@
-# Route-oracle checkpoint schema — version 1
+# Route-oracle checkpoint schema — version 2
 
 Both runners (`run-scenario.js`, `run_scenario.py`) emit the same versioned
 checkpoint stream. `compare.py` canonicalizes it, hashes it, and reports the
 first field-level difference. A scenario, a runner, and the manifest must all
 declare the same `schema_version`; a mismatch is a hard failure, never a
 silent coercion.
+
+**Version 2 (M4.2)** adds one compared top-level field, `resume_state` — see
+"Live save/resume guards" below. A v1 stream and a v2 stream are not
+comparable, so the version was bumped and every scenario, the manifest and
+both runners were updated together. Nothing was removed, excluded or
+loosened: v2 is v1 plus one field.
 
 ## Scenario file
 
@@ -108,7 +114,8 @@ Fields:
               "paralyzed", "poison_stacks", "base_stats", "stat_buffs" } ],
   "items": [ "escape_rope", … ],                  // bag order preserved
   "game_over": false,
-  "pending": { … see "Pending-choice option identity" … } | null
+  "pending": { … see "Pending-choice option identity" … } | null,
+  "resume_state": { … see "Live save/resume guards" … }
 }
 ```
 
@@ -121,6 +128,87 @@ Fields:
   "status_events": [ { "type": "status_tick"|"poison_drain"|"faint", … } ],
   "turns": [ … see "Ordered per-turn battle events" … ] }
 ```
+
+## Live save/resume guards (`resume_state`)
+
+**Added in M4.2**, and the reason the schema version moved to 2.
+
+The source keeps three node-scoped records so that a run saved while parked
+on a choice screen resumes onto the *same* offer instead of re-rolling it:
+
+| field | declared | written | read | key |
+|---|---|---|---|---|
+| `savedQuestionResolve` | 20030 | `onNodeClick` 77332 | 77328 | `"m<currentMap>:<nodeId>"` |
+| `savedCatch` | 16827 | `doCatchNode` 78765 | 78441 | the **bare** `nodeId` |
+| `savedShinyNode` | 22178 | `doShinyNode` 80919 | 80887 | `"m<currentMap>:<nodeId>"` |
+
+They are compared because **which of them an exit clears is
+branch-specific**, and getting that wrong changes no other compared field:
+
+| exit | `savedCatch` | `savedQuestionResolve` | `savedShinyNode` |
+|---|---|---|---|
+| `doShinyNode` room accept (80962) | untouched | **retained** | cleared |
+| `#btn-skip-shiny` (80986) | untouched | **retained** | cleared |
+| `catchPokemon` room accept (79041-79042) | cleared | **cleared** | untouched |
+| `#btn-skip-catch` (78956-78957) | cleared | **cleared** | untouched |
+| `showSwapScreen` — all three exits (79182-79184 / 79227-79229 / 79252-79254) | cleared | cleared | cleared |
+
+Shape — `null` per record when absent, so an absent record is a *compared*
+value rather than a silent omission:
+
+```jsonc
+"resume_state": {
+  "saved_question_resolve": { "key": "m1:n6_1", "resolved_type": "shiny" } | null,
+  "saved_catch":            { "key": "n2_1",
+                              "instances": [ …ordered option identities… ] } | null,
+  "saved_shiny_node":       { "key": "m1:n6_1", "species_id": 126 } | null
+}
+```
+
+Only deterministic semantic identity is projected. `savedCatch.instances`
+reuses the ordinary option-identity shape (role `"saved_catch"`, `slot` = the
+offer position) because the order is meaning: a resumed catch screen resolves
+`action.index` against it. `savedCatch.rerollPool` / `.rerolled` / `.level`
+are Endless-and-reroll bookkeeping the Python port does not model, and the
+instances already carry every level and identity the comparison needs.
+`savedShinyNode` carries only the species because that is all the source
+stores — it rebuilds the card with `createInstance` on resume either way.
+
+Both sides read real run state. `driver.js` reads `state.savedQuestionResolve`
+/ `state.savedCatch` / `state.savedShinyNode` directly; `run_scenario.py`
+reads `RunState.saved_question_resolve` / `.saved_catch` / `.saved_shiny_node`,
+which `_resolve_question`, `_visit_catch`, `_visit_shiny`, `_try_add_to_team`,
+`_resolve_catch_choice` and `_resolve_swap_choice` maintain at the source's
+own write and clear points. Nothing is synthesized in either runner.
+
+`saved_question_resolve` replaced the port's former `question_cache` dict in
+M4.2. The source keeps **one** `{key, resolvedType}` slot, not a map: a
+non-matching key is overwritten outright (77326-77332), so a second question
+node evicts the first. The dict was observationally equivalent for every
+route this harness can express — a question node that suspends on a pending
+choice cannot be revisited until it advances — but it was a different shape
+from the field now being compared. `_start_map`'s `question_cache.clear()`
+went with it: the source has no clear there, and a stranded record is
+harmless because the key is map-qualified.
+
+### Live state is not persisted state
+
+`resume_state` is the **live** `state` fields, nothing more. What `saveRun()`
+last wrote is a different fact and is deliberately not projected:
+
+- `saveRun` is called by `onNodeClick` before dispatch (77334), by
+  `doCatchNode` right after pinning `savedCatch` (78771), and by
+  `doShinyNode` right after pinning `savedShinyNode` (80923);
+- **no accept or decline handler calls it at all** — so after a shiny room
+  accept the most recent source snapshot still holds the *pre-accept* team
+  and a *non-null* `savedShinyNode`, even though live state has neither;
+- `driver.js` stubs `saveRun` to a no-op (it serialises the whole run to
+  `localStorage` and has no gameplay effect), and the Python port has no
+  persistence layer at all.
+
+So this schema makes **no claim about save/reload parity**. Persistent
+reload behaviour is outside the current port surface; only live-field parity
+is asserted here.
 
 ## Pending-choice option identity
 
@@ -350,11 +438,28 @@ source's `doShinyNode` (bundle.deobfuscated.js:80872-80990) uses its own
 `_screen_for`/`_is_shiny_origin` (M4 repair) tell the two apart by
 `pending.extra["origin"]`: `"shiny_node"` for a real shiny offer,
 `"catch"`/`"question"` for an ordinary (possibly question-resolved) catch --
-**not** a shared `"question"` value, which was a real bug this repair found
+**not** a shared `"question"` value, which was a real bug the M4 repair found
 (a shiny catch was indistinguishable from an ordinary question-resolved catch
-by origin alone, and also incorrectly set `got_via_question`, which the
+by origin alone).
+
+**M4.1 correction.** This section previously went on to say that the distinct
+origin also meant a shiny catch must *not* set `got_via_question`, "which the
 source's `doShinyNode` never does -- it never calls
-`catchPokemon`/`recordMonOrigin` at all).
+`catchPokemon`/`recordMonOrigin` at all". The second half of that is **false**
+against the current source, and the port acted on it. `doShinyNode`'s
+accept-with-room branch does not call `catchPokemon`, but it *inlines* an
+equivalent body that includes a bare `recordMonOrigin(B)` at 80967 -- and `B`
+is still the **QUESTION**-typed node, because `onNodeClick` dispatches on the
+resolved type (`case "shiny"`, 77384) without rebinding `B`. So the source
+does set `gotViaQuestion` on a shiny accept.
+
+`"shiny_node"` is therefore a **projection discriminator only** -- it decides
+`shiny-screen` vs `catch-screen`, not the `recordMonOrigin` outcome, and
+`_try_add_to_team` now treats it exactly like `"question"` for the origin
+flags. The error survived M4 because all five shiny resolutions in that
+matrix were declines, and `#btn-skip-shiny` (80984-80989) genuinely does skip
+`recordMonOrigin`; routing `story_gen1_shiny_accept` exposed it at once as
+`counters.got_via_question` js=true / py=false.
 
 The remaining unmapped phases are unmapped **on purpose**, because their
 source counterparts are overlays that never call `showScreen` at all and so

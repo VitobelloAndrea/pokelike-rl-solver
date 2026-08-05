@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "scenario": "story_gen4_underground",
   "description": "Story/Gen4. Enters the UNDERGROUND special submap (the Gen4-only placement, bundle.deobfuscated.js:53464-53474) and LOSES to the submap boss, so submap entry, submap generation/topology and the saved locked parent are all observed on a route that never returns. Re-derived UNALIGNED for M4 by search_route.py --target submap_boss_loss --cross-runtime.",
   "mode": {
