@@ -97,14 +97,21 @@ battle fits inside a single `step()` call and needs no suspension of its own.
   `rollShiny()`, and its `tradeOfferLevel`'s level-bonus term (used as `+0`
   here). See `docs/logic-notes-nodes.md` sections 8-9.
 
-Deliberately NOT replicated (per CLAUDE.md's "js/ui.js is reference-only"
-and `battle_loop.py`'s own precedent): the JS's per-turn `log`/`detailedLog`
-event arrays. `RunState.log` is this module's OWN event representation (one
-entry per node visit / evolution / badge / victory), coarser than a
-mainline-style turn-by-turn battle log because `battle_loop.run_battle`
-itself doesn't expose one (see that module's docstring) -- `render/` shows
-before/after team snapshots per battle, not blow-by-blow turns, until a
-future session adds an optional event-callback to `battle_loop.run_battle`.
+Deliberately NOT replicated (per CLAUDE.md's "js/ui.js is reference-only"):
+the JS's per-turn `log`/`detailedLog` event arrays in full, including all
+their flavor text. `RunState.log` remains this module's OWN coarse event
+representation (one entry per node visit / evolution / badge / victory).
+
+**R1 changed the battle half of that.** A battle still resolves atomically
+inside one `step()`, but it is no longer opaque: `_run_battle` now carries
+`battle_loop`'s ordered `battle_events`/`status_events` streams out to
+`RunState.last_battle`, so a renderer can replay the fight turn by turn
+rather than diffing a before/after snapshot. The streams are the SAME
+objects the route oracle compares -- `battle_loop` is the single producer,
+the oracle owns the record shape, and the renderer reads through its own
+projection in `pokelike/render/contract.py`. See `RunState.last_battle` and
+docs/renderer-contract.md. What is still absent is the source's flavor text
+and any event for the non-battle parts of a node visit.
 """
 
 from __future__ import annotations
@@ -431,6 +438,27 @@ class RunState:
     won: bool = False
 
     log: list = field(default_factory=list)  # this module's own event log, see module docstring
+
+    # R1 renderer contract. The MOST RECENT battle's raw event streams, carried
+    # out of `battle_loop.run_battle` verbatim so a renderer can replay the
+    # fight turn by turn instead of seeing only the coarse before/after
+    # snapshot the module docstring describes. Replaced (never appended to) by
+    # each `_run_battle`, so this stays bounded at one battle -- `search_route`
+    # deep-copies `RunState` per explored branch and an accumulating log would
+    # make that cost grow without limit.
+    #
+    # `battle_loop` is the SINGLE producer; the shape of the records inside is
+    # owned by the route oracle (they are what `run_scenario._fold_turns`
+    # projects into the compared `turns` field, SCHEMA.md). Nothing here may
+    # add a field to a record. The renderer's own projection lives in
+    # `pokelike/render/contract.py` and reshapes/enriches on the read side --
+    # see docs/renderer-contract.md section "Battle feed ownership".
+    #
+    # Purely additive and behavior-neutral: written once, after `run_battle`
+    # has already returned, read by nobody in this module, and no control flow
+    # or RNG draw depends on it.
+    last_battle: Optional[dict] = None  # {"battle_events", "status_events", "rounds", "player_won"}
+
     _todo: list = field(default_factory=list)  # resumable post-battle work queue, see _run_todo
 
 
@@ -1403,6 +1431,15 @@ def _run_battle(state: RunState, enemy_team: Sequence[Combatant]) -> BattleResul
         traits_config=traits_config,
         battle_config=BattleConfig(),
     )
+    # R1: carry the streams out to the renderer. Shallow-copies each record so
+    # a later mutation of `result` cannot alias into the snapshot. No RNG, no
+    # control flow -- see `RunState.last_battle`.
+    state.last_battle = {
+        "battle_events": [dict(e) for e in result.battle_events],
+        "status_events": [dict(e) for e in result.status_events],
+        "rounds": result.rounds,
+        "player_won": bool(result.player_won),
+    }
     # CODEX P0.7: the immediate Gen3 Pickup branch runs BEFORE copy-back in
     # the source (bundle.deobfuscated.js:81223-81245 precedes 81278-81318),
     # reading `state.team` pre-battle -- matched here for exact `rng()` draw

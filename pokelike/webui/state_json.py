@@ -1,116 +1,34 @@
-"""RunState <-> JSON conversion for the web UI. Pure encoding/decoding, no
-engine calls -- mirrors `pokelike.render.console`'s role but produces JSON
-for `app.js` instead of formatted text. Keeping this separate from
-`server.py` makes it independently testable without spinning up an HTTP
-server.
+"""RunState <-> JSON conversion for the web UI.
+
+**The encode half is now a thin adapter over `pokelike.render.contract`**
+(R1). It used to own its own field selection, which made it a second,
+undocumented contract that drifted from `pokelike/render/console.py`'s -- the
+two disagreed about what a Pokemon's "status" is, among other things. The
+renderer observation/event contract is now defined in exactly one place and
+both renderers project from it; see docs/renderer-contract.md.
+
+The decode half below is unchanged and stays here: turning an HTTP request
+body into an `engine.Action` is a web-transport concern, not part of the
+observation contract, and `render/console.py` has no use for it.
 """
 
 from __future__ import annotations
 
-from typing import Optional
-
 from pokelike import engine
-from pokelike.battle import Combatant
-
-
-def _mon_json(mon: Combatant) -> dict:
-    return {
-        "species_id": mon.species_id,
-        "name": mon.name,
-        "level": mon.level,
-        "current_hp": mon.current_hp,
-        "max_hp": mon.max_hp,
-        "hp_pct": round(100.0 * mon.current_hp / mon.max_hp, 1) if mon.max_hp else 0.0,
-        "status": mon.status,
-        "is_shiny": mon.is_shiny,
-        "types": list(mon.types),
-        "held_item": mon.held_item.id if mon.held_item is not None else None,
-        "move_tier": mon.move_tier,
-    }
-
-
-def _node_json(node) -> dict:
-    return {
-        "id": node.id,
-        "type": node.type,
-        "layer": node.layer,
-        "col": node.col,
-        "visited": node.visited,
-        "accessible": node.accessible,
-        "revealed": node.revealed,
-    }
-
-
-def _pending_json(pending: Optional["engine.PendingChoice"]) -> Optional[dict]:
-    if pending is None:
-        return None
-    return {
-        "phase": pending.phase.value,
-        "optional": pending.optional,
-        "options": pending.options,  # already plain dicts of primitives, see engine.PendingChoice's docstring
-    }
-
-
-def _resolved_question_marks(state: engine.RunState) -> dict:
-    """`{node_id: resolved_type}` for the question nodes on the map being
-    drawn, which is the shape `app.js`'s `nodeSymbol` looks up.
-
-    The source keeps ONE `{key, resolvedType}` record, not a map -- a second
-    question node overwrites the first (bundle.deobfuscated.js:77326-77332)
-    -- and `RunState` models that single slot as `saved_question_resolve`
-    (M4.2), so this holds at most one entry.
-
-    The record's key is map-qualified (`"m<currentMap>:<nodeId>"`, CODEX.md
-    issue 9) while `nodeSymbol` indexes by BARE node id, so the prefix is
-    stripped here and a record belonging to another map contributes nothing.
-    The former `dict(state.question_cache)` passed the qualified keys through
-    unchanged, so this lookup never matched and a resolved question mark was
-    always drawn as `?`; that mismatch predates M4.2 and is renderer-track
-    (R2) behavior, noted rather than expanded on here.
-    """
-    record = state.saved_question_resolve
-    if not record:
-        return {}
-    prefix = f"m{state.current_map}:"
-    key = record.get("key") or ""
-    if not key.startswith(prefix):
-        return {}
-    return {key[len(prefix):]: record["resolved_type"]}
+from pokelike.render import contract
 
 
 def encode_state(state: engine.RunState, *, recent_log: int = 5) -> dict:
     """The full state a browser client needs to render every core-loop
     screen. `recent_log` trims `state.log` to its trailing N entries (the
     UI only ever needs to react to what just happened, not the whole run's
-    history)."""
-    map_json = None
-    if state.map is not None:
-        map_json = {
-            "map_index": state.map.map_index,
-            "current_node_id": state.current_node_id,
-            "nodes": [_node_json(n) for n in state.map.nodes.values()],
-            "edges": [list(e) for e in state.map.edges],
-            "question_cache": _resolved_question_marks(state),
-        }
-    return {
-        "phase": state.phase.value,
-        "current_map": state.current_map,
-        "badges": state.badges,
-        "elite_index": state.elite_index,
-        "nuzlocke_mode": state.nuzlocke_mode,
-        "gen2_mode": state.gen2_mode,
-        "gen3_mode": state.gen3_mode,
-        "gen4_mode": state.gen4_mode,
-        "team": [_mon_json(m) for m in state.team],
-        "items": list(state.items),
-        "map": map_json,
-        "pending": _pending_json(state.pending),
-        "log": state.log[-recent_log:],
-        "log_total": len(state.log),  # monotonic counter -- lets a client detect "new" log entries across trimmed responses
-        "game_over": state.game_over,
-        "won": state.won,
-        "run_seed": state.run_seed,
-    }
+    history).
+
+    A strict SUPERSET of what this emitted before R1: every previously-emitted
+    key survives with the same name and type, so an existing `app.js` keeps
+    working unchanged. See `contract.OBSERVATION_FIELDS`.
+    """
+    return contract.observation(state, recent_log=recent_log)
 
 
 class ActionDecodeError(ValueError):

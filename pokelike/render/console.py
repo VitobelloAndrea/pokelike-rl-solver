@@ -10,6 +10,7 @@ this baseline is validated -- CLAUDE.md asks to start simple here.
 from __future__ import annotations
 
 from pokelike import engine, map_gen
+from pokelike.render import contract
 
 _NODE_SYMBOLS = {
     map_gen.START: "0",
@@ -40,18 +41,42 @@ def hp_bar(fraction: float, width: int = 20) -> str:
     return "[" + "#" * filled + "-" * (width - filled) + "]"
 
 
+def _status_text(flags: dict) -> str:
+    """Every status the engine actually tracks, not just `Combatant.status`.
+
+    R1: this used to print `mon.status` alone, which only ever holds
+    "freeze"/"sleep"/None -- burn, paralysis and poison live in three separate
+    fields, so a burned Pokemon rendered as perfectly healthy. The contract's
+    `status_flags` carries all four; this shows all four.
+    """
+    parts = []
+    if flags["sleep_or_freeze"]:
+        parts.append(flags["sleep_or_freeze"])
+    if flags["burned"]:
+        parts.append("burn")
+    if flags["paralyzed"]:
+        parts.append("par")
+    if flags["poison_stacks"]:
+        parts.append(f"psn x{flags['poison_stacks']}")
+    return f" [{', '.join(parts)}]" if parts else ""
+
+
 def render_team(state: engine.RunState) -> str:
+    """Projects through `render.contract`, the single renderer contract, so
+    this and the browser client cannot drift about what a team member is.
+    """
     if not state.team:
         return "  (no team)"
     lines = []
     for i, mon in enumerate(state.team):
-        frac = (mon.current_hp / mon.max_hp) if mon.max_hp else 0.0
-        shiny = " (shiny)" if mon.is_shiny else ""
-        held = f" @{mon.held_item.id}" if mon.held_item is not None else ""
-        status = f" [{mon.status}]" if mon.status else ""
+        view = contract.mon_view(mon)
+        frac = (view["current_hp"] / view["max_hp"]) if view["max_hp"] else 0.0
+        shiny = " (shiny)" if view["is_shiny"] else ""
+        held = f" @{view['held_item']}" if view["held_item"] is not None else ""
         lines.append(
-            f"  {i}. {mon.name} Lv{mon.level}{shiny}{held}{status}  "
-            f"{hp_bar(frac)} {mon.current_hp}/{mon.max_hp}"
+            f"  {i}. {view['name']} Lv{view['level']}{shiny}{held}"
+            f"{_status_text(view['status_flags'])}  "
+            f"{hp_bar(frac)} {view['current_hp']}/{view['max_hp']}"
         )
     return "\n".join(lines)
 
