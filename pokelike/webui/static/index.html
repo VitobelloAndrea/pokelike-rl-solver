@@ -18,6 +18,40 @@
     screen rather than dedicated full screens -- built here as screens for
     simplicity, reusing the same .screen/.screen-intro/.poke-card conventions).
   -->
+  <!--
+    R4. main.css is copied VERBATIM from the site and stays that way, so the
+    few classes this client needs that the site's stylesheet does not define
+    live here instead of being edited into it.
+
+    The battle log is exactly such a case, and for a traceable reason: the
+    source builds every one of these log strings
+    (bundle.deobfuscated.js:69306-69320) but never displays them -- its log
+    container is `const B2V = null` (69084) and its appender returns
+    immediately (69103). The pane is dead code there, so main.css never needed
+    a `.log-entry` rule and does not have one. This client shows the lines (see
+    app.js's renderBattle), so it supplies the styling. The log-player /
+    log-enemy / log-faint / log-item class NAMES are still the source's own.
+  -->
+  <style>
+    .battle-log {
+      max-height: 9.5em;
+      overflow-y: auto;
+      margin: 0.5em auto 0;
+      padding: 0.35em 0.6em;
+      max-width: 46em;
+      text-align: left;
+      font-size: 0.82em;
+      line-height: 1.45;
+      background: rgba(0, 0, 0, 0.35);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 6px;
+    }
+    .battle-log .log-entry { margin: 0.1em 0; }
+    .battle-log .log-player { color: #7ee081; }
+    .battle-log .log-enemy  { color: #f0908c; }
+    .battle-log .log-faint  { color: #c8a6ff; font-weight: 600; }
+    .battle-log .log-item   { color: #e7d67a; }
+  </style>
 </head>
 <body>
 
@@ -71,6 +105,10 @@
   </div>
   <div id="map-container"></div>
 </div>
+<!-- R2: the source's own hover tooltip element (`_mapTooltip`,
+     bundle.deobfuscated.js:54026-54051). The stylesheet already carried
+     #map-node-tooltip; only the element was missing. -->
+<div id="map-node-tooltip"></div>
 
 <!-- ===== BATTLE SCREEN (pre/post snapshot, not animated -- see webui docstring) ===== -->
 <div id="battle-screen" class="screen">
@@ -90,6 +128,9 @@
       </div>
     </div>
   </div>
+  <!-- R4: the turn-by-turn replay's log pane. See the style block in <head>
+       for why this markup is here and its styling is not in main.css. -->
+  <div id="battle-log" class="battle-log"></div>
   <div class="battle-controls">
     <button id="btn-continue-battle" class="btn-primary btn-md">Continue</button>
   </div>
@@ -117,12 +158,54 @@
 </div>
 
 <!-- ===== ITEM EQUIP SCREEN (new -- see file header) ===== -->
+<!-- R3: the source's equip overlay offers THREE affordances, not two
+     (bundle.deobfuscated.js:79535-79569): a per-member equip button,
+     #btn-equip-to-bag which banks the item and advances, and
+     #btn-equip-cancel whose whole body is `overlay.remove()` -- no equip, no
+     bank, no advance. M5 modelled that third exit as SelectOption(cancel=True)
+     in the engine, but no browser control ever sent it. Both buttons below. -->
 <div id="item-equip-screen" class="screen">
   <header class="screen-intro">
     <h2>Equip Item</h2>
     <p id="item-equip-desc" class="screen-desc"></p>
   </header>
   <div id="item-equip-choices"></div>
+  <div style="text-align:center;margin-top:12px;">
+    <button id="btn-equip-to-bag" class="btn-secondary btn-md">Keep in Bag</button>
+    <button id="btn-equip-cancel" class="btn-secondary btn-md">Cancel</button>
+  </div>
+</div>
+
+<!-- ===== REWARD TEAM PICK SCREEN (R3) =====
+     Port of showTeamPickerModal (bundle.deobfuscated.js:76845-76884), used by
+     doSubMapReward's "sacrifice" (77021-77037) and "stat10" (77040-77060)
+     branches. Title and description come from pending.context -- the two
+     branches show the SAME team list and mean opposite things, so the text is
+     the only thing distinguishing "release this one" from "buff this one".
+     No cancel button: the source's modal has only per-member handlers. -->
+<div id="reward-pick-screen" class="screen">
+  <header class="screen-intro">
+    <h2 id="reward-pick-title">Choose a Pokemon</h2>
+    <p id="reward-pick-desc" class="screen-desc"></p>
+  </header>
+  <div id="reward-pick-choices"></div>
+</div>
+
+<!-- ===== ESCAPE ROPE SCREEN (R3) =====
+     The source has no dedicated screen: runBattleScreen's loss branch injects
+     a "Use Escape Rope" button beside #btn-continue-battle
+     (bundle.deobfuscated.js:81399-81424). Declining is the ordinary
+     "Continue..." that ends the run. Modelled here as its own screen because
+     the port raises a real Phase for it. -->
+<div id="escape-rope-screen" class="screen">
+  <header class="screen-intro">
+    <h2 id="escape-rope-title">Defeat...</h2>
+    <p id="escape-rope-desc" class="screen-desc"></p>
+  </header>
+  <div id="escape-rope-choices"></div>
+  <div style="text-align:center;margin-top:12px;">
+    <button id="btn-decline-rope" class="btn-secondary btn-md">Continue...</button>
+  </div>
 </div>
 
 <!-- ===== MOVE TUTOR SCREEN (new -- see file header) ===== -->

@@ -15,21 +15,37 @@ are NOT modeled here since there's no corresponding data/logic in
 `engine.py` to back them -- building UI-only mockups for those would be
 misleading, not "start simple."
 
-Known, deliberate gaps (flag rather than silently fake):
-- `battle_loop.run_battle` resolves an entire multi-round battle
-  synchronously and doesn't expose a per-turn event feed (see that
-  module's and `engine.py`'s own docstrings) -- the battle screen here
-  shows the pre-battle matchup, then the final result, NOT an animated
-  turn-by-turn exchange like the real site's battle screen. Adding a
-  real per-turn callback to `battle_loop.run_battle` would be the
-  prerequisite for that, and is flagged as follow-up work, not attempted
-  here.
-- The map's node LAYOUT (pixel positions) is this module's own simple
-  per-layer grid, not a port of the source's actual positioning algorithm
-  (untraced, lives in the obfuscated `map.js`-equivalent bundle code) --
-  it reuses the real CSS classes/SVG structure (`g.map-node`,
-  `--node-tx`/`--node-ty`) but computes its own coordinates from
-  `map_gen`'s layer/col indices.
+Battle presentation (R4 -- this was previously listed here as a known gap,
+and the description had been false since R1):
+- The battle screen replays the fight turn by turn, off
+  `render.contract.battle_view`'s `replay`. The old note claimed
+  `battle_loop.run_battle` exposed no turn-level event stream, and named
+  adding a per-turn callback as the prerequisite follow-up. Both
+  were out of date: the feed has existed since R1 (`battle_events` /
+  `status_events`, carried onto `RunState.last_battle` by
+  `engine._run_battle`) and gained its rosters in R2/N2. Nothing was ever
+  missing from the engine side; the renderers simply did not read it.
+- Synchronous resolution was not the obstacle either -- it is the source's
+  own model. `runBattleScreen` resolves the whole battle first
+  (bundle.deobfuscated.js:81208-81222), then replays the finished log
+  through `animateBattleVisually` (81272). The replay here follows that
+  shape: a client-side drain of an already-fixed sequence, touching no
+  engine state and no `Engine.step` timing.
+- What IS genuinely approximated, and is documented as such in
+  docs/renderer-contract.md section 11: the browser-native half. The
+  source's per-move particle canvases (`playAttackAnimation`, 66698+) and
+  its `requestAnimationFrame` HP tween (65035-65064) are per-frame
+  rendering, not portable algorithms.
+- The map's node LAYOUT (pixel positions) IS a port, as of R2 -- this
+  bullet said the opposite until R5 and had been false since R2. The
+  source's positioning is not CSS the browser computes and not
+  untraceable: it is plain JS grid arithmetic inside `renderMap`
+  (bundle.deobfuscated.js:54126-54142) written into an SVG `transform`,
+  and `pokelike/render/contract.py` now computes exactly that. What stays
+  browser-side is only turning the resulting viewport-free fractions into
+  pixels against the live container, the way the source does from its own
+  `clientWidth`/`clientHeight` (54113-54114). The real CSS classes/SVG
+  structure (`g.map-node`, `--node-tx`/`--node-ty`) are reused as before.
 - Pokemon sprites are a locally-cached copy of a public fan-sprite set
   (NOT pokelike.xyz's own hosted images, which aren't in this local
   mirror beyond one sample file) -- see `tools/fetch-sprites/` for the

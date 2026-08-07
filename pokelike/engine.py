@@ -457,7 +457,14 @@ class RunState:
     # Purely additive and behavior-neutral: written once, after `run_battle`
     # has already returned, read by nobody in this module, and no control flow
     # or RNG draw depends on it.
-    last_battle: Optional[dict] = None  # {"battle_events", "status_events", "rounds", "player_won"}
+    #
+    # R2/N2: `player_team`/`enemy_team` are carried too. An `attack` record
+    # identifies its participants by `side` + index only (correctly -- the
+    # oracle compares the rosters separately), so without them a replay can
+    # report HP deltas but cannot name, sprite or HP-scale either combatant.
+    # These are the post-battle `BattleResult` rosters, i.e. the same objects
+    # `_copy_back_battle_result` reads.
+    last_battle: Optional[dict] = None  # {"battle_events", "status_events", "rounds", "player_won", "player_team", "enemy_team", "player_team_start", "enemy_team_start"}
 
     _todo: list = field(default_factory=list)  # resumable post-battle work queue, see _run_todo
 
@@ -1434,11 +1441,30 @@ def _run_battle(state: RunState, enemy_team: Sequence[Combatant]) -> BattleResul
     # R1: carry the streams out to the renderer. Shallow-copies each record so
     # a later mutation of `result` cannot alias into the snapshot. No RNG, no
     # control flow -- see `RunState.last_battle`.
+    # R2/N2: the two rosters travel with the streams. `list(...)` snapshots the
+    # sequence, not the `Combatant`s -- `_copy_back_battle_result` below reads
+    # the same objects, so a renderer sees the post-battle state, which is what
+    # a replay's final frame needs. Still no RNG, no control flow.
+    # R4: the PRE-battle rosters travel alongside the post-battle ones. The
+    # source's animation is seeded from both -- `animateBattleVisually` builds
+    # its HP trackers from the pre-battle clones it is handed
+    # (bundle.deobfuscated.js:69086-69092, called at 81272 with `BcV`/`BcT`,
+    # both pre-battle), and only after the replay finishes does
+    # `renderBattleField(Bch, BcL)` (81278) draw the post-battle teams. A
+    # replay that only has the post-battle HP cannot draw the FIRST frame.
+    # `run_battle` clones its two arguments before touching anything
+    # (battle_loop.py:289-290), so `player_clone`/`enemy_team` still hold
+    # pre-battle HP here -- this is a pure read, no RNG and no control flow,
+    # exactly like the two lines above it.
     state.last_battle = {
         "battle_events": [dict(e) for e in result.battle_events],
         "status_events": [dict(e) for e in result.status_events],
         "rounds": result.rounds,
         "player_won": bool(result.player_won),
+        "player_team": list(result.player_team),
+        "enemy_team": list(result.enemy_team),
+        "player_team_start": list(player_clone),
+        "enemy_team_start": list(enemy_team),
     }
     # CODEX P0.7: the immediate Gen3 Pickup branch runs BEFORE copy-back in
     # the source (bundle.deobfuscated.js:81223-81245 precedes 81278-81318),

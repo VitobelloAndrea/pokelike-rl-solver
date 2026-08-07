@@ -1151,3 +1151,30 @@ def get_deoxys_forms() -> dict[str, "BaseStats"]:
     bundle.deobfuscated.js:57049-57081)."""
     raw = _load_json("deoxys_forms.json")
     return {form: BaseStats.from_json(d) for form, d in raw.items()}
+
+
+# ---------------------------------------------------------------------------
+# Map-node presentation (R2). The tables `getNodeSprite`
+# (bundle.deobfuscated.js:53944-54025) and `getNodeLabel` (54686-54824) read
+# to decide a node's sprite path and hover text. Extracted verbatim by
+# `tools/extract-data/extract-node-presentation.js`; see
+# `pokelike/render/contract.py` for the port that consumes them.
+#
+# These are presentation-only: nothing in `engine.py`, `battle.py` or
+# `map_gen.py` reads them, and no gameplay decision depends on them.
+# ---------------------------------------------------------------------------
+
+
+@lru_cache(maxsize=1)
+def get_node_presentation() -> dict:
+    """The raw node-presentation tables, by their source names.
+
+    Keys: `SPRITE_FILE`, `GEN2_SPRITE_FILENAME`, `GEN3_SPRITE_FILENAME`,
+    `GEN4_SPRITE_FILENAME` (the four maps `getTrainerSpritePath` consults,
+    bundle.deobfuscated.js:53774-53791); `TRAINER_SPRITE_NAMES` (53792-53826)
+    and the four `TRAINER_SPECIALTIES*` maps (53827-53889) that build a
+    TRAINER node's hover text; the per-generation gym-leader sprite arrays
+    and `SINNOH_CHAMPION_SPRITE` (53893-53943); and the three
+    `*_TRAINER_KEYS` lists (53711-53773) for cross-checking.
+    """
+    return _load_json("node_presentation.json")

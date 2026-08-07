@@ -69,7 +69,21 @@ def decode_action(payload: dict) -> "engine.Action":
         return engine.AdvanceMap()
     if kind == "SelectOption":
         index = payload.get("index", None)
-        return engine.SelectOption(index=None if index is None else _to_int(index, "index"))
+        # R3: `cancel` is `SelectOption`'s THIRD exit, not a synonym for a skip
+        # -- see `engine.SelectOption`'s docstring and M5's `#btn-equip-cancel`
+        # finding (bundle.deobfuscated.js:79563-79569). It was unreachable from
+        # this transport before R3: the key was silently dropped here, so the
+        # browser's only way to leave the equip overlay was `index=None`, which
+        # BANKS the item -- exactly the divergence M5 proved the engine apart
+        # from. Rejected as a non-boolean rather than coerced, for the same
+        # reason `_to_bool` exists in server.py (CODEX.md issue 47).
+        cancel = payload.get("cancel", False)
+        if not isinstance(cancel, bool):
+            raise ActionDecodeError(f"'cancel' must be a boolean, got {cancel!r}")
+        return engine.SelectOption(
+            index=None if index is None else _to_int(index, "index"),
+            cancel=cancel,
+        )
     if kind == "ReorderTeam":
         order = payload.get("order")
         if not isinstance(order, list) or not order:
