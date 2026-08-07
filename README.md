@@ -17,6 +17,7 @@ still absent or approximate. Do not use the Python engine as a general oracle
 for claims about the original game beyond behavior covered by the JavaScript
 comparison fixtures.
 
+
 ## Repository layout
 
 - `pokelike/` — deterministic Python engine, battle logic, data, tests,
