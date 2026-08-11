@@ -1,9 +1,9 @@
 .claude*
 internal_docs*
 docs/archive*
-docs/audits*
-docs/prompts*
-docs/reference*
+docs/audits
+docs/prompts
+docs/reference
 CLAUDE.md
 CODEX.md
 PLAN.md
