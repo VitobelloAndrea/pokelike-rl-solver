@@ -1,0 +1,30 @@
+{
+  "description": "P0.3: dragon_first_double's extra attack itself finishes off a target that survived the main hit (main hit deals 27, leaving 1 HP; the extra full-power hit deals 24 and is the actual killing blow) -- the natural post-chain faint dispatch (onKO/onFaint/send-out) must fire off the EXTRA hit's HP change. Gen1 so ability_config/traits_config are both null -- isolates extra-attack faint timing from hook re-entry (see dragon_first_double_merged.json for the hook-bearing case).",
+  "gen": 1,
+  "passives": ["dragon_first_double"],
+  "seed": 3304,
+  "player_team": [
+    {
+      "species_id": 147,
+      "name": "Dratini",
+      "level": 20,
+      "types": ["Dragon"],
+      "base_stats": {"hp": 41, "atk": 64, "def": 45, "speed": 50, "special": 50, "spdef": 50},
+      "move_tier": 1,
+      "max_hp": 200,
+      "current_hp": 200
+    }
+  ],
+  "enemy_team": [
+    {
+      "species_id": 213,
+      "name": "Shuckle",
+      "level": 5,
+      "types": ["Bug", "Rock"],
+      "base_stats": {"hp": 20, "atk": 10, "def": 230, "speed": 5, "special": 10, "spdef": 230},
+      "move_tier": 1,
+      "max_hp": 200,
+      "current_hp": 28
+    }
+  ]
+}

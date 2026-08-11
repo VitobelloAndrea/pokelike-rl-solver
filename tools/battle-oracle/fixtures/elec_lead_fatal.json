@@ -1,0 +1,39 @@
+{
+  "description": "elec_lead's fatal case (bundle.deobfuscated.js:61245-61290): all four consequences of the extra hit's kill are independent comma-expressions in the source, not an if/else -- a fatal hit still calls afterAttack (elec_chain grants Pikachu +1 speed despite the kill, unlike fairy_opening_volley's ternary which SKIPS afterAttack entirely on a fatal hit, see fairy_opening_volley_multi.json) AND calls traits_config.onKO (poison_pass halves Rattata's 4 poison stacks -- floor(4/2)=2 -- onto the still-alive Spearow) via `this.onKO`, never ability_config.on_ko/on_faint (traits_config has no onFaint method at all; the source never references one here). Rattata's current_hp=1 guarantees the opening hit is fatal regardless of the exact damage roll.",
+  "gen": 3,
+  "passives": ["elec_lead", "elec_chain", "poison_pass"],
+  "seed": 9002,
+  "player_team": [
+    {
+      "species_id": 25,
+      "name": "Pikachu",
+      "level": 20,
+      "types": ["Electric"],
+      "base_stats": {"hp": 35, "atk": 55, "def": 40, "speed": 90, "special": 50, "spdef": 50},
+      "move_tier": 1
+    }
+  ],
+  "enemy_team": [
+    {
+      "species_id": 19,
+      "name": "Rattata",
+      "level": 20,
+      "types": ["Normal"],
+      "base_stats": {"hp": 30, "atk": 56, "def": 35, "speed": 72, "special": 25, "spdef": 35},
+      "move_tier": 1,
+      "max_hp": 100,
+      "current_hp": 1,
+      "poison_stacks": 4
+    },
+    {
+      "species_id": 21,
+      "name": "Spearow",
+      "level": 20,
+      "types": ["Normal", "Flying"],
+      "base_stats": {"hp": 40, "atk": 60, "def": 30, "speed": 70, "special": 31, "spdef": 31},
+      "move_tier": 1,
+      "max_hp": 200,
+      "current_hp": 200
+    }
+  ]
+}

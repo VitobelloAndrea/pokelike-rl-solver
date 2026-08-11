@@ -1,0 +1,217 @@
+{
+  "schema_version": 2,
+  "scenario": "story_gen4_held_item_handoff",
+  "description": "M6. Extends story_gen4_legendary_accept's verified 46-action route, which ends with a two-member team whose slot 0 holds charcoal and a three-item bag. Equips choice_band onto slot 1 through the item bar's own overlay entry point (openItemEquipModal(item, {fromBagIdx}), bundle.deobfuscated.js:64857) so that BOTH members are holding, then hands slot 0's item off to slot 1 (the [data-idx] row at 79541-79545). That both-holding case is the one that distinguishes the hand-off from an unequip followed by an equip: the source gives the target's old item to the SOURCE member, where unequip+equip would route it to the bag. Finally unequips slot 0 (#btn-equip-to-bag with fromPokemonIdx >= 0, 79549-79553). The final action removes slot 1's item through the OTHER spelling of the same exit -- the holder row's own [data-unequip] button (79521-79531), which the M6 brief cites -- so the scenario proves both spellings land on the same engine action on both runtimes.",
+  "mode": {
+    "nuzlocke": false,
+    "gen2": false,
+    "gen3": false,
+    "gen4": true
+  },
+  "seed": 3,
+  "starter_index": 1,
+  "actions": [
+    {
+      "kind": "visit",
+      "node": "n1_1"
+    },
+    {
+      "kind": "visit",
+      "node": "n2_2"
+    },
+    {
+      "kind": "visit",
+      "node": "n3_3"
+    },
+    {
+      "kind": "visit",
+      "node": "n4_2"
+    },
+    {
+      "kind": "visit",
+      "node": "n5_3"
+    },
+    {
+      "kind": "choice",
+      "index": 0
+    },
+    {
+      "kind": "choice",
+      "index": 0
+    },
+    {
+      "kind": "visit",
+      "node": "n6_2"
+    },
+    {
+      "kind": "visit",
+      "node": "n7_1"
+    },
+    {
+      "kind": "visit",
+      "node": "n8_0"
+    },
+    {
+      "kind": "advance_map"
+    },
+    {
+      "kind": "visit",
+      "node": "n1_1"
+    },
+    {
+      "kind": "visit",
+      "node": "n2_1"
+    },
+    {
+      "kind": "visit",
+      "node": "n3_1"
+    },
+    {
+      "kind": "visit",
+      "node": "n4_0"
+    },
+    {
+      "kind": "visit",
+      "node": "n1_1"
+    },
+    {
+      "kind": "visit",
+      "node": "n2_0"
+    },
+    {
+      "kind": "visit",
+      "node": "n3_0"
+    },
+    {
+      "kind": "visit",
+      "node": "n5_0"
+    },
+    {
+      "kind": "visit",
+      "node": "n6_0"
+    },
+    {
+      "kind": "visit",
+      "node": "n7_0"
+    },
+    {
+      "kind": "visit",
+      "node": "n8_0"
+    },
+    {
+      "kind": "advance_map"
+    },
+    {
+      "kind": "visit",
+      "node": "n1_1"
+    },
+    {
+      "kind": "visit",
+      "node": "n2_2"
+    },
+    {
+      "kind": "visit",
+      "node": "n3_2"
+    },
+    {
+      "kind": "choice",
+      "index": 0
+    },
+    {
+      "kind": "choice",
+      "index": 0
+    },
+    {
+      "kind": "visit",
+      "node": "n4_2"
+    },
+    {
+      "kind": "choice",
+      "index": 0
+    },
+    {
+      "kind": "choice",
+      "index": 0
+    },
+    {
+      "kind": "visit",
+      "node": "n5_3"
+    },
+    {
+      "kind": "visit",
+      "node": "n6_2"
+    },
+    {
+      "kind": "choice",
+      "index": 0
+    },
+    {
+      "kind": "visit",
+      "node": "n7_1"
+    },
+    {
+      "kind": "visit",
+      "node": "n8_0"
+    },
+    {
+      "kind": "advance_map"
+    },
+    {
+      "kind": "visit",
+      "node": "n1_0"
+    },
+    {
+      "kind": "choice",
+      "index": null
+    },
+    {
+      "kind": "visit",
+      "node": "n2_1"
+    },
+    {
+      "kind": "visit",
+      "node": "n3_2"
+    },
+    {
+      "kind": "visit",
+      "node": "n4_1"
+    },
+    {
+      "kind": "visit",
+      "node": "n5_2"
+    },
+    {
+      "kind": "choice",
+      "index": null
+    },
+    {
+      "kind": "visit",
+      "node": "n6_2"
+    },
+    {
+      "kind": "choice",
+      "index": 0
+    },
+    {
+      "kind": "equip",
+      "bag_index": 1,
+      "member": 1
+    },
+    {
+      "kind": "held_item",
+      "member": 0,
+      "target": 1
+    },
+    {
+      "kind": "held_item",
+      "member": 0,
+      "target": null
+    },
+    {
+      "kind": "held_item",
+      "member": 1,
+      "target": null,
+      "via": "row"
+    }
+  ]
+}

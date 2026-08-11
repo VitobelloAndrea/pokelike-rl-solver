@@ -872,6 +872,20 @@
     return fired;
   }
 
+  // M6. Address a generated button by the VALUE of its data attribute rather
+  // than by its position in the `querySelectorAll` result. The item-equip
+  // overlay is the case that forces this: the row for the member the overlay
+  // was opened from carries `data-unequip` instead of `data-idx`
+  // (bundle.deobfuscated.js:79490-79495), so the `[data-idx]` list has a hole
+  // in it and position != team index.
+  function byDataValue(elements, attr, value) {
+    var wanted = String(value);
+    for (var el of elements || []) {
+      if (el && el.dataset && String(el.dataset[attr]) === wanted) return el;
+    }
+    return null;
+  }
+
   function firstClickable(el, depth) {
     if (!el || (depth || 0) > 6) return null;
     if ((el.__listeners && el.__listeners.click && el.__listeners.click.length) || typeof el.onclick === 'function') return el;
@@ -1037,6 +1051,88 @@
         if (!ok) throw new Error('step ' + step + ': choice index ' + idx + ' had no handler on ' + currentScreen);
         await pump();
         checkpoint('choice_post', { index: idx, step: step });
+      } else if (act.kind === 'equip') {
+        // M6. The item-equip overlay opened FROM THE BAG. The source reaches
+        // it from an item-bar badge whose handler is
+        // `openItemEquipModal(item, { fromBagIdx: idx })`
+        // (bundle.deobfuscated.js:64857); the driver calls that same function
+        // with that same argument shape.
+        var bagIndex = act.bag_index;
+        var bagItem = state.items[bagIndex];
+        if (!bagItem) throw new Error('step ' + step + ': no bag item ' + bagIndex);
+        checkpoint('equip_pre', {
+          bag_index: bagIndex,
+          member: act.member,
+          item: bagItem.id === undefined ? null : bagItem.id,
+          step: step,
+        });
+        openItemEquipModal(bagItem, { fromBagIdx: bagIndex });
+        await pump();
+        var eqOv = detectOverlay();
+        if (!eqOv || eqOv.kind !== 'item_equip') {
+          throw new Error('step ' + step + ': bag equip overlay did not open');
+        }
+        // By `data-idx` value, not position -- see the `held_item` branch.
+        // With `fromBagIdx` no member is the "holding" one, so every member
+        // does get a `[data-idx]` button here, but addressing them by value
+        // keeps the two branches honest about the same thing.
+        if (!clickEl(byDataValue(eqOv.buttons, 'idx', act.member))) {
+          throw new Error('step ' + step + ': equip target ' + act.member + ' had no handler');
+        }
+        await pump();
+        checkpoint('equip_post', { bag_index: bagIndex, member: act.member, step: step });
+      } else if (act.kind === 'held_item') {
+        // M6. The item-equip overlay opened FROM a member. The source reaches
+        // this by clicking a held-item badge, whose handler is exactly
+        // `openItemEquipModal(mon.heldItem, { fromPokemonIdx: idx })`
+        // (bundle.deobfuscated.js:64702-64709 on the team bar, 78203 on the
+        // party screen). The driver calls that same function with that same
+        // argument shape rather than synthesizing a badge to click, for the
+        // same reason every other bridge invokes the source's real handler.
+        var member = act.member;
+        var mon = state.team[member];
+        if (!mon) throw new Error('step ' + step + ': no team member ' + member);
+        var targetIdx = (act.target === undefined || act.target === null) ? null : act.target;
+        checkpoint('held_item_pre', {
+          member: member,
+          target: targetIdx,
+          held: mon.heldItem ? mon.heldItem.id : null,
+          step: step,
+        });
+        if (!mon.heldItem) {
+          throw new Error('step ' + step + ': member ' + member + ' holds nothing');
+        }
+        openItemEquipModal(mon.heldItem, { fromPokemonIdx: member });
+        await pump();
+        var heldOv = detectOverlay();
+        if (!heldOv || heldOv.kind !== 'item_equip') {
+          throw new Error('step ' + step + ': held-item overlay did not open');
+        }
+        // Buttons are addressed BY THEIR `data-idx` VALUE, not by position.
+        // The source does not give every member a `[data-idx]` button: the row
+        // for the member the overlay was opened from renders
+        // `data-unequip="<i>"` and the label "Unequip" instead
+        // (79490-79495), so `querySelectorAll('button[data-idx]')` skips it
+        // and positional indexing would silently address the wrong member.
+        var heldOk;
+        if (targetIdx !== null) {
+          // The hand-off row (79541-79545).
+          heldOk = clickEl(byDataValue(heldOv.buttons, 'idx', targetIdx));
+        } else if (act.via === 'row') {
+          // The holder's OWN row, `[data-unequip]` (79521-79531) -- the other
+          // spelling of held-item removal, and the one the M6 brief cites.
+          var unequipButtons = Array.prototype.slice.call(
+            heldOv.el.querySelectorAll('[data-unequip]'));
+          heldOk = clickEl(byDataValue(unequipButtons, 'unequip', member));
+        } else {
+          // `#btn-equip-to-bag` with `fromPokemonIdx >= 0` (79549-79553).
+          heldOk = clickEl(heldOv.skip);
+        }
+        if (!heldOk) {
+          throw new Error('step ' + step + ': held-item target ' + targetIdx + ' had no handler');
+        }
+        await pump();
+        checkpoint('held_item_post', { member: member, target: targetIdx, step: step });
       } else if (act.kind === 'advance_map') {
         checkpoint('map_transition_pre', { from_map: state.currentMap, step: step });
         if (currentScreen !== 'badge-screen') {

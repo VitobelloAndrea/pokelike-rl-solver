@@ -1,0 +1,650 @@
+{
+  "Normal": {
+    "physical": [
+      {
+        "name": "Tackle",
+        "power": 40,
+        "desc": "Charges the foe with a full-body tackle."
+      },
+      {
+        "name": "Body Slam",
+        "power": 85,
+        "desc": "Slams the foe with the full weight of the body."
+      },
+      {
+        "name": "Giga Impact",
+        "power": 150,
+        "desc": "Charges the foe using every bit of its power."
+      }
+    ],
+    "special": [
+      {
+        "name": "Swift",
+        "power": 60,
+        "desc": "Star-shaped rays that never miss the target."
+      },
+      {
+        "name": "Hyper Voice",
+        "power": 90,
+        "desc": "Emits a piercing cry to strike the foe."
+      },
+      {
+        "name": "Boomburst",
+        "power": 140,
+        "desc": "Attacks everything with a destructive sound wave."
+      }
+    ]
+  },
+  "Fire": {
+    "physical": [
+      {
+        "name": "Flame Charge",
+        "power": 60,
+        "desc": "A small flame scorches the foe."
+      },
+      {
+        "name": "Fire Punch",
+        "power": 75,
+        "desc": "An incandescent punch that sears the foe."
+      },
+      {
+        "name": "Flare Blitz",
+        "power": 120,
+        "desc": "A full-force charge cloaked in searing flames."
+      }
+    ],
+    "special": [
+      {
+        "name": "Incinerate",
+        "power": 60,
+        "desc": "Scorches the foe with an intense burst of fire."
+      },
+      {
+        "name": "Flamethrower",
+        "power": 90,
+        "desc": "A scorching stream of fire engulfs the foe."
+      },
+      {
+        "name": "Fire Blast",
+        "power": 110,
+        "desc": "A fiery blast that scorches everything in its path."
+      }
+    ]
+  },
+  "Water": {
+    "physical": [
+      {
+        "name": "Aqua Jet",
+        "power": 50,
+        "desc": "Squirts water to attack the foe."
+      },
+      {
+        "name": "Waterfall",
+        "power": 80,
+        "desc": "Charges the foe with tremendous force."
+      },
+      {
+        "name": "Wave Crash",
+        "power": 110,
+        "desc": "Attacks by swinging its tail as if it were a wave."
+      }
+    ],
+    "special": [
+      {
+        "name": "Bubble",
+        "power": 50,
+        "desc": "Fires a barrage of bubbles at the foe."
+      },
+      {
+        "name": "Surf",
+        "power": 80,
+        "desc": "A giant wave crashes over the foe."
+      },
+      {
+        "name": "Hydro Pump",
+        "power": 110,
+        "desc": "Blasts the foe with a high-powered blast of water."
+      }
+    ]
+  },
+  "Electric": {
+    "physical": [
+      {
+        "name": "Spark",
+        "power": 40,
+        "desc": "An electrified tackle that crackles with voltage."
+      },
+      {
+        "name": "Thunder Punch",
+        "power": 75,
+        "desc": "An electrified punch that crackles with voltage."
+      },
+      {
+        "name": "Bolt Strike",
+        "power": 130,
+        "desc": "The user strikes the foe with a massive jolt of electricity."
+      }
+    ],
+    "special": [
+      {
+        "name": "Thunder Shock",
+        "power": 40,
+        "desc": "A jolt of electricity zaps the foe."
+      },
+      {
+        "name": "Thunderbolt",
+        "power": 90,
+        "desc": "A strong bolt of lightning strikes the foe."
+      },
+      {
+        "name": "Thunder",
+        "power": 110,
+        "desc": "A wicked thunderbolt is dropped on the foe."
+      }
+    ]
+  },
+  "Grass": {
+    "physical": [
+      {
+        "name": "Vine Whip",
+        "power": 40,
+        "desc": "Strikes the foe with slender, whiplike vines."
+      },
+      {
+        "name": "Razor Leaf",
+        "power": 65,
+        "desc": "Sharp-edged leaves slice the foe to ribbons."
+      },
+      {
+        "name": "Power Whip",
+        "power": 120,
+        "desc": "The user violently whirls its vines to strike the foe."
+      }
+    ],
+    "special": [
+      {
+        "name": "Magical Leaf",
+        "power": 40,
+        "desc": "A strange, mystical leaf that always hits the foe."
+      },
+      {
+        "name": "Energy Ball",
+        "power": 90,
+        "desc": "Draws power from nature and fires it at the foe."
+      },
+      {
+        "name": "Solar Beam",
+        "power": 120,
+        "desc": "A full-power blast of concentrated solar energy."
+      }
+    ]
+  },
+  "Ice": {
+    "physical": [
+      {
+        "name": "Ice Shard",
+        "power": 40,
+        "desc": "Blows a chilling gust of powdery snow at the foe."
+      },
+      {
+        "name": "Ice Punch",
+        "power": 75,
+        "desc": "An ice-cold punch that may freeze the foe."
+      },
+      {
+        "name": "Icicle Crash",
+        "power": 110,
+        "desc": "Large icicles crash down on the foe."
+      }
+    ],
+    "special": [
+      {
+        "name": "Icy Wind",
+        "power": 40,
+        "desc": "A chilling attack that also lowers the foe's Speed."
+      },
+      {
+        "name": "Ice Beam",
+        "power": 90,
+        "desc": "A frigid ray of ice that may freeze the foe."
+      },
+      {
+        "name": "Blizzard",
+        "power": 110,
+        "desc": "Summons a howling blizzard to strike the foe."
+      }
+    ]
+  },
+  "Fighting": {
+    "physical": [
+      {
+        "name": "Karate Chop",
+        "power": 50,
+        "desc": "A precise chopping strike to the foe."
+      },
+      {
+        "name": "Cross Chop",
+        "power": 100,
+        "desc": "Delivers a double chop with crossed forearms."
+      },
+      {
+        "name": "Close Combat",
+        "power": 120,
+        "desc": "An all-out brawl unleashing maximum power."
+      }
+    ],
+    "special": [
+      {
+        "name": "Force Palm",
+        "power": 60,
+        "desc": "Fires a shock wave from the user's palm."
+      },
+      {
+        "name": "Aura Sphere",
+        "power": 80,
+        "desc": "Focuses aura energy into a perfect, unavoidable sphere."
+      },
+      {
+        "name": "Focus Blast",
+        "power": 120,
+        "desc": "Hurls a concentrated blast of energy at the foe."
+      }
+    ]
+  },
+  "Poison": {
+    "physical": [
+      {
+        "name": "Poison Sting",
+        "power": 40,
+        "desc": "Stabs the foe with a venomous stinger."
+      },
+      {
+        "name": "Poison Jab",
+        "power": 90,
+        "desc": "Stabs the foe with a toxic spike."
+      },
+      {
+        "name": "Gunk Shot",
+        "power": 130,
+        "desc": "Hurls garbage at the foe to inflict damage."
+      }
+    ],
+    "special": [
+      {
+        "name": "Acid",
+        "power": 40,
+        "desc": "Sprays the foe with a toxic acid liquid."
+      },
+      {
+        "name": "Sludge Bomb",
+        "power": 100,
+        "desc": "Hurls unsanitary sludge at the foe."
+      },
+      {
+        "name": "Belch",
+        "power": 120,
+        "desc": "Spits fluid that corrodes and eats away at the foe."
+      }
+    ]
+  },
+  "Ground": {
+    "physical": [
+      {
+        "name": "Bulldoze",
+        "power": 55,
+        "desc": "Hurls a blob of mud at the foe."
+      },
+      {
+        "name": "Earthquake",
+        "power": 100,
+        "desc": "A massive quake shakes everything around."
+      },
+      {
+        "name": "Precipice Blades",
+        "power": 120,
+        "desc": "Controls the power of nature to attack with sharp blades."
+      }
+    ],
+    "special": [
+      {
+        "name": "Mud Shot",
+        "power": 60,
+        "desc": "Stomps down on the ground and attacks everything nearby."
+      },
+      {
+        "name": "Earth Power",
+        "power": 90,
+        "desc": "The earth erupts with force from directly below."
+      },
+      {
+        "name": "Land's Wrath",
+        "power": 110,
+        "desc": "Gathers the energy of the land and uses it to attack."
+      }
+    ]
+  },
+  "Flying": {
+    "physical": [
+      {
+        "name": "Peck",
+        "power": 50,
+        "desc": "Jabs the foe with a sharply pointed beak."
+      },
+      {
+        "name": "Aerial Ace",
+        "power": 60,
+        "desc": "An extremely fast attack that never misses."
+      },
+      {
+        "name": "Sky Attack",
+        "power": 140,
+        "desc": "A swooping high-speed attack from above."
+      }
+    ],
+    "special": [
+      {
+        "name": "Gust",
+        "power": 40,
+        "desc": "Strikes the foe with a gust of wind."
+      },
+      {
+        "name": "Air Slash",
+        "power": 75,
+        "desc": "Slashes with a blade of pressurized air."
+      },
+      {
+        "name": "Hurricane",
+        "power": 110,
+        "desc": "Whips up a hurricane to slam the foe."
+      }
+    ]
+  },
+  "Psychic": {
+    "physical": [
+      {
+        "name": "Confusion",
+        "power": 50,
+        "desc": "A telekinetic attack that may cause confusion."
+      },
+      {
+        "name": "Zen Headbutt",
+        "power": 80,
+        "desc": "Focuses willpower and charges headfirst."
+      },
+      {
+        "name": "Psystrike",
+        "power": 140,
+        "desc": "Attacks the foe at full power. Sharply lowers the user's Sp. Atk."
+      }
+    ],
+    "special": [
+      {
+        "name": "Psybeam",
+        "power": 65,
+        "desc": "Fires a peculiar ray that may leave the foe confused."
+      },
+      {
+        "name": "Psychic",
+        "power": 90,
+        "desc": "A powerful psychic force attacks the foe's mind."
+      },
+      {
+        "name": "Psycho Boost",
+        "power": 100,
+        "desc": "Materializes a peculiar psychic wave to attack the foe's physical bulk."
+      }
+    ]
+  },
+  "Bug": {
+    "physical": [
+      {
+        "name": "Bug Bite",
+        "power": 60,
+        "desc": "Bites the foe with powerful mandibles."
+      },
+      {
+        "name": "X-Scissor",
+        "power": 80,
+        "desc": "Slashes the foe with crossed, scissor-like claws."
+      },
+      {
+        "name": "Megahorn",
+        "power": 120,
+        "desc": "Using its tough and impressive horn, the user rams the foe."
+      }
+    ],
+    "special": [
+      {
+        "name": "Struggle Bug",
+        "power": 50,
+        "desc": "The user struggles against the foe with bug energy."
+      },
+      {
+        "name": "Bug Buzz",
+        "power": 90,
+        "desc": "Vibrates wings to generate a damaging buzz."
+      },
+      {
+        "name": "Pollen Puff",
+        "power": 110,
+        "desc": "Attacks the foe with an explosive pollen bomb."
+      }
+    ]
+  },
+  "Rock": {
+    "physical": [
+      {
+        "name": "Rock Throw",
+        "power": 50,
+        "desc": "Picks up and throws a small rock at the foe."
+      },
+      {
+        "name": "Rock Slide",
+        "power": 75,
+        "desc": "Large boulders are hurled at the foe."
+      },
+      {
+        "name": "Stone Edge",
+        "power": 100,
+        "desc": "Stabs the foe with a sharpened stone."
+      }
+    ],
+    "special": [
+      {
+        "name": "Ancient Power",
+        "power": 50,
+        "desc": "The user throws a stone to knock the foe down."
+      },
+      {
+        "name": "Power Gem",
+        "power": 80,
+        "desc": "Attacks with rays of light generated by gems."
+      },
+      {
+        "name": "Meteor Beam",
+        "power": 150,
+        "desc": "Hurls a large boulder at the foe with enormous force."
+      }
+    ]
+  },
+  "Ghost": {
+    "physical": [
+      {
+        "name": "Astonish",
+        "power": 40,
+        "desc": "Attacks by astonishing the foe to make it flinch."
+      },
+      {
+        "name": "Shadow Claw",
+        "power": 70,
+        "desc": "Slashes with a wicked claw made of shadows."
+      },
+      {
+        "name": "Poltergeist",
+        "power": 90,
+        "desc": "Vanishes, then strikes the foe on the next turn."
+      }
+    ],
+    "special": [
+      {
+        "name": "Lick",
+        "power": 40,
+        "desc": "Licks the foe with a long tongue to inflict damage."
+      },
+      {
+        "name": "Shadow Ball",
+        "power": 80,
+        "desc": "Hurls a blob of dark energy at the foe."
+      },
+      {
+        "name": "Astral Barrage",
+        "power": 100,
+        "desc": "Disappears, then strikes everything on the next turn."
+      }
+    ]
+  },
+  "Dragon": {
+    "physical": [
+      {
+        "name": "Twister",
+        "power": 40,
+        "desc": "Whips up a powerful twister of draconic energy."
+      },
+      {
+        "name": "Dragon Claw",
+        "power": 80,
+        "desc": "Slashes the foe with razor-sharp dragon claws."
+      },
+      {
+        "name": "Outrage",
+        "power": 120,
+        "desc": "Rampages and attacks the foe with intense dragon fury."
+      }
+    ],
+    "special": [
+      {
+        "name": "Dragon Breath",
+        "power": 60,
+        "desc": "Exhales a scorching gust of dragon energy."
+      },
+      {
+        "name": "Dragon Pulse",
+        "power": 85,
+        "desc": "Fires a shockwave of draconic energy."
+      },
+      {
+        "name": "Draco Meteor",
+        "power": 130,
+        "desc": "Comets are rained down on the foe. Sharply lowers the user's Sp. Atk."
+      }
+    ]
+  },
+  "Dark": {
+    "physical": [
+      {
+        "name": "Bite",
+        "power": 40,
+        "desc": "Bites the foe with viciously sharp fangs."
+      },
+      {
+        "name": "Crunch",
+        "power": 80,
+        "desc": "Crunches with sharp fangs. May lower the foe's Defense."
+      },
+      {
+        "name": "Knock Off",
+        "power": 120,
+        "desc": "Knocks down the foe's held item to boost damage."
+      }
+    ],
+    "special": [
+      {
+        "name": "Snarl",
+        "power": 40,
+        "desc": "Yells and snarls at the foe to lower its Sp. Atk."
+      },
+      {
+        "name": "Dark Pulse",
+        "power": 80,
+        "desc": "Fires a horrible aura of dark energy at the foe."
+      },
+      {
+        "name": "Night Daze",
+        "power": 110,
+        "desc": "Lets loose a pitch-black shockwave of dark energy."
+      }
+    ]
+  },
+  "Steel": {
+    "physical": [
+      {
+        "name": "Metal Claw",
+        "power": 50,
+        "desc": "Attacks with steel-hard claws. May raise the user's Attack."
+      },
+      {
+        "name": "Iron Tail",
+        "power": 100,
+        "desc": "Slams the foe with a hard-as-steel tail."
+      },
+      {
+        "name": "Heavy Slam",
+        "power": 130,
+        "desc": "Slams into the foe with its heavy body."
+      }
+    ],
+    "special": [
+      {
+        "name": "Steel Wing",
+        "power": 60,
+        "desc": "Strikes the foe with hard, steel-edged wings."
+      },
+      {
+        "name": "Flash Cannon",
+        "power": 90,
+        "desc": "Fires a flash of steel-type energy at the foe."
+      },
+      {
+        "name": "Doom Desire",
+        "power": 140,
+        "desc": "Stores power for two turns, then fires a concentrated bundle of light."
+      }
+    ]
+  },
+  "Fairy": {
+    "physical": [
+      {
+        "name": "Fairy Wind",
+        "power": 40,
+        "desc": "Stirs up a fairy-type breeze and attacks the foe."
+      },
+      {
+        "name": "Play Rough",
+        "power": 90,
+        "desc": "Plays rough with the foe, tossing it around wildly."
+      },
+      {
+        "name": "Spirit Break",
+        "power": 130,
+        "desc": "Attacks the foe with such force it crushes their fighting spirit."
+      }
+    ],
+    "special": [
+      {
+        "name": "Disarming Voice",
+        "power": 40,
+        "desc": "Lets out a charming cry that never misses its mark."
+      },
+      {
+        "name": "Dazzling Gleam",
+        "power": 80,
+        "desc": "Emits a powerful flash of brilliant fairy light."
+      },
+      {
+        "name": "Moonblast",
+        "power": 130,
+        "desc": "Borrows the overwhelming power of the moon to blast the foe."
+      }
+    ]
+  }
+}

@@ -1,0 +1,217 @@
+{
+  "144": {
+    "name": "Freeze-Dry",
+    "type": "Ice"
+  },
+  "145": {
+    "name": "Thunderbolt",
+    "type": "Electric"
+  },
+  "146": {
+    "name": "Heat Wave",
+    "type": "Fire"
+  },
+  "150": {
+    "name": "Psystrike",
+    "type": "Psychic"
+  },
+  "151": {
+    "name": "Psychic",
+    "type": "Psychic"
+  },
+  "243": {
+    "name": "Thunderbolt",
+    "type": "Electric"
+  },
+  "244": {
+    "name": "Flamethrower",
+    "type": "Fire"
+  },
+  "245": {
+    "name": "Hydro Pump",
+    "type": "Water"
+  },
+  "249": {
+    "name": "Aeroblast",
+    "type": "Flying"
+  },
+  "250": {
+    "name": "Sacred Fire",
+    "type": "Fire"
+  },
+  "251": {
+    "name": "Leaf Storm",
+    "type": "Grass"
+  },
+  "377": {
+    "name": "Stone Edge",
+    "type": "Rock"
+  },
+  "378": {
+    "name": "Ice Beam",
+    "type": "Ice"
+  },
+  "379": {
+    "name": "Iron Head",
+    "type": "Steel"
+  },
+  "380": {
+    "name": "Mist Ball",
+    "type": "Psychic"
+  },
+  "381": {
+    "name": "Luster Purge",
+    "type": "Psychic"
+  },
+  "382": {
+    "name": "Origin Pulse",
+    "type": "Water"
+  },
+  "383": {
+    "name": "Precipice Blades",
+    "type": "Ground"
+  },
+  "384": {
+    "name": "Dragon Ascent",
+    "type": "Flying"
+  },
+  "385": {
+    "name": "Doom Desire",
+    "type": "Steel"
+  },
+  "386": {
+    "name": "Psycho Boost",
+    "type": "Psychic"
+  },
+  "480": {
+    "name": "Extrasensory",
+    "type": "Psychic"
+  },
+  "481": {
+    "name": "Extrasensory",
+    "type": "Psychic"
+  },
+  "482": {
+    "name": "Psycho Cut",
+    "type": "Psychic"
+  },
+  "483": {
+    "name": "Roar of Time",
+    "type": "Dragon"
+  },
+  "484": {
+    "name": "Spacial Rend",
+    "type": "Dragon"
+  },
+  "485": {
+    "name": "Magma Storm",
+    "type": "Fire"
+  },
+  "486": {
+    "name": "Crush Grip",
+    "type": "Normal"
+  },
+  "487": {
+    "name": "Shadow Force",
+    "type": "Ghost"
+  },
+  "488": {
+    "name": "Psycho Cut",
+    "type": "Psychic"
+  },
+  "489": {
+    "name": "Surf",
+    "type": "Water"
+  },
+  "490": {
+    "name": "Surf",
+    "type": "Water"
+  },
+  "491": {
+    "name": "Dark Void",
+    "type": "Dark"
+  },
+  "492": {
+    "name": "Seed Flare",
+    "type": "Grass"
+  },
+  "493": {
+    "name": "Judgment"
+  },
+  "494": {
+    "name": "V-create",
+    "type": "Fire"
+  },
+  "638": {
+    "name": "Sacred Sword",
+    "type": "Fighting"
+  },
+  "639": {
+    "name": "Sacred Sword",
+    "type": "Fighting"
+  },
+  "640": {
+    "name": "Sacred Sword",
+    "type": "Fighting"
+  },
+  "641": {
+    "name": "Bleakwind Storm",
+    "type": "Flying"
+  },
+  "642": {
+    "name": "Wildbolt Storm",
+    "type": "Electric"
+  },
+  "643": {
+    "name": "Blue Flare",
+    "type": "Fire"
+  },
+  "644": {
+    "name": "Bolt Strike",
+    "type": "Electric"
+  },
+  "645": {
+    "name": "Sandsear Storm",
+    "type": "Ground"
+  },
+  "646": {
+    "name": "Glaciate",
+    "type": "Ice"
+  },
+  "647": {
+    "name": "Secret Sword",
+    "type": "Fighting"
+  },
+  "648": {
+    "name": "Relic Song",
+    "type": "Normal"
+  },
+  "649": {
+    "name": "Techno Blast",
+    "type": "Bug"
+  },
+  "716": {
+    "name": "Moonblast",
+    "type": "Fairy"
+  },
+  "717": {
+    "name": "Oblivion Wing",
+    "type": "Flying"
+  },
+  "718": {
+    "name": "Land's Wrath",
+    "type": "Ground"
+  },
+  "719": {
+    "name": "Diamond Storm",
+    "type": "Rock"
+  },
+  "720": {
+    "name": "Hyperspace Hole",
+    "type": "Psychic"
+  },
+  "721": {
+    "name": "Steam Eruption",
+    "type": "Water"
+  }
+}

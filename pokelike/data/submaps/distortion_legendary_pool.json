@@ -1,0 +1,20 @@
+[
+  {
+    "reward": "dialga",
+    "bossId": 483,
+    "sprite": "img/sprites/pokemon/483.png",
+    "name": "Dialga"
+  },
+  {
+    "reward": "palkia",
+    "bossId": 484,
+    "sprite": "img/sprites/pokemon/484.png",
+    "name": "Palkia"
+  },
+  {
+    "reward": "giratina",
+    "bossId": "giratina-origin",
+    "sprite": "img/sprites/pokemon/10007.png",
+    "name": "Giratina (Origin)"
+  }
+]

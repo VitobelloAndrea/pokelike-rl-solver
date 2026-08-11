@@ -230,14 +230,41 @@ def _fold_turns(events: list) -> list:
     exact counterpart of the driver's own pre-first-round assertion: both
     runtimes must place every attack inside a round or fail loudly rather than
     drop it from the projection.
+
+    **The compared family is `attack` and nothing else**, exactly as on the
+    JavaScript side, where `deriveTurns` keeps only `log[i].type === 'attack'`
+    (route-oracle/driver.js:244) out of the source's single flat `detailedLog`.
+    `battle_loop.BattleResult.battle_events` is the Python counterpart of that
+    same flat log, and since M6 it also carries the `effect` and `faint`
+    presentation families (N10/N11) that the renderer needs. Those have no
+    counterpart in the JS projection -- `deriveTurns` drops the source's own
+    `effect`/`faint`/`send_out` entries -- so projecting them here would
+    manufacture a difference out of a record BOTH runtimes produce and NEITHER
+    previously compared. The filter keeps the two projections symmetric.
+
+    This is deliberately STRICTER than the JS side: an unrecognized type is a
+    hard error rather than a silent drop, so a family added to `battle_events`
+    later cannot quietly slip out of the comparison the way it could if this
+    were a bare `if type == "attack"`.
     """
+    compared = {"attack"}
+    presentation_only = {"effect", "faint"}
     turns: list[dict] = []
     for event in events:
-        if event.get("type") == "turn_start":
+        kind = event.get("type")
+        if kind == "turn_start":
             turns.append({"turn": int(event["round"]), "events": []})
             continue
+        if kind in presentation_only:
+            continue
+        if kind not in compared:
+            raise RuntimeError(
+                f"battle event {kind!r} is neither compared nor a known "
+                f"presentation-only family; classify it in _fold_turns and "
+                f"SCHEMA.md before it reaches the projection"
+            )
         if not turns:
-            raise RuntimeError(f"battle event {event.get('type')!r} precedes the first turn_start")
+            raise RuntimeError(f"battle event {kind!r} precedes the first turn_start")
         turns[-1]["events"].append(dict(event))
     return turns
 
@@ -775,6 +802,62 @@ class Runner:
                     self.checkpoint(
                         "map_transition_post", {"to_map": st.current_map, "step": step}
                     )
+                elif kind == "equip":
+                    # M6. The item-equip overlay opened FROM THE BAG -- the
+                    # source's `openItemEquipModal(item, {fromBagIdx: i})`,
+                    # reached from an item-bar badge
+                    # (bundle.deobfuscated.js:64857). Distinct entry point from
+                    # the item NODE's own equip offer, which the `choice`
+                    # bridge already covers.
+                    st = self.engine.state
+                    assert st is not None
+                    bag_index = int(act["bag_index"])
+                    member = int(act["member"])
+                    self.checkpoint(
+                        "equip_pre",
+                        {
+                            "bag_index": bag_index,
+                            "member": member,
+                            "item": st.items[bag_index] if 0 <= bag_index < len(st.items) else None,
+                            "step": step,
+                        },
+                    )
+                    self.engine.step(
+                        engine.EquipItem(bag_index=bag_index, team_index=member))
+                    self.checkpoint(
+                        "equip_post", {"bag_index": bag_index, "member": member, "step": step})
+                elif kind == "held_item":
+                    # M6. The item-equip overlay opened FROM a member -- the
+                    # source's `openItemEquipModal(team[i].heldItem,
+                    # {fromPokemonIdx: i})`, reached from a held-item badge
+                    # (bundle.deobfuscated.js:64702-64709 team bar, 78203 party
+                    # screen). `target: null` takes `#btn-equip-to-bag`
+                    # (79549-79553); an integer takes that member's
+                    # `[data-idx]` row, which is the hand-off (79541-79545).
+                    st = self.engine.state
+                    assert st is not None
+                    member = int(act["member"])
+                    target = act.get("target")
+                    self.checkpoint(
+                        "held_item_pre",
+                        {
+                            "member": member,
+                            "target": target,
+                            "held": (
+                                st.team[member].held_item.id
+                                if 0 <= member < len(st.team) and st.team[member].held_item
+                                else None
+                            ),
+                            "step": step,
+                        },
+                    )
+                    if target is None:
+                        self.engine.step(engine.UnequipItem(team_index=member))
+                    else:
+                        self.engine.step(
+                            engine.HandOffItem(from_index=member, to_index=int(target)))
+                    self.checkpoint(
+                        "held_item_post", {"member": member, "target": target, "step": step})
                 else:
                     raise ValueError(f"step {step}: unknown action kind {kind}")
 

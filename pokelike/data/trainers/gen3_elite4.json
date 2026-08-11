@@ -1,0 +1,470 @@
+[
+  {
+    "name": "Sidney",
+    "title": "Elite Four",
+    "type": "Dark",
+    "team": [
+      {
+        "speciesId": 262,
+        "name": "Mightyena",
+        "types": [
+          "Dark"
+        ],
+        "baseStats": {
+          "hp": 70,
+          "atk": 90,
+          "def": 70,
+          "speed": 70,
+          "special": 60,
+          "spdef": 60
+        },
+        "level": 78
+      },
+      {
+        "speciesId": 332,
+        "name": "Cacturne",
+        "types": [
+          "Grass",
+          "Dark"
+        ],
+        "baseStats": {
+          "hp": 70,
+          "atk": 115,
+          "def": 60,
+          "speed": 55,
+          "special": 115,
+          "spdef": 60
+        },
+        "level": 79
+      },
+      {
+        "speciesId": 275,
+        "name": "Shiftry",
+        "types": [
+          "Grass",
+          "Dark"
+        ],
+        "baseStats": {
+          "hp": 90,
+          "atk": 100,
+          "def": 60,
+          "speed": 80,
+          "special": 90,
+          "spdef": 60
+        },
+        "level": 80
+      },
+      {
+        "speciesId": 319,
+        "name": "Sharpedo",
+        "types": [
+          "Water",
+          "Dark"
+        ],
+        "baseStats": {
+          "hp": 70,
+          "atk": 120,
+          "def": 40,
+          "speed": 95,
+          "special": 95,
+          "spdef": 40
+        },
+        "level": 80
+      },
+      {
+        "speciesId": 359,
+        "name": "Absol",
+        "types": [
+          "Dark"
+        ],
+        "baseStats": {
+          "hp": 65,
+          "atk": 130,
+          "def": 60,
+          "speed": 75,
+          "special": 75,
+          "spdef": 60
+        },
+        "level": 81
+      }
+    ]
+  },
+  {
+    "name": "Phoebe",
+    "title": "Elite Four",
+    "type": "Ghost",
+    "team": [
+      {
+        "speciesId": 356,
+        "name": "Dusclops",
+        "types": [
+          "Ghost"
+        ],
+        "baseStats": {
+          "hp": 40,
+          "atk": 70,
+          "def": 130,
+          "speed": 25,
+          "special": 60,
+          "spdef": 130
+        },
+        "level": 81
+      },
+      {
+        "speciesId": 354,
+        "name": "Banette",
+        "types": [
+          "Ghost"
+        ],
+        "baseStats": {
+          "hp": 64,
+          "atk": 115,
+          "def": 65,
+          "speed": 65,
+          "special": 83,
+          "spdef": 63
+        },
+        "level": 82
+      },
+      {
+        "speciesId": 354,
+        "name": "Banette",
+        "types": [
+          "Ghost"
+        ],
+        "baseStats": {
+          "hp": 64,
+          "atk": 115,
+          "def": 65,
+          "speed": 65,
+          "special": 83,
+          "spdef": 63
+        },
+        "level": 82
+      },
+      {
+        "speciesId": 302,
+        "name": "Sableye",
+        "types": [
+          "Dark",
+          "Ghost"
+        ],
+        "baseStats": {
+          "hp": 50,
+          "atk": 75,
+          "def": 75,
+          "speed": 50,
+          "special": 65,
+          "spdef": 65
+        },
+        "level": 83
+      },
+      {
+        "speciesId": 356,
+        "name": "Dusclops",
+        "types": [
+          "Ghost"
+        ],
+        "baseStats": {
+          "hp": 40,
+          "atk": 70,
+          "def": 130,
+          "speed": 25,
+          "special": 60,
+          "spdef": 130
+        },
+        "level": 83
+      }
+    ]
+  },
+  {
+    "name": "Glacia",
+    "title": "Elite Four",
+    "type": "Ice",
+    "team": [
+      {
+        "speciesId": 362,
+        "name": "Glalie",
+        "types": [
+          "Ice"
+        ],
+        "baseStats": {
+          "hp": 80,
+          "atk": 80,
+          "def": 80,
+          "speed": 80,
+          "special": 80,
+          "spdef": 80
+        },
+        "level": 82
+      },
+      {
+        "speciesId": 364,
+        "name": "Sealeo",
+        "types": [
+          "Ice",
+          "Water"
+        ],
+        "baseStats": {
+          "hp": 90,
+          "atk": 60,
+          "def": 70,
+          "speed": 45,
+          "special": 75,
+          "spdef": 70
+        },
+        "level": 83
+      },
+      {
+        "speciesId": 362,
+        "name": "Glalie",
+        "types": [
+          "Ice"
+        ],
+        "baseStats": {
+          "hp": 80,
+          "atk": 80,
+          "def": 80,
+          "speed": 80,
+          "special": 80,
+          "spdef": 80
+        },
+        "level": 83
+      },
+      {
+        "speciesId": 364,
+        "name": "Sealeo",
+        "types": [
+          "Ice",
+          "Water"
+        ],
+        "baseStats": {
+          "hp": 90,
+          "atk": 60,
+          "def": 70,
+          "speed": 45,
+          "special": 75,
+          "spdef": 70
+        },
+        "level": 84
+      },
+      {
+        "speciesId": 365,
+        "name": "Walrein",
+        "types": [
+          "Ice",
+          "Water"
+        ],
+        "baseStats": {
+          "hp": 110,
+          "atk": 80,
+          "def": 90,
+          "speed": 65,
+          "special": 95,
+          "spdef": 90
+        },
+        "level": 85
+      }
+    ]
+  },
+  {
+    "name": "Drake",
+    "title": "Elite Four",
+    "type": "Dragon",
+    "team": [
+      {
+        "speciesId": 372,
+        "name": "Shelgon",
+        "types": [
+          "Dragon"
+        ],
+        "baseStats": {
+          "hp": 65,
+          "atk": 95,
+          "def": 100,
+          "speed": 50,
+          "special": 60,
+          "spdef": 50
+        },
+        "level": 83
+      },
+      {
+        "speciesId": 334,
+        "name": "Altaria",
+        "types": [
+          "Dragon",
+          "Flying"
+        ],
+        "baseStats": {
+          "hp": 75,
+          "atk": 70,
+          "def": 90,
+          "speed": 80,
+          "special": 70,
+          "spdef": 105
+        },
+        "level": 83
+      },
+      {
+        "speciesId": 330,
+        "name": "Flygon",
+        "types": [
+          "Ground",
+          "Dragon"
+        ],
+        "baseStats": {
+          "hp": 80,
+          "atk": 100,
+          "def": 80,
+          "speed": 100,
+          "special": 80,
+          "spdef": 80
+        },
+        "level": 84
+      },
+      {
+        "speciesId": 330,
+        "name": "Flygon",
+        "types": [
+          "Ground",
+          "Dragon"
+        ],
+        "baseStats": {
+          "hp": 80,
+          "atk": 100,
+          "def": 80,
+          "speed": 100,
+          "special": 80,
+          "spdef": 80
+        },
+        "level": 85
+      },
+      {
+        "speciesId": 373,
+        "name": "Salamence",
+        "types": [
+          "Dragon",
+          "Flying"
+        ],
+        "baseStats": {
+          "hp": 95,
+          "atk": 135,
+          "def": 80,
+          "speed": 100,
+          "special": 110,
+          "spdef": 80
+        },
+        "level": 86
+      }
+    ]
+  },
+  {
+    "name": "Steven",
+    "title": "Champion",
+    "type": "Steel",
+    "team": [
+      {
+        "speciesId": 227,
+        "name": "Skarmory",
+        "types": [
+          "Steel",
+          "Flying"
+        ],
+        "baseStats": {
+          "hp": 65,
+          "atk": 80,
+          "def": 140,
+          "speed": 70,
+          "special": 40,
+          "spdef": 70
+        },
+        "level": 93
+      },
+      {
+        "speciesId": 346,
+        "name": "Cradily",
+        "types": [
+          "Rock",
+          "Grass"
+        ],
+        "baseStats": {
+          "hp": 86,
+          "atk": 81,
+          "def": 97,
+          "speed": 43,
+          "special": 81,
+          "spdef": 107
+        },
+        "level": 94
+      },
+      {
+        "speciesId": 344,
+        "name": "Claydol",
+        "types": [
+          "Ground",
+          "Psychic"
+        ],
+        "baseStats": {
+          "hp": 60,
+          "atk": 70,
+          "def": 105,
+          "speed": 75,
+          "special": 70,
+          "spdef": 120
+        },
+        "level": 94
+      },
+      {
+        "speciesId": 348,
+        "name": "Armaldo",
+        "types": [
+          "Rock",
+          "Bug"
+        ],
+        "baseStats": {
+          "hp": 75,
+          "atk": 125,
+          "def": 100,
+          "speed": 45,
+          "special": 70,
+          "spdef": 80
+        },
+        "level": 95
+      },
+      {
+        "speciesId": 306,
+        "name": "Aggron",
+        "types": [
+          "Steel",
+          "Rock"
+        ],
+        "baseStats": {
+          "hp": 70,
+          "atk": 110,
+          "def": 180,
+          "speed": 50,
+          "special": 60,
+          "spdef": 60
+        },
+        "level": 96
+      },
+      {
+        "speciesId": 376,
+        "name": "Metagross",
+        "types": [
+          "Steel",
+          "Psychic"
+        ],
+        "baseStats": {
+          "hp": 80,
+          "atk": 135,
+          "def": 130,
+          "speed": 70,
+          "special": 95,
+          "spdef": 90
+        },
+        "level": 97
+      }
+    ]
+  }
+]

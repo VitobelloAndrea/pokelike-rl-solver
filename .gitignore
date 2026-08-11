@@ -7,8 +7,38 @@ docs/reference
 CLAUDE.md
 CODEX.md
 PLAN.md
-pokelike/data/*
-tools/
+
+# --- M6 / N17 -------------------------------------------------------------
+# `tools/`, `pokelike/data/*` and `docs/reference` were all ignored WHOLESALE,
+# with no negation pattern and zero tracked files beneath them. Three separate
+# audits flagged the consequences, and they were not cosmetic:
+#
+#   * `tools/battle-oracle/compare.py` has been a standing acceptance gate in
+#     every milestone since M3. None of it survived a clean clone.
+#   * `tools/extract-data/` regenerates files under `pokelike/data/` -- and
+#     BOTH were ignored, so neither the outputs nor the thing that rebuilds
+#     them was in the repository.
+#   * `pokelike/data/` is not derived and not optional: it is the ported game
+#     data (pokedex, moves, type chart, item pools, trainer and submap
+#     tables). `import pokelike` does not work without it. R2 flagged
+#     `node_presentation.json` specifically.
+#   * `docs/reference/` holds the CODEX audit that every renderer-track brief
+#     cites as its authority. Prose; nothing regenerates it.
+#
+# The policy now matches `route-oracle/`'s (see its block below): track
+# everything, ignore ONLY genuinely derived artifacts, and pin a hash so
+# nothing required is invisible.
+#
+# Deliberately still ignored, because each is regenerable from tracked inputs:
+#   * `tools/battle-oracle/out/` -- a 3.2 MB executable slice of the (tracked)
+#     bundle. `tools/battle-oracle/prefix.sha256` pins its expected hash and
+#     `compare.py` now REGENERATES it when absent and verifies that hash on
+#     every run, so a clean clone runs the gate rather than failing on it.
+#   * `tools/extract-data/out/` -- the intermediate extraction tables, rebuilt
+#     from the tracked bundle by the tracked scripts beside them.
+#   * `tools/extract-data/node_modules/` (already covered by the global rule).
+tools/battle-oracle/out/
+tools/extract-data/out/
 
 # route-oracle: everything is tracked EXCEPT three regenerable artifacts.
 #   * `out/` -- the derived JS prefix, a 3.4 MB slice of the (tracked) bundle.

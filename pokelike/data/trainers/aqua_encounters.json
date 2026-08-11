@@ -1,0 +1,234 @@
+{
+  "2": {
+    "name": "Shelly",
+    "sprite": "img/sprites/g3/aqua-admin.png",
+    "team": [
+      {
+        "speciesId": 318,
+        "name": "Carvanha",
+        "types": [
+          "Water",
+          "Dark"
+        ],
+        "baseStats": {
+          "hp": 45,
+          "atk": 90,
+          "def": 20,
+          "speed": 65,
+          "special": 65,
+          "spdef": 20
+        },
+        "level": 26
+      },
+      {
+        "speciesId": 262,
+        "name": "Mightyena",
+        "types": [
+          "Dark"
+        ],
+        "baseStats": {
+          "hp": 70,
+          "atk": 90,
+          "def": 70,
+          "speed": 70,
+          "special": 60,
+          "spdef": 60
+        },
+        "level": 28
+      },
+      {
+        "speciesId": 336,
+        "name": "Seviper",
+        "types": [
+          "Poison"
+        ],
+        "baseStats": {
+          "hp": 73,
+          "atk": 100,
+          "def": 60,
+          "speed": 65,
+          "special": 100,
+          "spdef": 60
+        },
+        "level": 27
+      }
+    ]
+  },
+  "5": {
+    "name": "Matt",
+    "sprite": "img/sprites/g3/aqua-admin.png",
+    "team": [
+      {
+        "speciesId": 318,
+        "name": "Carvanha",
+        "types": [
+          "Water",
+          "Dark"
+        ],
+        "baseStats": {
+          "hp": 45,
+          "atk": 90,
+          "def": 20,
+          "speed": 65,
+          "special": 65,
+          "spdef": 20
+        },
+        "level": 52
+      },
+      {
+        "speciesId": 336,
+        "name": "Seviper",
+        "types": [
+          "Poison"
+        ],
+        "baseStats": {
+          "hp": 73,
+          "atk": 100,
+          "def": 60,
+          "speed": 65,
+          "special": 100,
+          "spdef": 60
+        },
+        "level": 53
+      },
+      {
+        "speciesId": 42,
+        "name": "Golbat",
+        "types": [
+          "Poison",
+          "Flying"
+        ],
+        "baseStats": {
+          "hp": 75,
+          "atk": 80,
+          "def": 70,
+          "speed": 90,
+          "special": 65,
+          "spdef": 75
+        },
+        "level": 54
+      },
+      {
+        "speciesId": 319,
+        "name": "Sharpedo",
+        "types": [
+          "Water",
+          "Dark"
+        ],
+        "baseStats": {
+          "hp": 70,
+          "atk": 120,
+          "def": 40,
+          "speed": 95,
+          "special": 95,
+          "spdef": 40
+        },
+        "level": 56
+      }
+    ]
+  },
+  "7": {
+    "name": "Archie",
+    "sprite": "img/sprites/g3/archie.png",
+    "team": [
+      {
+        "speciesId": 262,
+        "name": "Mightyena",
+        "types": [
+          "Dark"
+        ],
+        "baseStats": {
+          "hp": 70,
+          "atk": 90,
+          "def": 70,
+          "speed": 70,
+          "special": 60,
+          "spdef": 60
+        },
+        "level": 76
+      },
+      {
+        "speciesId": 336,
+        "name": "Seviper",
+        "types": [
+          "Poison"
+        ],
+        "baseStats": {
+          "hp": 73,
+          "atk": 100,
+          "def": 60,
+          "speed": 65,
+          "special": 100,
+          "spdef": 60
+        },
+        "level": 77
+      },
+      {
+        "speciesId": 169,
+        "name": "Crobat",
+        "types": [
+          "Poison",
+          "Flying"
+        ],
+        "baseStats": {
+          "hp": 85,
+          "atk": 90,
+          "def": 80,
+          "speed": 130,
+          "special": 70,
+          "spdef": 80
+        },
+        "level": 78
+      },
+      {
+        "speciesId": 89,
+        "name": "Muk",
+        "types": [
+          "Poison"
+        ],
+        "baseStats": {
+          "hp": 105,
+          "atk": 105,
+          "def": 75,
+          "speed": 50,
+          "special": 65,
+          "spdef": 100
+        },
+        "level": 79
+      },
+      {
+        "speciesId": 319,
+        "name": "Sharpedo",
+        "types": [
+          "Water",
+          "Dark"
+        ],
+        "baseStats": {
+          "hp": 70,
+          "atk": 120,
+          "def": 40,
+          "speed": 95,
+          "special": 95,
+          "spdef": 40
+        },
+        "level": 80
+      },
+      {
+        "speciesId": 382,
+        "name": "Kyogre",
+        "types": [
+          "Water"
+        ],
+        "baseStats": {
+          "hp": 100,
+          "atk": 100,
+          "def": 90,
+          "speed": 90,
+          "special": 150,
+          "spdef": 140
+        },
+        "level": 83
+      }
+    ]
+  }
+}

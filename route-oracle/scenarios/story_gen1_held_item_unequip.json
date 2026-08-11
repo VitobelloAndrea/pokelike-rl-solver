@@ -1,0 +1,83 @@
+{
+  "schema_version": 2,
+  "scenario": "story_gen1_held_item_unequip",
+  "description": "M6. Extends story_gen1_item_equip's verified prefix by EQUIPPING the offered item onto team slot 0 instead of declining it, then exercising the item-equip overlay's remaining exit: `#btn-equip-to-bag` with `fromPokemonIdx >= 0` (bundle.deobfuscated.js:79549-79553), i.e. held-item removal. R3 disclosed this exit as unbuilt for want of engine surface; engine.UnequipItem is that surface, and this scenario is what proves it on BOTH runtimes rather than in a Python unit test alone.",
+  "mode": {
+    "nuzlocke": false,
+    "gen2": false,
+    "gen3": false,
+    "gen4": false
+  },
+  "seed": 1,
+  "starter_index": 0,
+  "actions": [
+    {
+      "kind": "visit",
+      "node": "n1_0"
+    },
+    {
+      "kind": "choice",
+      "index": null
+    },
+    {
+      "kind": "visit",
+      "node": "n2_0"
+    },
+    {
+      "kind": "visit",
+      "node": "n3_1"
+    },
+    {
+      "kind": "visit",
+      "node": "n4_1"
+    },
+    {
+      "kind": "visit",
+      "node": "n5_1"
+    },
+    {
+      "kind": "choice",
+      "index": null
+    },
+    {
+      "kind": "visit",
+      "node": "n6_0"
+    },
+    {
+      "kind": "visit",
+      "node": "n7_0"
+    },
+    {
+      "kind": "visit",
+      "node": "n8_0"
+    },
+    {
+      "kind": "advance_map"
+    },
+    {
+      "kind": "visit",
+      "node": "n1_0"
+    },
+    {
+      "kind": "choice",
+      "index": null
+    },
+    {
+      "kind": "visit",
+      "node": "n2_0"
+    },
+    {
+      "kind": "choice",
+      "index": 0
+    },
+    {
+      "kind": "choice",
+      "index": 0
+    },
+    {
+      "kind": "held_item",
+      "member": 0,
+      "target": null
+    }
+  ]
+}

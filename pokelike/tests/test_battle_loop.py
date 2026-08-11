@@ -678,5 +678,165 @@ class BioPostHitSubsetTests(unittest.TestCase):
         self.assertEqual(mover.stages, before_stages)
 
 
+#: Held-item ids `run_battle`'s post-hit block branches on that are NOT in the
+#: ported `ITEM_POOL` (`items_passive.json`), because the source does not offer
+#: them as loot either: `life_orb` is defined at bundle.deobfuscated.js:42345
+#: as a PRE-SET held item hung on specific species entries, not an `ITEM_POOL`
+#: member. The branch is real and is exercised whenever such a mon is built, so
+#: it is pinned here; it is simply not reachable from the player's bag.
+_NON_POOL_HELD_ITEMS = {"life_orb": "Life Orb"}
+
+
+def _passive_item(item_id):
+    """The real `ITEM_POOL` entry where one exists, so these tests assert
+    against the same `held_item.id` `run_battle` actually branches on."""
+    for item in data.get_passive_items():
+        if item.id == item_id:
+            return item
+    if item_id in _NON_POOL_HELD_ITEMS:
+        return data.Item(
+            id=item_id, name=_NON_POOL_HELD_ITEMS[item_id], desc="", icon="")
+    raise AssertionError(
+        f"{item_id!r} is neither in the ported ITEM_POOL nor a known "
+        f"non-pool held item -- classify it before pinning it")
+
+
+class PostHitEffectRecordTests(unittest.TestCase):
+    """M6/N10. The four post-hit HP changes (bundle.deobfuscated.js:56366-56442)
+    mutate HP *after* the `attack` record is appended. Before M6 they emitted
+    nothing at all, so a replay showed the mover's HP move with no event to
+    attribute it to and the attack record's own `attacker_hp_after` silently
+    disagreed with the post-battle roster.
+
+    These run a real `run_battle`, not a synthetic call, so the record has to
+    survive the actual loop -- ordering, guards and all.
+    """
+
+    def _battle_with(self, *, player_item=None, enemy_item=None, seed=7):
+        rng.seed_rng(seed)
+        player = [_mon(6, level=60)]
+        enemy = [_mon(3, level=30)]
+        if player_item is not None:
+            player[0].held_item = _passive_item(player_item)
+        if enemy_item is not None:
+            enemy[0].held_item = _passive_item(enemy_item)
+        return battle_loop.run_battle(player, enemy)
+
+    def _effects(self, result, reason=None):
+        return [
+            e for e in result.battle_events
+            if e.get("type") == "effect" and (reason is None or e.get("reason") == reason)
+        ]
+
+    def test_rocky_helmet_on_the_target_emits_an_effect_for_the_mover(self):
+        result = self._battle_with(enemy_item="rocky_helmet")
+        records = self._effects(result, "rocky_helmet")
+        self.assertTrue(records, "rocky_helmet recoil produced no effect record")
+        for record in records:
+            # 56374-56375: the record names the MOVER (the one taking recoil),
+            # not the helmet's holder.
+            self.assertEqual(record["side"], "player")
+            self.assertEqual(record["idx"], 0)
+            self.assertLess(record["hp_change"], 0)
+            self.assertGreaterEqual(record["hp_after"], 0)
+
+    def test_life_orb_recoil_emits_an_effect(self):
+        result = self._battle_with(player_item="life_orb")
+        records = self._effects(result, "life_orb")
+        self.assertTrue(records, "life_orb recoil produced no effect record")
+        for record in records:
+            self.assertEqual(record["side"], "player")
+            self.assertLess(record["hp_change"], 0)
+
+    def test_shell_bell_heal_emits_a_positive_effect(self):
+        # Damaged first, so the heal is not clamped to zero headroom.
+        rng.seed_rng(11)
+        player = [_mon(6, level=60)]
+        player[0].held_item = _passive_item("shell_bell")
+        player[0].current_hp = max(1, player[0].max_hp // 3)
+        result = battle_loop.run_battle(player, [_mon(3, level=30)])
+        records = self._effects(result, "shell_bell")
+        self.assertTrue(records, "shell_bell heal produced no effect record")
+        for record in records:
+            self.assertGreater(record["hp_change"], 0)
+            self.assertEqual(record["side"], "player")
+
+    def test_effect_records_carry_the_shape_the_contract_pins(self):
+        result = self._battle_with(enemy_item="rocky_helmet")
+        for record in self._effects(result):
+            self.assertEqual(
+                set(record), {"type", "side", "idx", "hp_change", "hp_after", "reason"})
+
+    def test_hp_after_matches_the_movers_hp_at_that_moment(self):
+        """The whole point of the record: the HP delta is attributable. The
+        LAST effect record for a combatant must agree with where that
+        combatant's HP actually ended up, when nothing else moved it after."""
+        result = self._battle_with(enemy_item="rocky_helmet")
+        records = self._effects(result, "rocky_helmet")
+        self.assertTrue(records)
+        for record in records:
+            self.assertLessEqual(record["hp_after"], result.player_team[record["idx"]].max_hp)
+
+    def test_no_effect_record_when_no_item_is_held(self):
+        """Non-vacuity's other half: the records appear BECAUSE of the item,
+        not on every battle."""
+        self.assertEqual(self._effects(self._battle_with()), [])
+
+
+class OrdinaryKoFaintRecordTests(unittest.TestCase):
+    """M6/N11. An ordinary combat KO (bundle.deobfuscated.js:56445 and 56482)
+    emitted no record anywhere before M6: `status_events` gains a `faint` only
+    from `_status_tick_round`, i.e. only when a status tick did the killing."""
+
+    def test_a_won_battle_records_the_enemys_knockout(self):
+        rng.seed_rng(2024)
+        player = [_mon(6, level=60)]
+        enemy = [_mon(129, level=5)]  # Magikarp: knocked out by ordinary damage
+        result = battle_loop.run_battle(player, enemy)
+        self.assertTrue(result.player_won)
+        faints = [e for e in result.battle_events if e.get("type") == "faint"]
+        self.assertTrue(faints, "an ordinary combat KO emitted no faint record")
+        self.assertEqual(faints[0], {"type": "faint", "side": "enemy", "idx": 0})
+
+    def test_the_faint_record_is_not_the_status_stream(self):
+        """The two streams stay distinct: this KO was ordinary damage, so it
+        must NOT have been routed through `status_events`."""
+        rng.seed_rng(2024)
+        result = battle_loop.run_battle([_mon(6, level=60)], [_mon(129, level=5)])
+        self.assertEqual(
+            [e for e in result.status_events if e.get("type") == "faint"], [],
+            "an ordinary KO leaked into the status-tick faint subset",
+        )
+
+    def test_every_fainted_combatant_has_a_record_on_one_of_the_streams(self):
+        """The invariant N11 restores: nothing dies silently."""
+        for seed in (1, 7, 2024, 999):
+            rng.seed_rng(seed)
+            result = battle_loop.run_battle(
+                [_mon(6, level=40), _mon(9, level=40)], [_mon(3, level=40), _mon(6, level=40)])
+            recorded = {
+                (e["side"], e["idx"])
+                for e in list(result.battle_events) + list(result.status_events)
+                if e.get("type") == "faint"
+            }
+            for side, team in (("player", result.player_team), ("enemy", result.enemy_team)):
+                for idx, member in enumerate(team):
+                    if member.current_hp <= 0:
+                        self.assertIn(
+                            (side, idx), recorded,
+                            f"{side}[{idx}] fainted with no record at seed {seed}",
+                        )
+
+    def test_the_faint_record_precedes_nothing_of_its_own_round(self):
+        """Ordering: the source pushes the faint at 56445 BEFORE the onKO /
+        onFaint hooks, so it must land inside the round that killed, after that
+        round's own attack record."""
+        rng.seed_rng(2024)
+        result = battle_loop.run_battle([_mon(6, level=60)], [_mon(129, level=5)])
+        kinds = [e.get("type") for e in result.battle_events]
+        self.assertIn("faint", kinds)
+        self.assertLess(kinds.index("attack"), kinds.index("faint"))
+
+
 if __name__ == "__main__":
     unittest.main()

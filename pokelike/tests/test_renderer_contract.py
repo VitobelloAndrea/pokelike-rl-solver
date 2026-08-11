@@ -285,12 +285,24 @@ class BattleFeedTests(unittest.TestCase):
         `_stream_hash([f["battle_events"] for f in _play(seed,
         stop_after_battle=True)[2]])` and say so in the milestone record. An
         UNEXPLAINED move is the failure this exists to surface.
+
+        M6 re-blessed all four. `battle_events` gained the `effect` (N10) and
+        `faint` (N11) families, which is a deliberate, declared addition. It
+        was proved to be an ADDITION and nothing else by the M3.3b method:
+        stripping `effect`/`faint` back out of every stream reproduces all four
+        PRE-M6 digests byte for byte, so no record was reordered, renamed or
+        dropped and no gameplay moved. The pre-M6 values, for that audit:
+
+            1:      f0d1ca23188b21ea41e330857bb47220f0dc94239d36117cd37736d3cc0fd9da
+            12345:  c4eaee77e2f0cef259903f6e6c622cb1ec35e7f51bca344411bcabd1cfc86e4e
+            999:    9a4dfae164168338e5c0de10e2bbef48d986099ce782a0bd4227abd964bdc0f1
+            424242: e89b7b1da104e2d9d3a26241cfc1337b23f21fc33c9c12817db2c95fcdbe1334
         """
         expected = {
-            1: "f0d1ca23188b21ea41e330857bb47220f0dc94239d36117cd37736d3cc0fd9da",
-            12345: "c4eaee77e2f0cef259903f6e6c622cb1ec35e7f51bca344411bcabd1cfc86e4e",
-            999: "9a4dfae164168338e5c0de10e2bbef48d986099ce782a0bd4227abd964bdc0f1",
-            424242: "e89b7b1da104e2d9d3a26241cfc1337b23f21fc33c9c12817db2c95fcdbe1334",
+            1: "91e8642dbeabfa23961b9d4c0319323fd9c05ab0cccac4514f01aff118da7bf0",
+            12345: "4e1ecdcc67016fcb08e9f4ff38fb232d84f6a001d414622648c08a349e662894",
+            999: "61e07906e8c95f58434079c36676c6c982cb8a968049b682729c4b4a534f5a9c",
+            424242: "188922c1ceaf61f6dba662ea9183ff4fe8ecb13c4a43043e5abb59fa4b559813",
         }
         for seed, digest in expected.items():
             _, _, battles = _play(seed, stop_after_battle=True)
@@ -722,13 +734,34 @@ class BattleReplayTests(unittest.TestCase):
             )
 
     def test_status_steps_are_honest_about_having_no_round(self):
-        """The declared limitation (contract section 11). Status steps carry
-        `turn: None` on purpose -- the two streams cannot be interleaved. A
-        future change that starts GUESSING a round fails here."""
-        for _seed, view in self._views():
+        """The declared limitation (contract section 11). Steps built from the
+        `status_events` stream carry `turn: None` on purpose -- that stream has
+        no round markers, so the two cannot be interleaved. A future change
+        that starts GUESSING a round fails here.
+
+        M6 narrowed what this can assert per-kind. `faint` is now emitted on
+        BOTH streams: `battle_events` carries the ordinary combat KO (N11),
+        which genuinely knows its round and correctly carries it, while
+        `status_events` still carries the status-tick-caused KO, which does
+        not. So the per-kind assertion holds only for the two kinds that remain
+        status-exclusive, and the stream boundary itself is pinned separately
+        below -- a strictly stronger check than the original, because it also
+        fails if a turn-derived step is ever appended after a status one.
+        """
+        for seed, view in self._views():
             for step in view["replay"]:
-                if step["kind"] in ("status_tick", "faint", "poison_drain"):
-                    self.assertIsNone(step["turn"])
+                if step["kind"] in ("status_tick", "poison_drain"):
+                    self.assertIsNone(
+                        step["turn"],
+                        f"a status-exclusive step invented a round at seed {seed}",
+                    )
+            turns = [step["turn"] for step in view["replay"]]
+            if None in turns:
+                boundary = turns.index(None)
+                self.assertTrue(
+                    all(t is None for t in turns[boundary:]),
+                    f"a turn-derived replay step follows a status one at seed {seed}",
+                )
 
     def test_the_attack_line_matches_the_sources_own_format(self):
         """The text is ported from bundle.deobfuscated.js:69301-69320, not
@@ -1775,6 +1808,73 @@ class ConsoleRendererPhaseTests(unittest.TestCase):
         self.assertIn("+4 levels", sac)
         self.assertIn("%", stat)
 
+    def test_the_item_choice_prints_the_description_the_contract_supplies(self):
+        """R6/N33, the console half.
+
+        The web client's item card was ignoring `icon`/`icon_url`/`desc`; this
+        renderer was ignoring `desc`. Both had the same root cause -- the
+        ITEM_CHOICE options were never routed through `item_view` at all, so
+        neither renderer *could* have drawn them. Asserted here against the
+        real ported item table rather than against the projection's own value,
+        so a projection that stopped supplying descriptions fails instead of
+        agreeing with itself.
+        """
+        from pokelike import data
+        from pokelike.render import console, contract
+
+        eng, state = _state_after_starter()
+        item = next(i for i in data.get_passive_items() if i.desc)
+        state.pending = engine.PendingChoice(
+            phase=engine.Phase.ITEM_CHOICE,
+            options=[{"id": item.id, "name": item.name, "usable": False}],
+            optional=True,
+            extra={"items": [], "node_id": "n0_0"},
+        )
+        state.phase = engine.Phase.ITEM_CHOICE
+
+        options = contract.pending_view(state.pending, state)["options"]
+        self.assertEqual(item.desc, options[0]["desc"],
+                         "ITEM_CHOICE options are no longer enriched from item_view")
+        self.assertEqual(item.icon, options[0]["icon"])
+
+        text = console.render_pending(state)
+        self.assertIn(item.name, text)
+        self.assertIn(item.desc, text,
+                      "the console prints an item offer without the description "
+                      "that makes it decidable")
+
+    def test_a_damaging_move_preview_never_reports_zero_power(self):
+        """R6/N34. The power a card draws has to be worth drawing.
+
+        This is the invariant that makes the browser-side power assertion
+        non-tautological: a detector that compares the rendered badge against
+        `move_preview.power` agrees with itself if the projection is what
+        broke. `power > 0 for a damaging move` is an independent fact -- a
+        move with no power that is not flagged `no_damage` is incoherent,
+        whatever the projection says.
+        """
+        from pokelike.render import contract
+
+        checked = 0
+        for seed in range(1, 12):
+            # `reset` stops at CHOOSE_STARTER with an EMPTY team, so a sweep
+            # over `state.team` there checks nothing at all.
+            eng, state = _state_after_starter(seed=seed)
+            for mon in state.team:
+                preview = contract._move_preview(mon)
+                if preview is None:
+                    continue
+                checked += 1
+                if preview["no_damage"]:
+                    continue
+                self.assertIsInstance(preview["power"], int)
+                self.assertGreater(
+                    preview["power"], 0,
+                    f"{preview['name']} is a damaging move projected with "
+                    f"power {preview['power']}",
+                )
+        self.assertGreater(checked, 0, "no move_preview was reachable -- vacuous")
+
     def test_the_evolution_prompt_names_the_evolving_pokemon(self):
         from pokelike.render import console
         state = _branching_evolution_state()
@@ -1824,12 +1924,14 @@ class ConsoleRendererPhaseTests(unittest.TestCase):
 
 
 class ContractVersionTests(unittest.TestCase):
-    def test_contract_version_is_4_after_r4(self):
-        """R2 took this to 2, R3 to 3. R4 changed the SHAPE again --
-        `battle_view` gained `player_team_start`/`enemy_team_start` and
-        `replay` -- so per docs/renderer-contract.md section 8 it bumps
-        again."""
-        self.assertEqual(contract.CONTRACT_VERSION, 4)
+    def test_contract_version_is_5_after_m6(self):
+        """R2 took this to 2, R3 to 3, R4 to 4 (`battle_view` gained
+        `player_team_start`/`enemy_team_start` and `replay`). M6 changed the
+        SHAPE again -- `battle.turns[*].events` can now carry `effect` (N10)
+        and `faint` (N11) records, so a renderer switching on the event type
+        sees a member it did not before -- so per docs/renderer-contract.md
+        section 8 it bumps again."""
+        self.assertEqual(contract.CONTRACT_VERSION, 5)
 
     def test_the_oracle_surface_is_untouched_by_this_contract(self):
         """R2 must not have moved the oracle. `map.edges` changing shape here

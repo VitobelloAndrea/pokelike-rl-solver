@@ -14,6 +14,10 @@
       "scenario": "story_gen1_branching_evolution"
     },
     {
+      "file": "story_gen1_held_item_unequip.json",
+      "scenario": "story_gen1_held_item_unequip"
+    },
+    {
       "file": "story_gen1_item_equip.json",
       "scenario": "story_gen1_item_equip"
     },
@@ -78,6 +82,10 @@
       "scenario": "story_gen4_distortion_reward"
     },
     {
+      "file": "story_gen4_held_item_handoff.json",
+      "scenario": "story_gen4_held_item_handoff"
+    },
+    {
       "file": "story_gen4_legendary_accept.json",
       "scenario": "story_gen4_legendary_accept"
     },
@@ -111,6 +119,6 @@
     }
   ],
   "schema_version": 2,
-  "signature_sha256": "b7ab9749ba5c8b3912698ef853a81b7648d1690cb8e751fabd9d49326342f5e4",
+  "signature_sha256": "afc07e5163db4fb874843b1f272069f66918c4ce5085bef812f716ee0239e118",
   "signature_version": 1
 }

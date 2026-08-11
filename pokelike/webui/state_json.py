@@ -103,4 +103,17 @@ def decode_action(payload: dict) -> "engine.Action":
             bag_index=_to_int(payload["bag_index"], "bag_index"),
             team_index=_to_int(payload["team_index"], "team_index"),
         )
+    if kind == "UnequipItem":
+        if "team_index" not in payload:
+            raise ActionDecodeError("UnequipItem requires 'team_index'")
+        return engine.UnequipItem(
+            team_index=_to_int(payload["team_index"], "team_index"),
+        )
+    if kind == "HandOffItem":
+        if "from_index" not in payload or "to_index" not in payload:
+            raise ActionDecodeError("HandOffItem requires 'from_index' and 'to_index'")
+        return engine.HandOffItem(
+            from_index=_to_int(payload["from_index"], "from_index"),
+            to_index=_to_int(payload["to_index"], "to_index"),
+        )
     raise ActionDecodeError(f"unknown action type: {kind!r}")

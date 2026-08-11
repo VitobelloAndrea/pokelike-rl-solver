@@ -120,6 +120,17 @@ class Element {
     return child;
   }
   remove() { if (this.parentNode) this.parentNode.removeChild(this); }
+  // R6. `app.js`'s two asset-fallback paths (`appendItemIcon`'s missing item
+  // sprite -> emoji span, `appendMoveBlock`'s missing physical/special PNG ->
+  // the source's own coloured text badge) both swap the failed <img> for a
+  // replacement node. Without this the shim could load those functions but
+  // never observe what they do on failure -- which, in a mirror that ships
+  // neither image, is the branch that actually runs in a browser.
+  replaceWith(node) {
+    if (!this.parentNode) return;
+    this.parentNode.insertBefore(node, this);
+    this.parentNode.removeChild(this);
+  }
   get children() { return this.childNodes.slice(); }
   get firstChild() { return this.childNodes[0] || null; }
 
@@ -299,7 +310,23 @@ function createDocument(knownIds) {
     _byId: byId,
     createElement(tag) { return new Element(tag, null); },
     createElementNS(ns, tag) { return new Element(tag, ns); },
-    getElementById(id) { return byId.get(id) || null; },
+    // R6. Pre-created index.html ids first, then a live scan of the document.
+    //
+    // This used to be the map lookup ALONE, which made the shim wrong about a
+    // whole class of real code: `app.js` creates elements with ids at runtime
+    // (`#pokelike-modal`, and every control the modals build) and then finds
+    // them again by id. In a browser those resolve; in the shim they returned
+    // null, so -- for one concrete example -- `closeModal()` could never find
+    // the modal it was asked to close, and no detector could have noticed.
+    // An id that exists in neither place still returns null, so a typo'd
+    // getElementById is still a bug here.
+    getElementById(id) {
+      if (byId.has(id)) return byId.get(id);
+      for (const el of doc.body.descendants()) {
+        if (el.id === id) return el;
+      }
+      return null;
+    },
     querySelector(sel) { return doc.body.querySelector(sel); },
     querySelectorAll(sel) { return doc.body.querySelectorAll(sel); },
     elementFromPoint() { return null; },

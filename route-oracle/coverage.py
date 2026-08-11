@@ -85,6 +85,17 @@ REQUIRED_TAGS = (
     # pins the catch half, a port that simply cleared everything everywhere
     # would satisfy the shiny tags and no other compared field would notice.
     "catch_room_accept_resume_cleared",
+    # -- M6 (docs/prompts/M6-open-findings.md section 3): the item-equip
+    # overlay's two remaining exits, which R3 disclosed as unbuilt because the
+    # engine had no action for either. Both are earned from the observed
+    # held-item/bag transition, not from the scenario's declared intent. The
+    # hand-off tag additionally requires the BAG to be untouched, which is what
+    # separates the source's real behaviour (the target's old item goes to the
+    # SOURCE member, 79541-79545) from an unequip-then-equip composition (which
+    # would route it to the bag) -- the exact confusion the brief asked to be
+    # resolved by tracing rather than assumed.
+    "held_item_unequip_resolved",
+    "held_item_handoff_resolved",
 )
 
 
@@ -947,6 +958,49 @@ def derive(checkpoints: list[dict]) -> dict[str, list[int]]:
         ]
         if len(changed) == 1:
             _add(ev, "swap_release", j)
+
+    # -- M6: the item-equip overlay's two remaining exits --------------------
+    # Both are derived from the OBSERVED held-item/bag transition across the
+    # `held_item_pre` -> `held_item_post` pair, never from the action's own
+    # declared `target` -- the same discipline as every tag above.
+    for i in range(1, len(checkpoints)):
+        pre, cp = checkpoints[i - 1], checkpoints[i]
+        if cp["kind"] != "held_item_post" or pre["kind"] != "held_item_pre":
+            continue
+        member = pre["event"].get("member")
+        target = pre["event"].get("target")
+        if not isinstance(member, int) or not (0 <= member < len(pre["team"])):
+            continue
+        if len(cp["team"]) != len(pre["team"]):
+            continue
+        was = pre["team"][member].get("held_item")
+        if was is None:
+            continue
+
+        if target is None:
+            # Unequip: the member is now empty and the item is on the END of
+            # the bag -- the source's own `items.push` (79521-79531 /
+            # 79549-79553). Appending rather than inserting is checked because
+            # bag order is index-addressable, so the position is meaning.
+            if (
+                cp["team"][member].get("held_item") is None
+                and list(cp["items"]) == list(pre["items"]) + [was]
+            ):
+                _add(ev, "held_item_unequip_resolved", i)
+            continue
+
+        if not isinstance(target, int) or not (0 <= target < len(pre["team"])):
+            continue
+        # Hand-off: the two members' held items are EXCHANGED and the bag is
+        # untouched (79541-79545). The bag clause is the whole point of the
+        # tag -- it is what a port that modelled this as unequip-then-equip
+        # would fail, because that routes the target's old item to the bag.
+        if (
+            cp["team"][member].get("held_item") == pre["team"][target].get("held_item")
+            and cp["team"][target].get("held_item") == was
+            and list(cp["items"]) == list(pre["items"])
+        ):
+            _add(ev, "held_item_handoff_resolved", i)
 
     # -- terminal loss ------------------------------------------------------
     for i, cp in enumerate(checkpoints):

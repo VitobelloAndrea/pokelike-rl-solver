@@ -1,0 +1,8 @@
+{
+  "name": "extract-data",
+  "private": true,
+  "version": "1.0.0",
+  "dependencies": {
+    "acorn": "^8.14.0"
+  }
+}

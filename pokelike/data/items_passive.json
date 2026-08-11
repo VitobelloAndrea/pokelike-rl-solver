@@ -1,0 +1,232 @@
+[
+  {
+    "id": "lucky_egg",
+    "name": "Lucky Egg",
+    "desc": "30% chance: holder gains +1 extra level after each battle",
+    "icon": "🥚",
+    "minMap": 4
+  },
+  {
+    "id": "choice_band",
+    "name": "Choice Band",
+    "desc": "+40% physical damage, -20% DEF",
+    "icon": "🎀"
+  },
+  {
+    "id": "choice_specs",
+    "name": "Choice Specs",
+    "desc": "+30% special damage",
+    "icon": "👓"
+  },
+  {
+    "id": "metronome",
+    "name": "Metronome",
+    "desc": "Dual-type holder uses its OTHER type for attacks; +20% damage on all moves",
+    "icon": "🎵"
+  },
+  {
+    "id": "scope_lens",
+    "name": "Scope Lens",
+    "desc": "+30% crit chance",
+    "icon": "🔭"
+  },
+  {
+    "id": "rocky_helmet",
+    "name": "Rocky Helmet",
+    "desc": "Attacker takes 12% of their max HP on each hit",
+    "icon": "⛑️"
+  },
+  {
+    "id": "shell_bell",
+    "name": "Shell Bell",
+    "desc": "Heal 15% of damage inflicted",
+    "icon": "🐚"
+  },
+  {
+    "id": "eviolite",
+    "name": "Eviolite",
+    "desc": "stops evolutions, if the pokemon is not the final stage it gets +50% DEF & +50% Sp. DEF",
+    "icon": "💎"
+  },
+  {
+    "id": "sharp_beak",
+    "name": "Sharp Beak",
+    "desc": "+40% Flying move damage; attempts Flying-type attacks if able",
+    "icon": "🦅"
+  },
+  {
+    "id": "charcoal",
+    "name": "Charcoal",
+    "desc": "+40% Fire move damage; attempts Fire-type attacks if able",
+    "icon": "🔥"
+  },
+  {
+    "id": "mystic_water",
+    "name": "Mystic Water",
+    "desc": "+40% Water move damage; attempts Water-type attacks if able",
+    "icon": "💧"
+  },
+  {
+    "id": "magnet",
+    "name": "Magnet",
+    "desc": "+40% Electric move damage; attempts Electric-type attacks if able",
+    "icon": "🧲",
+    "minMap": 4
+  },
+  {
+    "id": "miracle_seed",
+    "name": "Miracle Seed",
+    "desc": "+40% Grass move damage; attempts Grass-type attacks if able",
+    "icon": "🌱"
+  },
+  {
+    "id": "twisted_spoon",
+    "name": "Twisted Spoon",
+    "desc": "+40% Psychic move damage; attempts Psychic-type attacks if able",
+    "icon": "🥄",
+    "minMap": 4
+  },
+  {
+    "id": "soft_sand",
+    "name": "Soft Sand",
+    "desc": "+40% Ground move damage; attempts Ground-type attacks if able",
+    "icon": "🏖️",
+    "minMap": 4
+  },
+  {
+    "id": "hard_stone",
+    "name": "Hard Stone",
+    "desc": "+40% Rock move damage; attempts Rock-type attacks if able",
+    "icon": "🪨",
+    "minMap": 4
+  },
+  {
+    "id": "dragon_fang",
+    "name": "Dragon Fang",
+    "desc": "+40% Dragon move damage; attempts Dragon-type attacks if able",
+    "icon": "🐉",
+    "minMap": 6
+  },
+  {
+    "id": "poison_barb",
+    "name": "Poison Barb",
+    "desc": "+40% Poison move damage; attempts Poison-type attacks if able",
+    "icon": "☠️",
+    "minMap": 4
+  },
+  {
+    "id": "spell_tag",
+    "name": "Spell Tag",
+    "desc": "+40% Ghost move damage; attempts Ghost-type attacks if able",
+    "icon": "👻",
+    "minMap": 4
+  },
+  {
+    "id": "silk_scarf",
+    "name": "Silk Scarf",
+    "desc": "+40% Normal move damage; attempts Normal-type attacks if able",
+    "icon": "🤍"
+  },
+  {
+    "id": "metal_coat",
+    "name": "Metal Coat",
+    "desc": "+40% Steel move damage; attempts Steel-type attacks if able",
+    "icon": "🔩",
+    "minMap": 4
+  },
+  {
+    "id": "black_glasses",
+    "name": "Black Glasses",
+    "desc": "+40% Dark move damage; attempts Dark-type attacks if able",
+    "icon": "🕶️",
+    "minMap": 4
+  },
+  {
+    "id": "pixie_plate",
+    "name": "Pixie Plate",
+    "desc": "+40% Fairy move damage; attempts Fairy-type attacks if able",
+    "icon": "🧚",
+    "minMap": 4
+  },
+  {
+    "id": "never_melt_ice",
+    "name": "Never-Melt Ice",
+    "desc": "+40% Ice move damage; attempts Ice-type attacks if able",
+    "icon": "❄️",
+    "minMap": 4
+  },
+  {
+    "id": "black_belt",
+    "name": "Black Belt",
+    "desc": "+40% Fighting move damage; attempts Fighting-type attacks if able",
+    "icon": "🥋"
+  },
+  {
+    "id": "silver_powder",
+    "name": "Silver Powder",
+    "desc": "+40% Bug move damage; attempts Bug-type attacks if able",
+    "icon": "🐛"
+  },
+  {
+    "id": "assault_vest",
+    "name": "Assault Vest",
+    "desc": "+50% Sp.Def",
+    "icon": "🦺"
+  },
+  {
+    "id": "choice_scarf",
+    "name": "Choice Scarf",
+    "desc": "+50% Speed",
+    "icon": "🧣"
+  },
+  {
+    "id": "leftovers",
+    "name": "Leftovers",
+    "desc": "Restore 10% max HP each round",
+    "icon": "🍃"
+  },
+  {
+    "id": "expert_belt",
+    "name": "Expert Belt",
+    "desc": "+100% damage on super effective hits",
+    "icon": "🥊"
+  },
+  {
+    "id": "wide_lens",
+    "name": "Wide Lens",
+    "desc": "+20% damage on all moves",
+    "icon": "🔎"
+  },
+  {
+    "id": "quick_claw",
+    "name": "Quick Claw",
+    "desc": "50% chance to attack first regardless of speed",
+    "icon": "🪝"
+  },
+  {
+    "id": "kings_rock",
+    "name": "King's Rock",
+    "desc": "30% chance to flinch the target on a hit",
+    "icon": "👑"
+  },
+  {
+    "id": "lagging_tail",
+    "name": "Lagging Tail",
+    "desc": "Always moves last, but +100% move damage",
+    "icon": "🐌"
+  },
+  {
+    "id": "red_card",
+    "name": "Red Card",
+    "desc": "Take 50% less damage from super-effective hits",
+    "icon": "🟥"
+  },
+  {
+    "id": "loaded_dice",
+    "name": "Loaded Dice",
+    "desc": "Start of each battle: 37% chance for +2 to ATK / DEF / Sp.Atk / Sp.Def / Speed, else -1",
+    "icon": "🎲",
+    "iconUrl": "img/items/loaded-dice.png",
+    "gen2Only": true
+  }
+]

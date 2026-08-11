@@ -1,0 +1,50 @@
+{
+  "description": "rock_explode (bundle.deobfuscated.js:62622-62684) lives inside traits_config.onKO, already correctly dispatched by the existing _handle_faint wiring -- the bug is purely in the splash damage itself: the source recomputes a FRESH calcDamage (its own crit/variance RNG draws) PER alive enemy target (Geodude vs each of Squirtle/Charmander/Magikarp individually, using THAT target's own defense/held items), not one shared value applied to everyone. Squirtle's Water-type hit is guaranteed to KO Geodude (current_hp=1, and Water is super-effective against both of Geodude's types). Charmander and Magikarp have deliberately different defense stats so a correct per-target roll produces different splash damage on each, while the pre-fix Python (one calcDamage against the first alive enemy, applied flat to every enemy) does not. calcDamage is also called with battle_config=null in the source (bundle.deobfuscated.js:62649-62658), not the real battle_config -- covered separately by a Python unit test since no Dark-tier/weather trait is active here to make that difference observable in final state.",
+  "gen": 3,
+  "passives": ["rock_explode"],
+  "seed": 9201,
+  "player_team": [
+    {
+      "species_id": 74,
+      "name": "Geodude",
+      "level": 10,
+      "types": ["Rock", "Ground"],
+      "base_stats": {"hp": 40, "atk": 80, "def": 100, "speed": 20, "special": 30, "spdef": 30},
+      "move_tier": 1,
+      "max_hp": 1,
+      "current_hp": 1
+    }
+  ],
+  "enemy_team": [
+    {
+      "species_id": 7,
+      "name": "Squirtle",
+      "level": 15,
+      "types": ["Water"],
+      "base_stats": {"hp": 44, "atk": 48, "def": 65, "speed": 43, "special": 50, "spdef": 64},
+      "move_tier": 1,
+      "max_hp": 200,
+      "current_hp": 200
+    },
+    {
+      "species_id": 4,
+      "name": "Charmander",
+      "level": 15,
+      "types": ["Fire"],
+      "base_stats": {"hp": 39, "atk": 52, "def": 43, "speed": 65, "special": 60, "spdef": 50},
+      "move_tier": 1,
+      "max_hp": 200,
+      "current_hp": 200
+    },
+    {
+      "species_id": 129,
+      "name": "Magikarp",
+      "level": 15,
+      "types": ["Water"],
+      "base_stats": {"hp": 20, "atk": 10, "def": 55, "speed": 80, "special": 15, "spdef": 20},
+      "move_tier": 1,
+      "max_hp": 200,
+      "current_hp": 200
+    }
+  ]
+}

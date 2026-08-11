@@ -1,0 +1,26 @@
+{
+  "description": "Stage 4 / CODEX P0.1: combined ability+trait beforeTurn on the SAME Pokemon -- Slakoth's Truant (ability, generic beforeTurn) and sword_charm (trait, generic beforeTurn) merged together. True JS order is ability-first-then-traits (mergeBattleConfigs(O=ability, iu=traits), bundle.deobfuscated.js:80991-81015), both fire for their side effects (Truant's alternating-loaf counter still flips; sword_charm's one-shot +4 Atk still applies), but BOTH configs' 'skip' returns are discarded -- so Slakoth attacks on every single round from round 1 onward, never loafing, on top of gaining sword_charm's +4 Atk once. This is the fixture that would catch a merge implementation that gets discard-semantics right but call-order wrong (traits-then-ability instead of ability-then-traits).",
+  "gen": 3,
+  "passives": ["sword_charm"],
+  "seed": 21,
+  "player_team": [
+    {
+      "species_id": 287,
+      "name": "Slakoth",
+      "level": 50,
+      "types": ["Normal"],
+      "base_stats": {"hp": 60, "atk": 60, "def": 60, "speed": 30, "special": 35, "spdef": 35},
+      "move_tier": 3
+    }
+  ],
+  "enemy_team": [
+    {
+      "species_id": 1,
+      "name": "Bulbasaur",
+      "level": 50,
+      "types": ["Grass", "Poison"],
+      "base_stats": {"hp": 45, "atk": 49, "def": 49, "speed": 45, "special": 65, "spdef": 65},
+      "move_tier": 3
+    }
+  ]
+}

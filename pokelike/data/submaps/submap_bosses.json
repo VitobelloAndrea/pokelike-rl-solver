@@ -1,0 +1,98 @@
+{
+  "underground": {
+    "name": "Ruin Maniac",
+    "sprite": "https://play.pokemonshowdown.com/sprites/trainers/ruinmaniac.png",
+    "teams": [
+      [
+        {
+          "id": 76,
+          "off": -3
+        },
+        {
+          "id": 51,
+          "off": -2
+        },
+        {
+          "id": 464,
+          "off": 0
+        }
+      ],
+      [
+        {
+          "id": 411,
+          "off": -3
+        },
+        {
+          "id": 450,
+          "off": -2
+        },
+        {
+          "id": 476,
+          "off": 0
+        }
+      ],
+      [
+        {
+          "id": 409,
+          "off": -3
+        },
+        {
+          "id": 344,
+          "off": -2
+        },
+        {
+          "id": 473,
+          "off": 0
+        }
+      ]
+    ]
+  },
+  "distortion": {
+    "name": "Cyrus",
+    "sprite": "https://play.pokemonshowdown.com/sprites/trainers/cyrus.png",
+    "teams": [
+      [
+        {
+          "id": 430,
+          "off": -3
+        },
+        {
+          "id": 169,
+          "off": -2
+        },
+        {
+          "id": 229,
+          "off": 0
+        }
+      ],
+      [
+        {
+          "id": 461,
+          "off": -3
+        },
+        {
+          "id": 442,
+          "off": -2
+        },
+        {
+          "id": 130,
+          "off": 0
+        }
+      ],
+      [
+        {
+          "id": 477,
+          "off": -3
+        },
+        {
+          "id": 169,
+          "off": -2
+        },
+        {
+          "id": 229,
+          "off": 0
+        }
+      ]
+    ]
+  }
+}

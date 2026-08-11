@@ -1,0 +1,26 @@
+{
+  "description": "Stage 2 minimal fixture: Gen1 ordinary Story, one Pokemon per side, no abilities/traits/held items/status, fixed level/stats. Proves the oracle harness itself (fixture -> real JS runBattle -> normalized JSON) works before any merged-config work.",
+  "gen": 1,
+  "passives": [],
+  "seed": 12345,
+  "player_team": [
+    {
+      "species_id": 1,
+      "name": "Bulbasaur",
+      "level": 20,
+      "types": ["Grass", "Poison"],
+      "base_stats": {"hp": 45, "atk": 49, "def": 49, "speed": 45, "special": 65, "spdef": 65},
+      "move_tier": 1
+    }
+  ],
+  "enemy_team": [
+    {
+      "species_id": 4,
+      "name": "Charmander",
+      "level": 20,
+      "types": ["Fire"],
+      "base_stats": {"hp": 39, "atk": 52, "def": 43, "speed": 65, "special": 60, "spdef": 50},
+      "move_tier": 1
+    }
+  ]
+}

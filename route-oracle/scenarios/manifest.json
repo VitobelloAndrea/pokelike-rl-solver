@@ -36,7 +36,9 @@
     "shiny_accept_resolved",
     "legendary_swap_full_replace",
     "legendary_swap_full_decline",
-    "catch_room_accept_resume_cleared"
+    "catch_room_accept_resume_cleared",
+    "held_item_unequip_resolved",
+    "held_item_handoff_resolved"
   ],
   "scenarios": [
     {
@@ -1367,6 +1369,122 @@
           25,
           56,
           85
+        ]
+      }
+    },
+    {
+      "file": "story_gen1_held_item_unequip.json",
+      "covers": [
+        "starter_selection",
+        "ordinary_trainer",
+        "item_equip_resolved",
+        "held_item_unequip_resolved",
+        "map_transition",
+        "winning_progression"
+      ],
+      "expected_coverage": {
+        "evolution_or_reward_transition": [
+          41
+        ],
+        "held_item_unequip_resolved": [
+          41
+        ],
+        "item_equip_resolved": [
+          39
+        ],
+        "map_transition": [
+          29
+        ],
+        "ordinary_trainer": [
+          9,
+          12,
+          15
+        ],
+        "starter_selection": [
+          2
+        ],
+        "winning_progression": [
+          26
+        ]
+      }
+    },
+    {
+      "file": "story_gen4_held_item_handoff.json",
+      "covers": [
+        "starter_selection",
+        "ordinary_trainer",
+        "held_item_handoff_resolved",
+        "held_item_unequip_resolved",
+        "legendary_swap_accept",
+        "map_transition",
+        "winning_progression"
+      ],
+      "expected_coverage": {
+        "evolution_or_reward_transition": [
+          22,
+          46,
+          73,
+          79,
+          99,
+          121,
+          123
+        ],
+        "exact_parent_return": [
+          48
+        ],
+        "held_item_handoff_resolved": [
+          119
+        ],
+        "held_item_unequip_resolved": [
+          121,
+          123
+        ],
+        "item_equip_resolved": [
+          20,
+          73,
+          79
+        ],
+        "legendary_swap_accept": [
+          115
+        ],
+        "map_transition": [
+          30,
+          61,
+          93
+        ],
+        "move_tutor_resolved": [
+          86
+        ],
+        "ordinary_trainer": [
+          8,
+          11,
+          14,
+          23,
+          36,
+          51,
+          67,
+          82,
+          100
+        ],
+        "starter_selection": [
+          2
+        ],
+        "subexit": [
+          48
+        ],
+        "submap_boss_win": [
+          44
+        ],
+        "submap_entry": [
+          41
+        ],
+        "trade_resolved": [
+          110
+        ],
+        "winning_progression": [
+          27,
+          58,
+          90
         ]
       }
     }

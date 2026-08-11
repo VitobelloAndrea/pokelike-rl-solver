@@ -1,0 +1,596 @@
+[
+  {
+    "name": "Brock",
+    "badge": "Boulder Badge",
+    "type": "Rock",
+    "moveTier": 0,
+    "team": [
+      {
+        "speciesId": 74,
+        "name": "Geodude",
+        "types": [
+          "Rock",
+          "Ground"
+        ],
+        "baseStats": {
+          "hp": 40,
+          "atk": 80,
+          "def": 100,
+          "speed": 20,
+          "special": 30
+        },
+        "level": 12
+      },
+      {
+        "speciesId": 95,
+        "name": "Onix",
+        "types": [
+          "Rock",
+          "Ground"
+        ],
+        "baseStats": {
+          "hp": 35,
+          "atk": 45,
+          "def": 160,
+          "speed": 70,
+          "special": 30
+        },
+        "level": 14
+      }
+    ]
+  },
+  {
+    "name": "Misty",
+    "badge": "Cascade Badge",
+    "type": "Water",
+    "moveTier": 0,
+    "team": [
+      {
+        "speciesId": 120,
+        "name": "Staryu",
+        "types": [
+          "Water"
+        ],
+        "baseStats": {
+          "hp": 30,
+          "atk": 45,
+          "def": 55,
+          "speed": 85,
+          "special": 70
+        },
+        "level": 18
+      },
+      {
+        "speciesId": 121,
+        "name": "Starmie",
+        "types": [
+          "Water",
+          "Psychic"
+        ],
+        "baseStats": {
+          "hp": 60,
+          "atk": 75,
+          "def": 85,
+          "speed": 115,
+          "special": 100
+        },
+        "level": 20
+      }
+    ]
+  },
+  {
+    "name": "Lt. Surge",
+    "badge": "Thunder Badge",
+    "type": "Electric",
+    "moveTier": 1,
+    "team": [
+      {
+        "speciesId": 25,
+        "name": "Pikachu",
+        "types": [
+          "Electric"
+        ],
+        "baseStats": {
+          "hp": 35,
+          "atk": 55,
+          "def": 40,
+          "speed": 90,
+          "special": 50
+        },
+        "level": 20,
+        "heldItem": {
+          "id": "eviolite",
+          "name": "Eviolite",
+          "icon": "💎"
+        }
+      },
+      {
+        "speciesId": 100,
+        "name": "Voltorb",
+        "types": [
+          "Electric"
+        ],
+        "baseStats": {
+          "hp": 40,
+          "atk": 30,
+          "def": 50,
+          "speed": 100,
+          "special": 55
+        },
+        "level": 23,
+        "heldItem": {
+          "id": "magnet",
+          "name": "Magnet",
+          "icon": "🧲"
+        }
+      },
+      {
+        "speciesId": 26,
+        "name": "Raichu",
+        "types": [
+          "Electric"
+        ],
+        "baseStats": {
+          "hp": 60,
+          "atk": 90,
+          "def": 55,
+          "speed": 110,
+          "special": 90
+        },
+        "level": 25,
+        "heldItem": {
+          "id": "life_orb",
+          "name": "Life Orb",
+          "icon": "🔮"
+        }
+      }
+    ]
+  },
+  {
+    "name": "Erika",
+    "badge": "Rainbow Badge",
+    "type": "Grass",
+    "moveTier": 1,
+    "team": [
+      {
+        "speciesId": 114,
+        "name": "Tangela",
+        "types": [
+          "Grass"
+        ],
+        "baseStats": {
+          "hp": 65,
+          "atk": 55,
+          "def": 115,
+          "speed": 60,
+          "special": 100
+        },
+        "level": 26,
+        "heldItem": {
+          "id": "leftovers",
+          "name": "Leftovers",
+          "icon": "🍃"
+        }
+      },
+      {
+        "speciesId": 71,
+        "name": "Victreebel",
+        "types": [
+          "Grass",
+          "Poison"
+        ],
+        "baseStats": {
+          "hp": 80,
+          "atk": 105,
+          "def": 65,
+          "speed": 70,
+          "special": 100
+        },
+        "level": 31,
+        "heldItem": {
+          "id": "poison_barb",
+          "name": "Poison Barb",
+          "icon": "☠️"
+        }
+      },
+      {
+        "speciesId": 45,
+        "name": "Vileplume",
+        "types": [
+          "Grass",
+          "Poison"
+        ],
+        "baseStats": {
+          "hp": 75,
+          "atk": 80,
+          "def": 85,
+          "speed": 50,
+          "special": 110
+        },
+        "level": 32,
+        "heldItem": {
+          "id": "miracle_seed",
+          "name": "Miracle Seed",
+          "icon": "🌱"
+        }
+      }
+    ]
+  },
+  {
+    "name": "Koga",
+    "badge": "Soul Badge",
+    "type": "Poison",
+    "moveTier": 1,
+    "team": [
+      {
+        "speciesId": 109,
+        "name": "Koffing",
+        "types": [
+          "Poison"
+        ],
+        "baseStats": {
+          "hp": 40,
+          "atk": 65,
+          "def": 95,
+          "speed": 35,
+          "special": 60
+        },
+        "level": 38,
+        "heldItem": {
+          "id": "rocky_helmet",
+          "name": "Rocky Helmet",
+          "icon": "⛑️"
+        }
+      },
+      {
+        "speciesId": 109,
+        "name": "Koffing",
+        "types": [
+          "Poison"
+        ],
+        "baseStats": {
+          "hp": 40,
+          "atk": 65,
+          "def": 95,
+          "speed": 35,
+          "special": 60
+        },
+        "level": 38,
+        "heldItem": {
+          "id": "rocky_helmet",
+          "name": "Rocky Helmet",
+          "icon": "⛑️"
+        }
+      },
+      {
+        "speciesId": 89,
+        "name": "Muk",
+        "types": [
+          "Poison"
+        ],
+        "baseStats": {
+          "hp": 105,
+          "atk": 105,
+          "def": 75,
+          "speed": 50,
+          "special": 65
+        },
+        "level": 40,
+        "heldItem": {
+          "id": "poison_barb",
+          "name": "Poison Barb",
+          "icon": "☠️"
+        }
+      },
+      {
+        "speciesId": 110,
+        "name": "Weezing",
+        "types": [
+          "Poison"
+        ],
+        "baseStats": {
+          "hp": 65,
+          "atk": 90,
+          "def": 120,
+          "speed": 60,
+          "special": 85
+        },
+        "level": 44,
+        "heldItem": {
+          "id": "leftovers",
+          "name": "Leftovers",
+          "icon": "🍃"
+        }
+      }
+    ]
+  },
+  {
+    "name": "Sabrina",
+    "badge": "Marsh Badge",
+    "type": "Psychic",
+    "moveTier": 1,
+    "team": [
+      {
+        "speciesId": 122,
+        "name": "Mr. Mime",
+        "types": [
+          "Psychic"
+        ],
+        "baseStats": {
+          "hp": 40,
+          "atk": 45,
+          "def": 65,
+          "speed": 90,
+          "special": 100
+        },
+        "level": 40,
+        "heldItem": {
+          "id": "twisted_spoon",
+          "name": "Twisted Spoon",
+          "icon": "🥄"
+        }
+      },
+      {
+        "speciesId": 49,
+        "name": "Venomoth",
+        "types": [
+          "Bug",
+          "Poison"
+        ],
+        "baseStats": {
+          "hp": 70,
+          "atk": 65,
+          "def": 60,
+          "speed": 90,
+          "special": 90
+        },
+        "level": 41,
+        "heldItem": {
+          "id": "silver_powder",
+          "name": "Silver Powder",
+          "icon": "🐛"
+        }
+      },
+      {
+        "speciesId": 64,
+        "name": "Kadabra",
+        "types": [
+          "Psychic"
+        ],
+        "baseStats": {
+          "hp": 40,
+          "atk": 35,
+          "def": 30,
+          "speed": 105,
+          "special": 120
+        },
+        "level": 42,
+        "heldItem": {
+          "id": "eviolite",
+          "name": "Eviolite",
+          "icon": "💎"
+        }
+      },
+      {
+        "speciesId": 65,
+        "name": "Alakazam",
+        "types": [
+          "Psychic"
+        ],
+        "baseStats": {
+          "hp": 55,
+          "atk": 50,
+          "def": 45,
+          "speed": 120,
+          "special": 135
+        },
+        "level": 44,
+        "heldItem": {
+          "id": "scope_lens",
+          "name": "Scope Lens",
+          "icon": "🔭"
+        }
+      }
+    ]
+  },
+  {
+    "name": "Blaine",
+    "badge": "Volcano Badge",
+    "type": "Fire",
+    "moveTier": 2,
+    "team": [
+      {
+        "speciesId": 77,
+        "name": "Ponyta",
+        "types": [
+          "Fire"
+        ],
+        "baseStats": {
+          "hp": 50,
+          "atk": 85,
+          "def": 55,
+          "speed": 90,
+          "special": 65
+        },
+        "level": 47,
+        "heldItem": {
+          "id": "charcoal",
+          "name": "Charcoal",
+          "icon": "🔥"
+        }
+      },
+      {
+        "speciesId": 58,
+        "name": "Growlithe",
+        "types": [
+          "Fire"
+        ],
+        "baseStats": {
+          "hp": 55,
+          "atk": 70,
+          "def": 45,
+          "speed": 60,
+          "special": 50
+        },
+        "level": 47,
+        "heldItem": {
+          "id": "eviolite",
+          "name": "Eviolite",
+          "icon": "💎"
+        }
+      },
+      {
+        "speciesId": 78,
+        "name": "Rapidash",
+        "types": [
+          "Fire"
+        ],
+        "baseStats": {
+          "hp": 65,
+          "atk": 100,
+          "def": 70,
+          "speed": 105,
+          "special": 80
+        },
+        "level": 48,
+        "heldItem": {
+          "id": "charcoal",
+          "name": "Charcoal",
+          "icon": "🔥"
+        }
+      },
+      {
+        "speciesId": 59,
+        "name": "Arcanine",
+        "types": [
+          "Fire"
+        ],
+        "baseStats": {
+          "hp": 90,
+          "atk": 110,
+          "def": 80,
+          "speed": 95,
+          "special": 100
+        },
+        "level": 53,
+        "heldItem": {
+          "id": "life_orb",
+          "name": "Life Orb",
+          "icon": "🔮"
+        }
+      }
+    ]
+  },
+  {
+    "name": "Giovanni",
+    "badge": "Earth Badge",
+    "type": "Ground",
+    "moveTier": 2,
+    "team": [
+      {
+        "speciesId": 51,
+        "name": "Dugtrio",
+        "types": [
+          "Ground"
+        ],
+        "baseStats": {
+          "hp": 35,
+          "atk": 100,
+          "def": 50,
+          "speed": 120,
+          "special": 50
+        },
+        "level": 55,
+        "heldItem": {
+          "id": "soft_sand",
+          "name": "Soft Sand",
+          "icon": "🏖️"
+        }
+      },
+      {
+        "speciesId": 31,
+        "name": "Nidoqueen",
+        "types": [
+          "Poison",
+          "Ground"
+        ],
+        "baseStats": {
+          "hp": 90,
+          "atk": 82,
+          "def": 87,
+          "speed": 76,
+          "special": 75
+        },
+        "level": 53,
+        "heldItem": {
+          "id": "poison_barb",
+          "name": "Poison Barb",
+          "icon": "☠️"
+        }
+      },
+      {
+        "speciesId": 34,
+        "name": "Nidoking",
+        "types": [
+          "Poison",
+          "Ground"
+        ],
+        "baseStats": {
+          "hp": 81,
+          "atk": 92,
+          "def": 77,
+          "speed": 85,
+          "special": 75
+        },
+        "level": 54,
+        "heldItem": {
+          "id": "soft_sand",
+          "name": "Soft Sand",
+          "icon": "🏖️"
+        }
+      },
+      {
+        "speciesId": 111,
+        "name": "Rhyhorn",
+        "types": [
+          "Ground",
+          "Rock"
+        ],
+        "baseStats": {
+          "hp": 80,
+          "atk": 85,
+          "def": 95,
+          "speed": 25,
+          "special": 30
+        },
+        "level": 56,
+        "heldItem": {
+          "id": "hard_stone",
+          "name": "Hard Stone",
+          "icon": "🪨"
+        }
+      },
+      {
+        "speciesId": 112,
+        "name": "Rhydon",
+        "types": [
+          "Ground",
+          "Rock"
+        ],
+        "baseStats": {
+          "hp": 105,
+          "atk": 130,
+          "def": 120,
+          "speed": 40,
+          "special": 45
+        },
+        "level": 60,
+        "heldItem": {
+          "id": "rocky_helmet",
+          "name": "Rocky Helmet",
+          "icon": "⛑️"
+        }
+      }
+    ]
+  }
+]

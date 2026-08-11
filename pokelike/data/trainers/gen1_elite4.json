@@ -1,0 +1,556 @@
+[
+  {
+    "name": "Lorelei",
+    "title": "Elite Four",
+    "type": "Ice",
+    "team": [
+      {
+        "speciesId": 87,
+        "name": "Dewgong",
+        "types": [
+          "Water",
+          "Ice"
+        ],
+        "baseStats": {
+          "hp": 90,
+          "atk": 70,
+          "def": 80,
+          "speed": 70,
+          "special": 95
+        },
+        "level": 54,
+        "heldItem": {
+          "id": "mystic_water",
+          "name": "Mystic Water",
+          "icon": "💧"
+        }
+      },
+      {
+        "speciesId": 91,
+        "name": "Cloyster",
+        "types": [
+          "Water",
+          "Ice"
+        ],
+        "baseStats": {
+          "hp": 50,
+          "atk": 95,
+          "def": 180,
+          "speed": 70,
+          "special": 85
+        },
+        "level": 53,
+        "heldItem": {
+          "id": "rocky_helmet",
+          "name": "Rocky Helmet",
+          "icon": "⛑️"
+        }
+      },
+      {
+        "speciesId": 80,
+        "name": "Slowbro",
+        "types": [
+          "Water",
+          "Psychic"
+        ],
+        "baseStats": {
+          "hp": 95,
+          "atk": 75,
+          "def": 110,
+          "speed": 30,
+          "special": 100
+        },
+        "level": 54,
+        "heldItem": {
+          "id": "leftovers",
+          "name": "Leftovers",
+          "icon": "🍃"
+        }
+      },
+      {
+        "speciesId": 124,
+        "name": "Jynx",
+        "types": [
+          "Ice",
+          "Psychic"
+        ],
+        "baseStats": {
+          "hp": 65,
+          "atk": 50,
+          "def": 35,
+          "speed": 95,
+          "special": 95
+        },
+        "level": 56,
+        "heldItem": {
+          "id": "twisted_spoon",
+          "name": "Twisted Spoon",
+          "icon": "🥄"
+        }
+      },
+      {
+        "speciesId": 131,
+        "name": "Lapras",
+        "types": [
+          "Water",
+          "Ice"
+        ],
+        "baseStats": {
+          "hp": 130,
+          "atk": 85,
+          "def": 80,
+          "speed": 60,
+          "special": 95
+        },
+        "level": 56,
+        "heldItem": {
+          "id": "shell_bell",
+          "name": "Shell Bell",
+          "icon": "🐚"
+        }
+      }
+    ]
+  },
+  {
+    "name": "Bruno",
+    "title": "Elite Four",
+    "type": "Fighting",
+    "team": [
+      {
+        "speciesId": 95,
+        "name": "Onix",
+        "types": [
+          "Rock",
+          "Ground"
+        ],
+        "baseStats": {
+          "hp": 35,
+          "atk": 45,
+          "def": 160,
+          "speed": 70,
+          "special": 30
+        },
+        "level": 53,
+        "heldItem": {
+          "id": "rocky_helmet",
+          "name": "Rocky Helmet",
+          "icon": "⛑️"
+        }
+      },
+      {
+        "speciesId": 107,
+        "name": "Hitmonchan",
+        "types": [
+          "Fighting"
+        ],
+        "baseStats": {
+          "hp": 50,
+          "atk": 105,
+          "def": 79,
+          "speed": 76,
+          "special": 35
+        },
+        "level": 55,
+        "heldItem": {
+          "id": "black_belt",
+          "name": "Black Belt",
+          "icon": "🥋"
+        }
+      },
+      {
+        "speciesId": 106,
+        "name": "Hitmonlee",
+        "types": [
+          "Fighting"
+        ],
+        "baseStats": {
+          "hp": 50,
+          "atk": 120,
+          "def": 53,
+          "speed": 87,
+          "special": 35
+        },
+        "level": 55,
+        "heldItem": {
+          "id": "life_orb",
+          "name": "Life Orb",
+          "icon": "🔮"
+        }
+      },
+      {
+        "speciesId": 95,
+        "name": "Onix",
+        "types": [
+          "Rock",
+          "Ground"
+        ],
+        "baseStats": {
+          "hp": 35,
+          "atk": 45,
+          "def": 160,
+          "speed": 70,
+          "special": 30
+        },
+        "level": 54,
+        "heldItem": {
+          "id": "hard_stone",
+          "name": "Hard Stone",
+          "icon": "🪨"
+        }
+      },
+      {
+        "speciesId": 68,
+        "name": "Machamp",
+        "types": [
+          "Fighting"
+        ],
+        "baseStats": {
+          "hp": 90,
+          "atk": 130,
+          "def": 80,
+          "speed": 55,
+          "special": 65
+        },
+        "level": 58,
+        "heldItem": {
+          "id": "choice_band",
+          "name": "Choice Band",
+          "icon": "🎀"
+        }
+      }
+    ]
+  },
+  {
+    "name": "Agatha",
+    "title": "Elite Four",
+    "type": "Ghost",
+    "team": [
+      {
+        "speciesId": 94,
+        "name": "Gengar",
+        "types": [
+          "Ghost",
+          "Poison"
+        ],
+        "baseStats": {
+          "hp": 60,
+          "atk": 65,
+          "def": 60,
+          "speed": 110,
+          "special": 130
+        },
+        "level": 54,
+        "heldItem": {
+          "id": "spell_tag",
+          "name": "Spell Tag",
+          "icon": "👻"
+        }
+      },
+      {
+        "speciesId": 42,
+        "name": "Golbat",
+        "types": [
+          "Poison",
+          "Flying"
+        ],
+        "baseStats": {
+          "hp": 75,
+          "atk": 80,
+          "def": 70,
+          "speed": 90,
+          "special": 75
+        },
+        "level": 54,
+        "heldItem": {
+          "id": "poison_barb",
+          "name": "Poison Barb",
+          "icon": "☠️"
+        }
+      },
+      {
+        "speciesId": 93,
+        "name": "Haunter",
+        "types": [
+          "Ghost",
+          "Poison"
+        ],
+        "baseStats": {
+          "hp": 45,
+          "atk": 50,
+          "def": 45,
+          "speed": 95,
+          "special": 115
+        },
+        "level": 56,
+        "heldItem": {
+          "id": "life_orb",
+          "name": "Life Orb",
+          "icon": "🔮"
+        }
+      },
+      {
+        "speciesId": 42,
+        "name": "Golbat",
+        "types": [
+          "Poison",
+          "Flying"
+        ],
+        "baseStats": {
+          "hp": 75,
+          "atk": 80,
+          "def": 70,
+          "speed": 90,
+          "special": 75
+        },
+        "level": 56,
+        "heldItem": {
+          "id": "sharp_beak",
+          "name": "Sharp Beak",
+          "icon": "🦅"
+        }
+      },
+      {
+        "speciesId": 94,
+        "name": "Gengar",
+        "types": [
+          "Ghost",
+          "Poison"
+        ],
+        "baseStats": {
+          "hp": 60,
+          "atk": 65,
+          "def": 60,
+          "speed": 110,
+          "special": 130
+        },
+        "level": 58,
+        "heldItem": {
+          "id": "scope_lens",
+          "name": "Scope Lens",
+          "icon": "🔭"
+        }
+      }
+    ]
+  },
+  {
+    "name": "Lance",
+    "title": "Elite Four",
+    "type": "Dragon",
+    "team": [
+      {
+        "speciesId": 130,
+        "name": "Gyarados",
+        "types": [
+          "Water",
+          "Flying"
+        ],
+        "baseStats": {
+          "hp": 95,
+          "atk": 125,
+          "def": 79,
+          "speed": 81,
+          "special": 100
+        },
+        "level": 56,
+        "heldItem": {
+          "id": "mystic_water",
+          "name": "Mystic Water",
+          "icon": "💧"
+        }
+      },
+      {
+        "speciesId": 149,
+        "name": "Dragonite",
+        "types": [
+          "Dragon",
+          "Flying"
+        ],
+        "baseStats": {
+          "hp": 91,
+          "atk": 134,
+          "def": 95,
+          "speed": 80,
+          "special": 100
+        },
+        "level": 56,
+        "heldItem": {
+          "id": "dragon_fang",
+          "name": "Dragon Fang",
+          "icon": "🐉"
+        }
+      },
+      {
+        "speciesId": 148,
+        "name": "Dragonair",
+        "types": [
+          "Dragon"
+        ],
+        "baseStats": {
+          "hp": 61,
+          "atk": 84,
+          "def": 65,
+          "speed": 70,
+          "special": 70
+        },
+        "level": 58,
+        "heldItem": {
+          "id": "eviolite",
+          "name": "Eviolite",
+          "icon": "💎"
+        }
+      },
+      {
+        "speciesId": 148,
+        "name": "Dragonair",
+        "types": [
+          "Dragon"
+        ],
+        "baseStats": {
+          "hp": 61,
+          "atk": 84,
+          "def": 65,
+          "speed": 70,
+          "special": 70
+        },
+        "level": 60,
+        "heldItem": {
+          "id": "dragon_fang",
+          "name": "Dragon Fang",
+          "icon": "🐉"
+        }
+      },
+      {
+        "speciesId": 149,
+        "name": "Dragonite",
+        "types": [
+          "Dragon",
+          "Flying"
+        ],
+        "baseStats": {
+          "hp": 91,
+          "atk": 134,
+          "def": 95,
+          "speed": 80,
+          "special": 100
+        },
+        "level": 62,
+        "heldItem": {
+          "id": "choice_band",
+          "name": "Choice Band",
+          "icon": "🎀"
+        }
+      }
+    ]
+  },
+  {
+    "name": "Gary",
+    "title": "Champion",
+    "type": "Mixed",
+    "team": [
+      {
+        "speciesId": 18,
+        "name": "Pidgeot",
+        "types": [
+          "Normal",
+          "Flying"
+        ],
+        "baseStats": {
+          "hp": 83,
+          "atk": 80,
+          "def": 75,
+          "speed": 101,
+          "special": 70
+        },
+        "level": 61,
+        "heldItem": {
+          "id": "sharp_beak",
+          "name": "Sharp Beak",
+          "icon": "🦅"
+        }
+      },
+      {
+        "speciesId": 65,
+        "name": "Alakazam",
+        "types": [
+          "Psychic"
+        ],
+        "baseStats": {
+          "hp": 55,
+          "atk": 50,
+          "def": 45,
+          "speed": 120,
+          "special": 135
+        },
+        "level": 59,
+        "heldItem": {
+          "id": "twisted_spoon",
+          "name": "Twisted Spoon",
+          "icon": "🥄"
+        }
+      },
+      {
+        "speciesId": 112,
+        "name": "Rhydon",
+        "types": [
+          "Ground",
+          "Rock"
+        ],
+        "baseStats": {
+          "hp": 105,
+          "atk": 130,
+          "def": 120,
+          "speed": 40,
+          "special": 45
+        },
+        "level": 61,
+        "heldItem": {
+          "id": "soft_sand",
+          "name": "Soft Sand",
+          "icon": "🏖️"
+        }
+      },
+      {
+        "speciesId": 103,
+        "name": "Exeggutor",
+        "types": [
+          "Grass",
+          "Psychic"
+        ],
+        "baseStats": {
+          "hp": 95,
+          "atk": 95,
+          "def": 85,
+          "speed": 55,
+          "special": 125
+        },
+        "level": 61,
+        "heldItem": {
+          "id": "miracle_seed",
+          "name": "Miracle Seed",
+          "icon": "🌱"
+        }
+      },
+      {
+        "speciesId": 6,
+        "name": "Charizard",
+        "types": [
+          "Fire",
+          "Flying"
+        ],
+        "baseStats": {
+          "hp": 78,
+          "atk": 84,
+          "def": 78,
+          "speed": 100,
+          "special": 109
+        },
+        "level": 65,
+        "heldItem": {
+          "id": "charcoal",
+          "name": "Charcoal",
+          "icon": "🔥"
+        }
+      }
+    ]
+  }
+]

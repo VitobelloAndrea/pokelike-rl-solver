@@ -1,0 +1,20 @@
+{
+  "Flying": "sharp_beak",
+  "Fire": "charcoal",
+  "Water": "mystic_water",
+  "Electric": "magnet",
+  "Grass": "miracle_seed",
+  "Psychic": "twisted_spoon",
+  "Ground": "soft_sand",
+  "Rock": "hard_stone",
+  "Dragon": "dragon_fang",
+  "Poison": "poison_barb",
+  "Ghost": "spell_tag",
+  "Normal": "silk_scarf",
+  "Steel": "metal_coat",
+  "Dark": "black_glasses",
+  "Fairy": "pixie_plate",
+  "Ice": "never_melt_ice",
+  "Fighting": "black_belt",
+  "Bug": "silver_powder"
+}

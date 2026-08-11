@@ -42,6 +42,28 @@ may be set.
 | `visit` | `onNodeClick(state.map.nodes[node])` | `Engine.step(VisitNode(node))` |
 | `choice` | invoke the handler the **source** attached to the corresponding card / skip button | `Engine.step(SelectOption(index))` |
 | `advance_map` | click `#btn-next-map`, whose handler is `showBadgeScreen`'s own `startMap(currentMap + 1)` | `Engine.step(AdvanceMap())` |
+| `equip` | `openItemEquipModal(item, {fromBagIdx})` — the item-bar badge's own handler (`64857`) — then the `[data-idx]` row for `member` | `Engine.step(EquipItem(bag_index, team_index))` |
+| `held_item` | `openItemEquipModal(team[member].heldItem, {fromPokemonIdx: member})` — the held-item badge's own handler (`64702-64709` team bar, `78203` party screen) — then the exit named by `target`/`via` below | `Engine.step(UnequipItem(...))` or `Engine.step(HandOffItem(...))` |
+
+**M6 added the last two.** They exist because the item-equip overlay has three
+exits and only one of them was reachable through the `choice` bridge. The
+overlay is not a `showScreen` screen, so it never had one:
+
+| `held_item` field | source exit | Python action |
+|---|---|---|
+| `target: <int>` | the `[data-idx]` row's `iu >= 0` branch (`79541-79545`) — a two-member **swap** | `HandOffItem(from_index=member, to_index=target)` |
+| `target: null` | `#btn-equip-to-bag` with `fromPokemonIdx >= 0` (`79549-79553`) | `UnequipItem(team_index=member)` |
+| `target: null, via: "row"` | the holder row's own `[data-unequip]` button (`79521-79531`) | `UnequipItem(team_index=member)` — the same action, which is the claim the scenario proves |
+
+Buttons here are addressed **by their `data-idx` value, not by position**: the
+source gives the member the overlay was opened from a `data-unequip` button
+instead of a `data-idx` one (`79490-79495`), so the `[data-idx]` list has a
+hole in it and positional indexing would silently address a different member.
+
+These kinds add no field to any existing checkpoint and change no existing
+kind's shape, so `schema_version` stays **2**. A runner that predates them
+fails loudly on the unknown kind (`run_scenario.py`'s own `raise ValueError`)
+rather than skipping the action.
 
 `choice` is resolved against whichever screen the source is currently
 showing, using bridges that are wired to the source's own elements:
@@ -73,6 +95,8 @@ Every checkpoint carries the full normalized state plus a kind-specific
 | `battle` | one per `runBattle` call that the action produced |
 | `node_post` | after the node action settles or suspends |
 | `choice_pre` / `choice_post` | around a `choice` |
+| `equip_pre` / `equip_post` | around an `equip` (M6) |
+| `held_item_pre` / `held_item_post` | around a `held_item` (M6) |
 | `map_transition_pre` / `map_transition_post` | around `advance_map` |
 | `terminal` | end of the scenario |
 
@@ -376,6 +400,28 @@ transforms and trait/ability triggers are still outside the projection.
 `status_events` continues to carry the status-tick subset (untouched, and the
 sleep-logging gap remains frozen as blocker 4). Producing a complete
 cross-runtime event log remains renderer-track (R4) work.
+
+**M6 clarification — the compared family is enforced on BOTH sides now.** The
+paragraph above describes what the *projections* keep, and it is easy to
+misread as "these records do not exist". They do: the source's `detailedLog`
+has always carried `effect`, `faint` and `send_out` entries, and
+`driver.js`'s `deriveTurns` (`:244`) filters them out, keeping
+`type === 'attack'` alone. Since M6 the Python side's
+`battle_loop.BattleResult.battle_events` also carries `effect` and `faint`
+(the renderer needs them — see docs/renderer-contract.md §13), so
+`run_scenario._fold_turns` now applies the **same** filter, and does it more
+strictly: a type that is neither compared nor a declared presentation-only
+family raises instead of being silently dropped.
+
+The consequence worth stating plainly, because it is what made N10/N11 look
+unfixable for two milestones: `status_events` **is** strictly compared — there
+is no tolerance or exclusion for it anywhere in `compare.py` — but
+`deriveStatusEvents` keeps only status-tick-caused faints and Pecha-Berry
+effects. So putting a new record family on `status_events` would have
+manufactured a difference out of records both runtimes produce and neither
+compared. The carrier, not the record, was the risk. Nothing here needed a
+version bump; the frozen signature was byte-identical across that change, and
+moved only later, when M6 added two scenarios.
 
 `map_topology` inside `sub_map_return` is deliberately the **complete**
 normalized parent map, not a count and not a flags-only summary. The parent's

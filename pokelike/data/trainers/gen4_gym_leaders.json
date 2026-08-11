@@ -1,0 +1,538 @@
+[
+  {
+    "name": "Roark",
+    "badge": "Coal Badge",
+    "type": "Rock",
+    "moveTier": 0,
+    "team": [
+      {
+        "speciesId": 74,
+        "name": "Geodude",
+        "types": [
+          "Rock",
+          "Ground"
+        ],
+        "baseStats": {
+          "hp": 40,
+          "atk": 80,
+          "def": 100,
+          "speed": 20,
+          "special": 30,
+          "spdef": 30
+        },
+        "level": 10
+      },
+      {
+        "speciesId": 95,
+        "name": "Onix",
+        "types": [
+          "Rock",
+          "Ground"
+        ],
+        "baseStats": {
+          "hp": 35,
+          "atk": 45,
+          "def": 160,
+          "speed": 70,
+          "special": 30,
+          "spdef": 45
+        },
+        "level": 10
+      },
+      {
+        "speciesId": 408,
+        "name": "Cranidos",
+        "types": [
+          "Rock"
+        ],
+        "baseStats": {
+          "hp": 67,
+          "atk": 125,
+          "def": 40,
+          "speed": 58,
+          "special": 30,
+          "spdef": 30
+        },
+        "level": 12,
+        "heldItem": {
+          "id": "lagging_tail",
+          "name": "Lagging Tail",
+          "icon": "🐌"
+        }
+      }
+    ]
+  },
+  {
+    "name": "Gardenia",
+    "badge": "Forest Badge",
+    "type": "Grass",
+    "moveTier": 0,
+    "team": [
+      {
+        "speciesId": 387,
+        "name": "Turtwig",
+        "types": [
+          "Grass"
+        ],
+        "baseStats": {
+          "hp": 55,
+          "atk": 68,
+          "def": 64,
+          "speed": 31,
+          "special": 45,
+          "spdef": 55
+        },
+        "level": 17
+      },
+      {
+        "speciesId": 421,
+        "name": "Cherrim",
+        "types": [
+          "Grass"
+        ],
+        "baseStats": {
+          "hp": 70,
+          "atk": 60,
+          "def": 70,
+          "speed": 85,
+          "special": 87,
+          "spdef": 78
+        },
+        "level": 18,
+        "spriteUrl": "img/sprites/pokemon/421-sunshine.png"
+      },
+      {
+        "speciesId": 407,
+        "name": "Roserade",
+        "types": [
+          "Grass",
+          "Poison"
+        ],
+        "baseStats": {
+          "hp": 60,
+          "atk": 70,
+          "def": 65,
+          "speed": 90,
+          "special": 125,
+          "spdef": 105
+        },
+        "level": 19,
+        "heldItem": {
+          "id": "scope_lens",
+          "name": "Scope Lens",
+          "icon": "🔭"
+        }
+      }
+    ]
+  },
+  {
+    "name": "Fantina",
+    "badge": "Relic Badge",
+    "type": "Ghost",
+    "moveTier": 1,
+    "team": [
+      {
+        "speciesId": 355,
+        "name": "Duskull",
+        "types": [
+          "Ghost"
+        ],
+        "baseStats": {
+          "hp": 20,
+          "atk": 40,
+          "def": 90,
+          "speed": 25,
+          "special": 30,
+          "spdef": 90
+        },
+        "level": 27
+      },
+      {
+        "speciesId": 93,
+        "name": "Haunter",
+        "types": [
+          "Ghost",
+          "Poison"
+        ],
+        "baseStats": {
+          "hp": 45,
+          "atk": 50,
+          "def": 45,
+          "speed": 95,
+          "special": 115,
+          "spdef": 55
+        },
+        "level": 27
+      },
+      {
+        "speciesId": 429,
+        "name": "Mismagius",
+        "types": [
+          "Ghost"
+        ],
+        "baseStats": {
+          "hp": 60,
+          "atk": 60,
+          "def": 60,
+          "speed": 105,
+          "special": 105,
+          "spdef": 105
+        },
+        "level": 30,
+        "heldItem": {
+          "id": "spell_tag",
+          "name": "Spell Tag",
+          "icon": "👻"
+        }
+      }
+    ]
+  },
+  {
+    "name": "Maylene",
+    "badge": "Cobble Badge",
+    "type": "Fighting",
+    "moveTier": 1,
+    "team": [
+      {
+        "speciesId": 307,
+        "name": "Meditite",
+        "types": [
+          "Fighting",
+          "Psychic"
+        ],
+        "baseStats": {
+          "hp": 30,
+          "atk": 40,
+          "def": 55,
+          "speed": 60,
+          "special": 40,
+          "spdef": 55
+        },
+        "level": 37
+      },
+      {
+        "speciesId": 67,
+        "name": "Machoke",
+        "types": [
+          "Fighting"
+        ],
+        "baseStats": {
+          "hp": 80,
+          "atk": 100,
+          "def": 70,
+          "speed": 45,
+          "special": 50,
+          "spdef": 60
+        },
+        "level": 37
+      },
+      {
+        "speciesId": 448,
+        "name": "Lucario",
+        "types": [
+          "Fighting",
+          "Steel"
+        ],
+        "baseStats": {
+          "hp": 70,
+          "atk": 110,
+          "def": 70,
+          "speed": 90,
+          "special": 115,
+          "spdef": 70
+        },
+        "level": 40,
+        "heldItem": {
+          "id": "black_belt",
+          "name": "Black Belt",
+          "icon": "🥋"
+        }
+      }
+    ]
+  },
+  {
+    "name": "Crasher Wake",
+    "badge": "Fen Badge",
+    "type": "Water",
+    "moveTier": 1,
+    "team": [
+      {
+        "speciesId": 130,
+        "name": "Gyarados",
+        "types": [
+          "Water",
+          "Flying"
+        ],
+        "baseStats": {
+          "hp": 95,
+          "atk": 125,
+          "def": 79,
+          "speed": 81,
+          "special": 60,
+          "spdef": 100
+        },
+        "level": 47
+      },
+      {
+        "speciesId": 195,
+        "name": "Quagsire",
+        "types": [
+          "Water",
+          "Ground"
+        ],
+        "baseStats": {
+          "hp": 95,
+          "atk": 85,
+          "def": 85,
+          "speed": 35,
+          "special": 65,
+          "spdef": 65
+        },
+        "level": 47
+      },
+      {
+        "speciesId": 419,
+        "name": "Floatzel",
+        "types": [
+          "Water"
+        ],
+        "baseStats": {
+          "hp": 85,
+          "atk": 105,
+          "def": 55,
+          "speed": 115,
+          "special": 85,
+          "spdef": 50
+        },
+        "level": 50,
+        "heldItem": {
+          "id": "mystic_water",
+          "name": "Mystic Water",
+          "icon": "💧"
+        }
+      }
+    ]
+  },
+  {
+    "name": "Byron",
+    "badge": "Mine Badge",
+    "type": "Steel",
+    "moveTier": 2,
+    "team": [
+      {
+        "speciesId": 82,
+        "name": "Magneton",
+        "types": [
+          "Electric",
+          "Steel"
+        ],
+        "baseStats": {
+          "hp": 50,
+          "atk": 60,
+          "def": 95,
+          "speed": 70,
+          "special": 120,
+          "spdef": 70
+        },
+        "level": 57
+      },
+      {
+        "speciesId": 208,
+        "name": "Steelix",
+        "types": [
+          "Steel",
+          "Ground"
+        ],
+        "baseStats": {
+          "hp": 75,
+          "atk": 85,
+          "def": 200,
+          "speed": 30,
+          "special": 55,
+          "spdef": 65
+        },
+        "level": 57
+      },
+      {
+        "speciesId": 411,
+        "name": "Bastiodon",
+        "types": [
+          "Rock",
+          "Steel"
+        ],
+        "baseStats": {
+          "hp": 60,
+          "atk": 52,
+          "def": 168,
+          "speed": 30,
+          "special": 47,
+          "spdef": 138
+        },
+        "level": 60,
+        "heldItem": {
+          "id": "leftovers",
+          "name": "Leftovers",
+          "icon": "🍃"
+        }
+      }
+    ]
+  },
+  {
+    "name": "Candice",
+    "badge": "Icicle Badge",
+    "type": "Ice",
+    "moveTier": 2,
+    "team": [
+      {
+        "speciesId": 215,
+        "name": "Sneasel",
+        "types": [
+          "Dark",
+          "Ice"
+        ],
+        "baseStats": {
+          "hp": 55,
+          "atk": 95,
+          "def": 55,
+          "speed": 115,
+          "special": 35,
+          "spdef": 75
+        },
+        "level": 68
+      },
+      {
+        "speciesId": 221,
+        "name": "Piloswine",
+        "types": [
+          "Ice",
+          "Ground"
+        ],
+        "baseStats": {
+          "hp": 100,
+          "atk": 100,
+          "def": 80,
+          "speed": 50,
+          "special": 60,
+          "spdef": 60
+        },
+        "level": 68
+      },
+      {
+        "speciesId": 460,
+        "name": "Abomasnow",
+        "types": [
+          "Grass",
+          "Ice"
+        ],
+        "baseStats": {
+          "hp": 90,
+          "atk": 92,
+          "def": 75,
+          "speed": 60,
+          "special": 92,
+          "spdef": 85
+        },
+        "level": 70
+      },
+      {
+        "speciesId": 478,
+        "name": "Froslass",
+        "types": [
+          "Ice",
+          "Ghost"
+        ],
+        "baseStats": {
+          "hp": 70,
+          "atk": 80,
+          "def": 70,
+          "speed": 110,
+          "special": 80,
+          "spdef": 70
+        },
+        "level": 72,
+        "heldItem": {
+          "id": "never_melt_ice",
+          "name": "Never-Melt Ice",
+          "icon": "❄️"
+        }
+      }
+    ]
+  },
+  {
+    "name": "Volkner",
+    "badge": "Beacon Badge",
+    "type": "Electric",
+    "moveTier": 2,
+    "team": [
+      {
+        "speciesId": 135,
+        "name": "Jolteon",
+        "types": [
+          "Electric"
+        ],
+        "baseStats": {
+          "hp": 65,
+          "atk": 65,
+          "def": 60,
+          "speed": 130,
+          "special": 110,
+          "spdef": 95
+        },
+        "level": 76
+      },
+      {
+        "speciesId": 26,
+        "name": "Raichu",
+        "types": [
+          "Electric"
+        ],
+        "baseStats": {
+          "hp": 60,
+          "atk": 90,
+          "def": 55,
+          "speed": 110,
+          "special": 90,
+          "spdef": 80
+        },
+        "level": 76
+      },
+      {
+        "speciesId": 405,
+        "name": "Luxray",
+        "types": [
+          "Electric"
+        ],
+        "baseStats": {
+          "hp": 80,
+          "atk": 120,
+          "def": 79,
+          "speed": 70,
+          "special": 95,
+          "spdef": 79
+        },
+        "level": 78
+      },
+      {
+        "speciesId": 466,
+        "name": "Electivire",
+        "types": [
+          "Electric"
+        ],
+        "baseStats": {
+          "hp": 75,
+          "atk": 123,
+          "def": 67,
+          "speed": 95,
+          "special": 95,
+          "spdef": 85
+        },
+        "level": 80,
+        "heldItem": {
+          "id": "magnet",
+          "name": "Magnet",
+          "icon": "🧲"
+        }
+      }
+    ]
+  }
+]

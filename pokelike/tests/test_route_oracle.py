@@ -307,10 +307,31 @@ class FixtureIntegrityTests(unittest.TestCase):
                 f"{entry['file']}: generation selection is mutually exclusive",
             )
             for step, action in enumerate(scenario["actions"]):
+                # M6 added `equip` and `held_item` -- the item-equip overlay's
+                # own entry points. It is not a `showScreen` screen, so the
+                # `choice` bridge never reached it; see SCHEMA.md's action
+                # vocabulary. This list stays a closed set on purpose: a typo'd
+                # kind must fail here, not be silently skipped by the runner.
                 self.assertIn(
-                    action["kind"], ("visit", "choice", "advance_map"),
+                    action["kind"],
+                    ("visit", "choice", "advance_map", "equip", "held_item"),
                     f"{entry['file']} step {step}",
                 )
+                if action["kind"] == "held_item":
+                    self.assertIn("member", action, f"{entry['file']} step {step}")
+                    self.assertIn(
+                        action.get("via", "bag_button"), ("bag_button", "row"),
+                        f"{entry['file']} step {step}",
+                    )
+                    if action.get("via") == "row":
+                        self.assertIsNone(
+                            action.get("target"),
+                            f"{entry['file']} step {step}: the [data-unequip] row "
+                            f"is an unequip, it has no hand-off target",
+                        )
+                if action["kind"] == "equip":
+                    self.assertIn("bag_index", action, f"{entry['file']} step {step}")
+                    self.assertIn("member", action, f"{entry['file']} step {step}")
 
     def test_manifest_pins_required_coverage_and_per_scenario_evidence(self):
         """The manifest's coverage contract must match the harness's.
@@ -1284,7 +1305,12 @@ class FrozenSignatureCliTests(unittest.TestCase):
             manifest = json.load(fh)
         n_scenarios = len(manifest["scenarios"])
         n_tags = len(cov_mod.REQUIRED_TAGS)
-        self.assertEqual((n_scenarios, n_tags), (27, 36))
+        # M6 took this from (27, 36) to (29, 38): `story_gen1_held_item_unequip`
+        # and `story_gen4_held_item_handoff`, earning `held_item_unequip_resolved`
+        # and `held_item_handoff_resolved`. That is the item-equip overlay's two
+        # remaining exits, which R3 disclosed as unbuilt for want of engine
+        # surface (`engine.UnequipItem`/`engine.HandOffItem` are that surface).
+        self.assertEqual((n_scenarios, n_tags), (29, 38))
         self.assertIn(f"{n_scenarios}/{n_scenarios} scenarios agree", proc.stdout)
         self.assertIn(f"{n_tags}/{n_tags} required tags", proc.stdout)
 
@@ -1335,11 +1361,12 @@ class FrozenSignatureCliTests(unittest.TestCase):
             frozen = json.load(fh)
         self.assertEqual(frozen["differences"], [])
         # 11 -> 24 with the M4-repair scenarios, 24 -> 27 with M4.1's shiny
-        # accept-with-room and two legendary full-team exits; see the sibling
-        # strict-mode test's docstring for why growing this literal is
-        # expected, not drift. The signature must also bind the COMPLETE
-        # manifest, not merely 27 of whatever happens to be checked in.
-        self.assertEqual(len(frozen["scenarios"]), 27)
+        # accept-with-room and two legendary full-team exits, 27 -> 29 with
+        # M6's two held-item scenarios; see the sibling strict-mode test's
+        # docstring for why growing this literal is expected, not drift. The
+        # signature must also bind the COMPLETE manifest, not merely 29 of
+        # whatever happens to be checked in.
+        self.assertEqual(len(frozen["scenarios"]), 29)
         with open(os.path.join(_ROUTE_ORACLE, "scenarios", "manifest.json"), encoding="utf-8") as fh:
             manifest = json.load(fh)
         self.assertEqual(len(frozen["scenarios"]), len(manifest["scenarios"]))

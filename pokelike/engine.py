@@ -321,7 +321,68 @@ class EquipItem:
     team_index: int
 
 
-Action = Union[VisitNode, AdvanceMap, ChooseStarter, SelectOption, ReorderTeam, UseItem, EquipItem]
+@dataclass(frozen=True)
+class UnequipItem:
+    """Valid only when `RunState.phase == Phase.ON_MAP`. The item-equip
+    overlay's own "⬇ Unequip (return to bag)" exit, which had no port until M6
+    (R3 disclosed it and declared it out of scope).
+
+    The source spells it twice, with identical effect:
+
+    * the per-member `[data-unequip]` rows
+      (bundle.deobfuscated.js:79521-79531): `heldItem && (state.items.push(
+      heldItem), heldItem = null)`;
+    * `#btn-equip-to-bag` when the overlay was opened FROM a member
+      (`fromPokemonIdx >= 0`, bundle.deobfuscated.js:79549-79553):
+      `state.team[iu].heldItem = null, state.items.push(B)` -- where `B` is by
+      construction that member's held item, since that is what the team-bar
+      (`64702`) and party-screen (`78203`) handlers pass in.
+
+    Both are "move `team[team_index].held_item` back into the bag". A member
+    holding nothing is a no-op in the source (the `heldItem &&` guard) and is
+    rejected here instead, because unlike the source this is an action a caller
+    chose rather than a row that happens to be on screen -- `legal_actions`
+    only offers indices that are actually holding something.
+    """
+
+    team_index: int
+
+
+@dataclass(frozen=True)
+class HandOffItem:
+    """Valid only when `RunState.phase == Phase.ON_MAP`. The overlay's
+    member-to-member hand-off (bundle.deobfuscated.js:79541-79545), reached by
+    opening the overlay from one member's held-item badge and then clicking
+    another member's row.
+
+    **This is a SWAP, and it is deliberately not modelled as unequip+equip.**
+    The brief that scoped this suspected the two would be equivalent; traced,
+    they are not. The source's branch is
+
+        iu >= 0 ? (state.team[iu].heldItem = B2P) : ...
+        ...
+        B2D.heldItem = B
+
+    where `B` is the item the overlay was opened with -- i.e.
+    `team[from_index].held_item` -- and `B2P` is the TARGET's current held
+    item. So the target's old item goes to the *source member*. Composing
+    `UnequipItem(from)` with `EquipItem(bag, to)` would instead route the
+    target's old item to the *bag* (`_apply_equip_item`'s own
+    `state.items.append(old_item.id)`), leaving a different game state whenever
+    the target was already holding something. They coincide only in the case
+    where the target holds nothing.
+
+    Hence its own action rather than a UI convenience over two existing ones.
+    """
+
+    from_index: int
+    to_index: int
+
+
+Action = Union[
+    VisitNode, AdvanceMap, ChooseStarter, SelectOption, ReorderTeam,
+    UseItem, EquipItem, UnequipItem, HandOffItem,
+]
 
 
 @dataclass
@@ -513,7 +574,11 @@ def legal_actions(state: RunState) -> dict:
       items only, paired with every team index -- CODEX.md P0.5: the
       source's team-bar click handler never routes a usable item to
       `equipItemFromBag`, see `EquipItem`'s docstring, so usable-item bag
-      indices are excluded here the same way).
+      indices are excluded here the same way). M6 adds the item-equip
+      overlay's other two exits, both offered only for members actually
+      holding something: `"unequip_item"` (`team_indices`) and
+      `"hand_off_item"` (`from_indices` plus `team_size`, since every OTHER
+      member is a legal target -- see `HandOffItem`).
     - `{}` on `Phase.GAME_OVER`/`Phase.VICTORY` (or a `None` map) -- no
       legal actions, the run has ended.
     """
@@ -552,6 +617,18 @@ def legal_actions(state: RunState) -> dict:
                     "bag_indices": equip_bag_indices,
                     "team_indices": list(range(len(state.team))),
                 }
+            # M6. The overlay's other two exits. Both are only reachable from a
+            # member that is actually holding something -- the source opens the
+            # overlay from a held-item badge (64702 / 78203), so a member with
+            # no item has no badge to click.
+            holders = [i for i, mon in enumerate(state.team) if mon.held_item is not None]
+            if holders:
+                result["unequip_item"] = {"team_indices": holders}
+                if len(state.team) > 1:
+                    result["hand_off_item"] = {
+                        "from_indices": holders,
+                        "team_size": len(state.team),
+                    }
         return result
     return {}
 
@@ -747,7 +824,16 @@ def _dispatch_action(state: RunState, action: Action) -> None:
         if isinstance(action, EquipItem):
             _apply_equip_item(state, action)
             return
-        raise ValueError("expected VisitNode/ReorderTeam/UseItem/EquipItem while on the map")
+        if isinstance(action, UnequipItem):
+            _apply_unequip_item(state, action)
+            return
+        if isinstance(action, HandOffItem):
+            _apply_hand_off_item(state, action)
+            return
+        raise ValueError(
+            "expected VisitNode/ReorderTeam/UseItem/EquipItem/UnequipItem/"
+            "HandOffItem while on the map"
+        )
 
     if state.phase == Phase.NEXT_MAP_READY:
         if not isinstance(action, AdvanceMap):
@@ -1870,6 +1956,58 @@ def _apply_equip_item(state: RunState, action: EquipItem) -> None:
         state.items.append(old_item.id)
     mon.held_item = HeldItem(id=item_id)
     _log(state, "equip_item", team_index=action.team_index, item_id=item_id, replaced=old_item.id if old_item else None)
+    state.phase = Phase.ON_MAP
+
+
+def _apply_unequip_item(state: RunState, action: UnequipItem) -> None:
+    """Port of the overlay's unequip exits (bundle.deobfuscated.js:79521-79531
+    and 79549-79553) -- see `UnequipItem`. Validation before mutation, like
+    `_apply_equip_item`, so a rejected attempt leaves bag order and the held
+    item untouched.
+
+    The item goes to the END of the bag: the source's own `state.items.push`.
+    That matters because bag order is addressable -- `EquipItem` takes a
+    `bag_index` and the source's item bar is index-addressed (R3's trace at
+    64834) -- so appending versus inserting is a real behavioural difference,
+    not a formatting one.
+    """
+    if not (0 <= action.team_index < len(state.team)):
+        raise ValueError(f"no such team index: {action.team_index}")
+    mon = state.team[action.team_index]
+    if mon.held_item is None:
+        raise ValueError(f"team member {action.team_index} is not holding an item")
+    state.items.append(mon.held_item.id)
+    _log(state, "unequip_item", team_index=action.team_index, item_id=mon.held_item.id)
+    mon.held_item = None
+    state.phase = Phase.ON_MAP
+
+
+def _apply_hand_off_item(state: RunState, action: HandOffItem) -> None:
+    """Port of the overlay's member-to-member hand-off
+    (bundle.deobfuscated.js:79541-79545) -- see `HandOffItem`. A two-member
+    held-item SWAP; the bag is not touched at all on this path, which is
+    exactly what distinguishes it from unequip-then-equip.
+    """
+    if not (0 <= action.from_index < len(state.team)):
+        raise ValueError(f"no such team index: {action.from_index}")
+    if not (0 <= action.to_index < len(state.team)):
+        raise ValueError(f"no such team index: {action.to_index}")
+    if action.from_index == action.to_index:
+        # The source renders this member's own row as "Holding" (79470) and
+        # its click would set `heldItem` to itself twice; there is no reachable
+        # hand-off to yourself.
+        raise ValueError("cannot hand an item off to the same team member")
+    source = state.team[action.from_index]
+    if source.held_item is None:
+        raise ValueError(f"team member {action.from_index} is not holding an item")
+    target = state.team[action.to_index]
+    source.held_item, target.held_item = target.held_item, source.held_item
+    _log(
+        state, "hand_off_item",
+        from_index=action.from_index, to_index=action.to_index,
+        item_id=target.held_item.id,
+        received=source.held_item.id if source.held_item else None,
+    )
     state.phase = Phase.ON_MAP
 
 

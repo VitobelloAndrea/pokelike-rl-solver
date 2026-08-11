@@ -1,0 +1,234 @@
+{
+  "2": {
+    "name": "Courtney",
+    "sprite": "img/sprites/g3/magma-admin.png",
+    "team": [
+      {
+        "speciesId": 322,
+        "name": "Numel",
+        "types": [
+          "Fire",
+          "Ground"
+        ],
+        "baseStats": {
+          "hp": 60,
+          "atk": 60,
+          "def": 40,
+          "speed": 35,
+          "special": 65,
+          "spdef": 45
+        },
+        "level": 26
+      },
+      {
+        "speciesId": 262,
+        "name": "Mightyena",
+        "types": [
+          "Dark"
+        ],
+        "baseStats": {
+          "hp": 70,
+          "atk": 90,
+          "def": 70,
+          "speed": 70,
+          "special": 60,
+          "spdef": 60
+        },
+        "level": 28
+      },
+      {
+        "speciesId": 335,
+        "name": "Zangoose",
+        "types": [
+          "Normal"
+        ],
+        "baseStats": {
+          "hp": 73,
+          "atk": 115,
+          "def": 60,
+          "speed": 90,
+          "special": 60,
+          "spdef": 60
+        },
+        "level": 27
+      }
+    ]
+  },
+  "5": {
+    "name": "Tabitha",
+    "sprite": "img/sprites/g3/magma-admin.png",
+    "team": [
+      {
+        "speciesId": 322,
+        "name": "Numel",
+        "types": [
+          "Fire",
+          "Ground"
+        ],
+        "baseStats": {
+          "hp": 60,
+          "atk": 60,
+          "def": 40,
+          "speed": 35,
+          "special": 65,
+          "spdef": 45
+        },
+        "level": 52
+      },
+      {
+        "speciesId": 335,
+        "name": "Zangoose",
+        "types": [
+          "Normal"
+        ],
+        "baseStats": {
+          "hp": 73,
+          "atk": 115,
+          "def": 60,
+          "speed": 90,
+          "special": 60,
+          "spdef": 60
+        },
+        "level": 53
+      },
+      {
+        "speciesId": 42,
+        "name": "Golbat",
+        "types": [
+          "Poison",
+          "Flying"
+        ],
+        "baseStats": {
+          "hp": 75,
+          "atk": 80,
+          "def": 70,
+          "speed": 90,
+          "special": 65,
+          "spdef": 75
+        },
+        "level": 54
+      },
+      {
+        "speciesId": 323,
+        "name": "Camerupt",
+        "types": [
+          "Fire",
+          "Ground"
+        ],
+        "baseStats": {
+          "hp": 70,
+          "atk": 100,
+          "def": 70,
+          "speed": 40,
+          "special": 105,
+          "spdef": 75
+        },
+        "level": 56
+      }
+    ]
+  },
+  "7": {
+    "name": "Maxie",
+    "sprite": "img/sprites/g3/maxie.png",
+    "team": [
+      {
+        "speciesId": 262,
+        "name": "Mightyena",
+        "types": [
+          "Dark"
+        ],
+        "baseStats": {
+          "hp": 70,
+          "atk": 90,
+          "def": 70,
+          "speed": 70,
+          "special": 60,
+          "spdef": 60
+        },
+        "level": 76
+      },
+      {
+        "speciesId": 335,
+        "name": "Zangoose",
+        "types": [
+          "Normal"
+        ],
+        "baseStats": {
+          "hp": 73,
+          "atk": 115,
+          "def": 60,
+          "speed": 90,
+          "special": 60,
+          "spdef": 60
+        },
+        "level": 77
+      },
+      {
+        "speciesId": 169,
+        "name": "Crobat",
+        "types": [
+          "Poison",
+          "Flying"
+        ],
+        "baseStats": {
+          "hp": 85,
+          "atk": 90,
+          "def": 80,
+          "speed": 130,
+          "special": 70,
+          "spdef": 80
+        },
+        "level": 78
+      },
+      {
+        "speciesId": 110,
+        "name": "Weezing",
+        "types": [
+          "Poison"
+        ],
+        "baseStats": {
+          "hp": 65,
+          "atk": 90,
+          "def": 120,
+          "speed": 60,
+          "special": 85,
+          "spdef": 70
+        },
+        "level": 79
+      },
+      {
+        "speciesId": 323,
+        "name": "Camerupt",
+        "types": [
+          "Fire",
+          "Ground"
+        ],
+        "baseStats": {
+          "hp": 70,
+          "atk": 100,
+          "def": 70,
+          "speed": 40,
+          "special": 105,
+          "spdef": 75
+        },
+        "level": 80
+      },
+      {
+        "speciesId": 383,
+        "name": "Groudon",
+        "types": [
+          "Ground"
+        ],
+        "baseStats": {
+          "hp": 100,
+          "atk": 150,
+          "def": 140,
+          "speed": 90,
+          "special": 100,
+          "spdef": 90
+        },
+        "level": 83
+      }
+    ]
+  }
+}

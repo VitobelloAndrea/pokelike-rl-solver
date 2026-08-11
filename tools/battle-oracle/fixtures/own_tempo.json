@@ -1,0 +1,47 @@
+{
+  "description": "Stage 4 / CODEX P0.1: own_tempo's onBeforeAttack (bundle.deobfuscated.js:58147-58186) is a generic hook -- on a 20% roll it deals the ATTACKER confusion self-damage (a direct HP mutation, unaffected by merging) and returns true to abort the attacker's turn. Merged, that return is discarded, so the attacker still gets to attack normally THIS SAME turn on top of the self-damage -- Gen4 mode (own_tempo is Gen4-table-only here, per gen3_ability_by_species.json having no own_tempo entry).",
+  "gen": 4,
+  "passives": [
+    "water_retaliate"
+  ],
+  "seed": 6,
+  "player_team": [
+    {
+      "species_id": 108,
+      "name": "Lickitung",
+      "level": 50,
+      "types": [
+        "Normal"
+      ],
+      "base_stats": {
+        "hp": 90,
+        "atk": 55,
+        "def": 75,
+        "speed": 30,
+        "special": 60,
+        "spdef": 75
+      },
+      "move_tier": 3
+    }
+  ],
+  "enemy_team": [
+    {
+      "species_id": 1,
+      "name": "Bulbasaur",
+      "level": 50,
+      "types": [
+        "Grass",
+        "Poison"
+      ],
+      "base_stats": {
+        "hp": 45,
+        "atk": 49,
+        "def": 49,
+        "speed": 45,
+        "special": 65,
+        "spdef": 65
+      },
+      "move_tier": 3
+    }
+  ]
+}

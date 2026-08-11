@@ -1,0 +1,119 @@
+[
+  {
+    "id": "sacrifice",
+    "label": "Ritual Offering",
+    "desc": "Release 1 Pokémon — the rest gain +4 levels",
+    "sprite": "reaper-cloth",
+    "kinds": [
+      "underground",
+      "distortion"
+    ],
+    "minTeam": 2
+  },
+  {
+    "id": "team_lvl2",
+    "label": "Training Grounds",
+    "desc": "Your whole team gains +2 levels",
+    "sprite": "exp-share",
+    "kinds": [
+      "underground",
+      "distortion"
+    ]
+  },
+  {
+    "id": "rare_candy",
+    "label": "Rare Candy",
+    "desc": "Receive a Rare Candy",
+    "sprite": "rare-candy",
+    "kinds": [
+      "underground",
+      "distortion"
+    ]
+  },
+  {
+    "id": "transform",
+    "label": "Warp Field",
+    "desc": "Your team becomes random Pokémon, +4 levels",
+    "sprite": "ability-capsule",
+    "kinds": [
+      "underground",
+      "distortion"
+    ]
+  },
+  {
+    "id": "three_items",
+    "label": "Hidden Cache",
+    "desc": "Receive 3 random items",
+    "sprite": "nugget",
+    "kinds": [
+      "underground",
+      "distortion"
+    ]
+  },
+  {
+    "id": "attack_up",
+    "label": "Power Nexus",
+    "desc": "Boost your whole team's offense for the run",
+    "sprite": "muscle-band",
+    "kinds": [
+      "underground",
+      "distortion"
+    ]
+  },
+  {
+    "id": "stat10",
+    "label": "Vital Enhancement",
+    "desc": "Raises all of one Pokémon's stats for the rest of the run",
+    "sprite": "bottle-cap",
+    "kinds": [
+      "underground",
+      "distortion"
+    ]
+  },
+  {
+    "id": "fossil",
+    "label": "Buried Relic",
+    "desc": "Something stirs in the rubble…",
+    "sprite": "skull-fossil",
+    "kinds": [
+      "underground"
+    ]
+  },
+  {
+    "id": "giratina",
+    "label": "The Renegade",
+    "desc": "Giratina joins your team",
+    "sprite": "griseous-orb",
+    "kinds": [
+      "distortion"
+    ]
+  },
+  {
+    "id": "dialga",
+    "label": "The Lord of Time",
+    "desc": "Dialga joins your team",
+    "sprite": "adamant-orb",
+    "kinds": [
+      "distortion"
+    ]
+  },
+  {
+    "id": "palkia",
+    "label": "The Ruler of Space",
+    "desc": "Palkia joins your team",
+    "sprite": "lustrous-orb",
+    "kinds": [
+      "distortion"
+    ]
+  },
+  {
+    "id": "skip",
+    "label": "Move On",
+    "desc": "Take nothing and leave the realm",
+    "sprite": "escape-rope",
+    "kinds": [
+      "underground",
+      "distortion"
+    ]
+  }
+]

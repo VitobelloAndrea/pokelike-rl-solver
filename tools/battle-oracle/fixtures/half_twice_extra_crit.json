@@ -1,0 +1,30 @@
+{
+  "description": "P0.3 adversarial: the first-round main hit is noncritical but half_twice's fresh extra-hit calcDamage is critical (seed 9), so BIO must apply crit_boost exactly once and leave +1 Atk/+1 Sp.Atk/+1 Speed. The player starts at 1 HP and is knocked out by the reply, ending after one round so later crits cannot mask which hit triggered the stages. Exact RNG state also proves the extra hit consumed its own crit and variance draws.",
+  "gen": 3,
+  "passives": ["half_twice", "crit_boost"],
+  "seed": 9,
+  "player_team": [
+    {
+      "species_id": 150,
+      "name": "Mewtwo",
+      "level": 5,
+      "types": ["Psychic"],
+      "base_stats": {"hp": 106, "atk": 110, "def": 90, "speed": 130, "special": 154, "spdef": 90},
+      "move_tier": 1,
+      "max_hp": 200,
+      "current_hp": 1
+    }
+  ],
+  "enemy_team": [
+    {
+      "species_id": 213,
+      "name": "Shuckle",
+      "level": 5,
+      "types": ["Bug", "Rock"],
+      "base_stats": {"hp": 20, "atk": 10, "def": 230, "speed": 5, "special": 10, "spdef": 230},
+      "move_tier": 1,
+      "max_hp": 200,
+      "current_hp": 200
+    }
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "description": "Stage 4 / CODEX P0.1: Mirror Coat's beforeTurn deals its stored-damage counter-hit as a direct HP mutation (a side effect, unaffected by merging) but ALSO returns 'skip' to stop its own normal move that turn (bundle.deobfuscated.js:58164-58186 store, then the beforeTurn counter at ~58081-58146 region 'mirror_coat' branch). Merged, that return is discarded, so a Mirror-Coat holder both counters AND attacks normally the same turn -- a double-hit the unmerged (ability-only) case never produces. modifySpeed forces Mirror Coat to always move last, guaranteeing it gets hit before its own turn resolves within the same round.",
+  "gen": 3,
+  "passives": ["water_retaliate"],
+  "seed": 7,
+  "player_team": [
+    {
+      "species_id": 202,
+      "name": "Wobbuffet",
+      "level": 50,
+      "types": ["Psychic"],
+      "base_stats": {"hp": 190, "atk": 33, "def": 58, "speed": 33, "special": 33, "spdef": 58},
+      "move_tier": 3
+    }
+  ],
+  "enemy_team": [
+    {
+      "species_id": 1,
+      "name": "Bulbasaur",
+      "level": 50,
+      "types": ["Grass", "Poison"],
+      "base_stats": {"hp": 45, "atk": 49, "def": 49, "speed": 45, "special": 65, "spdef": 65},
+      "move_tier": 3
+    }
+  ]
+}

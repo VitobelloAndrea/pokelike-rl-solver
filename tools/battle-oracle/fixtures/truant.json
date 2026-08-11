@@ -1,0 +1,26 @@
+{
+  "description": "Stage 4 / CODEX P0.1: Truant's beforeTurn 'skip' is a generic (non-threaded) hook -- mergeBattleConfigs discards its return value whenever a traits_config also exists (bundle.deobfuscated.js:81011-81015), so a merged Truant NEVER loafs, even though it does in an ability-only (no passives) battle. The 'water_retaliate' passive here is inert for this matchup (Slakoth is Normal-type, not Water) -- its only role is forcing buildTraitsConfig to return non-null so mergeBattleConfigs actually runs.",
+  "gen": 3,
+  "passives": ["water_retaliate"],
+  "seed": 42,
+  "player_team": [
+    {
+      "species_id": 287,
+      "name": "Slakoth",
+      "level": 50,
+      "types": ["Normal"],
+      "base_stats": {"hp": 60, "atk": 60, "def": 60, "speed": 30, "special": 35, "spdef": 35},
+      "move_tier": 3
+    }
+  ],
+  "enemy_team": [
+    {
+      "species_id": 1,
+      "name": "Bulbasaur",
+      "level": 50,
+      "types": ["Grass", "Poison"],
+      "base_stats": {"hp": 45, "atk": 49, "def": 49, "speed": 45, "special": 65, "spdef": 65},
+      "move_tier": 3
+    }
+  ]
+}

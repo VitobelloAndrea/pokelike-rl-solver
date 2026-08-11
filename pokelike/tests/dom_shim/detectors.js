@@ -54,7 +54,29 @@ function boot() {
     },
     Math, JSON, Object, Array, String, Number, Boolean, Date, Promise, Error,
     RegExp, Map, Set, Symbol, isNaN, parseInt, parseFloat,
+    // M6/N24. The hover card positions itself against the viewport and asks
+    // whether the desktop side-placement rule applies -- the source's own
+    // `matchMedia('(max-width: 768px)')` gate (bundle.deobfuscated.js:64531).
+    // A fixed desktop-sized viewport is reported, so the placement branch a
+    // detector exercises is deterministic.
+    innerWidth: 1280,
+    innerHeight: 900,
+    matchMedia: (query) => ({ media: String(query), matches: false }),
+    // M6/N25. A driveable ResizeObserver. The shim does no layout, so it can
+    // never fire one on its own -- but it CAN hand the test the callback and
+    // let it fire deliberately, which is what turns "the map redraws from
+    // stale state on resize" from an unobservable browser-only bug into a
+    // checkable one. Registered observers are exposed on `__observers`.
+    ResizeObserver: function ResizeObserverStub(cb) {
+      this.callback = cb;
+      this.targets = [];
+      this.observe = (el) => { this.targets.push(el); observers.push(this); };
+      this.unobserve = () => {};
+      this.disconnect = () => {};
+    },
   };
+  const observers = [];
+  sandbox.__observers = observers;
   sandbox.window = sandbox;
   sandbox.globalThis = sandbox;
 
@@ -66,7 +88,7 @@ function boot() {
   const realToast = ctx.showToast;
   ctx.showToast = (msg) => { toasts.push(String(msg)); return realToast(msg); };
 
-  return { ctx, document, clock, toasts, posts };
+  return { ctx, document, clock, toasts, posts, observers };
 }
 
 // ---------------------------------------------------------------------------
@@ -656,6 +678,655 @@ detector('overtime: a battle replay actually arms and disarms the timer', () => 
     'the overtime timeout was not cleared');
   assertEqual(document.getElementById('btn-continue-battle').textContent, 'Continue',
     'the replay did not reach its finish state');
+});
+
+// ---------------------------------------------------------------------------
+// M6/N24. The stat hover card.
+//
+// `#team-hover-card` and its CSS shipped with R1 and nothing ever showed one.
+// The shim cannot lay out or paint, so it cannot check that the card LOOKS
+// right -- but it can check the two things that were actually broken: that the
+// element exists at all, and that hovering a team slot populates it from the
+// mon's own `mon_view` fields. Both are real, checkable assertions.
+// ---------------------------------------------------------------------------
+
+/** The first fixture with at least one team member. */
+function teamFixture() {
+  const entry = Object.entries(fixtures).find(([, st]) => st.team && st.team.length);
+  if (!entry) throw new Error('no fixture carries a team -- hover-card detectors would be vacuous');
+  return entry;
+}
+
+detector('N24: index.html declares the #team-hover-card element', () => {
+  const { document } = boot();
+  assert(document.getElementById('team-hover-card') !== null,
+    'index.html has no #team-hover-card -- main.css styles one, so nothing could ever show it');
+});
+
+detector('N24: hovering a team slot populates the hover card', () => {
+  const [name, state] = teamFixture();
+  const { ctx, document } = boot();
+  ctx.renderTeamBar(state);
+  const slot = document.querySelector('#team-bar .team-slot');
+  assert(slot, `fixture ${name}: renderTeamBar produced no .team-slot`);
+  const card = document.getElementById('team-hover-card');
+  // The shim applies no stylesheet, so the initial `display` is the inline
+  // value (""), not the `none` main.css:1637 gives it in a browser. Both mean
+  // "not shown"; asserting on either would be asserting on the shim.
+  assert(card.style.display !== 'block', 'the hover card was visible before any hover');
+
+  slot.dispatch('mouseenter', {});
+  assertEqual(card.style.display, 'block', 'mouseenter did not show the hover card');
+  const mon = state.team[0];
+  const text = card.textContent;
+  assert(text.includes(mon.nickname || mon.name),
+    `the hover card does not name the hovered Pokemon (${JSON.stringify(text)})`);
+});
+
+detector('N24: the hover card shows the stat data R1 built for it', () => {
+  const [name, state] = teamFixture();
+  const { ctx, document } = boot();
+  ctx.renderTeamBar(state);
+  document.querySelector('#team-bar .team-slot').dispatch('mouseenter', {});
+  const card = document.getElementById('team-hover-card');
+  assert(card.querySelector('.hover-stats'),
+    `fixture ${name}: the hover card drew no stat block -- this is the whole point of N24`);
+  const mon = state.team[0];
+  const text = card.textContent;
+  // The EFFECTIVE attack is the number the battle engine would really read.
+  // Asserting on it (not on base) is what makes a regression to "base only"
+  // visible, which is what every other surface in this client used to show.
+  assert(text.includes(String(mon.effective_stats.atk)),
+    `the hover card does not show effective atk ${mon.effective_stats.atk}`);
+  assert(text.includes(String(mon.effective_stats.speed)),
+    `the hover card does not show effective speed ${mon.effective_stats.speed}`);
+});
+
+detector('N24: the card annotates stages/buffs rather than differencing base stats', () => {
+  const [, state] = teamFixture();
+  const { ctx, document } = boot();
+  // A raised stage is the ONLY honest reason an effective stat differs from
+  // what it would otherwise be. `base_stats` is the species table on a
+  // different scale entirely (Bulbasaur Atk 49 vs Atk 9 at Lv5), so a card
+  // that differenced the two would report a huge phantom debuff on every
+  // Pokemon. Asserting the annotation tracks `stages` pins the right source.
+  const mon = JSON.parse(JSON.stringify(state.team[0]));
+  mon.stages = Object.assign({}, mon.stages, { atk: 2 });
+  const patched = Object.assign({}, state, { team: [mon].concat(state.team.slice(1)) });
+  ctx.renderTeamBar(patched);
+  document.querySelector('#team-bar .team-slot').dispatch('mouseenter', {});
+  const card = document.getElementById('team-hover-card');
+  const note = card.querySelector('.hover-stat-delta');
+  assert(note, 'a raised stage produced no annotation on the hover card');
+  assert(note.textContent.includes('+2'),
+    `the annotation does not report the +2 stage (got ${JSON.stringify(note.textContent)})`);
+  assert(!card.textContent.includes('-40'),
+    'the card differenced base against effective stats -- see the app.js comment');
+});
+
+detector('N24: mouseleave hides the hover card again', () => {
+  const [, state] = teamFixture();
+  const { ctx, document, clock } = boot();
+  ctx.renderTeamBar(state);
+  const slot = document.querySelector('#team-bar .team-slot');
+  const card = document.getElementById('team-hover-card');
+  slot.dispatch('mouseenter', {});
+  assertEqual(card.style.display, 'block', 'precondition: the card should be shown');
+  slot.dispatch('mouseleave', {});
+  // 64565-64578: the source fades out first and un-displays on a 140 ms timer.
+  assertEqual(card.style.opacity, '0', 'mouseleave did not start the fade-out');
+  clock.drain();
+  assertEqual(card.style.display, 'none', 'the hover card never un-displayed');
+});
+
+detector('N24: the crit line follows the source\'s own base-crit condition', () => {
+  const [, state] = teamFixture();
+  const { ctx, document } = boot();
+  ctx.renderTeamBar(state);
+  document.querySelector('#team-bar .team-slot').dispatch('mouseenter', {});
+  const card = document.getElementById('team-hover-card');
+  const mon = state.team[0];
+  // 64494-64496: shown ONLY when it differs from _BASE_CRIT (6.25) by >= 0.01.
+  const shouldShow = Math.abs(mon.crit_chance - 6.25) >= 0.01;
+  assertEqual(!!card.querySelector('.hover-crit'), shouldShow,
+    `crit line presence disagrees with the source's condition ` +
+    `(crit_chance=${mon.crit_chance})`);
+});
+
+// ---------------------------------------------------------------------------
+// M6/N25 REGRESSION. The map's ResizeObserver must redraw from the CURRENT
+// state, never from a captured one.
+//
+// This is a live bug report, not a hypothetical: the first implementation
+// closed over the `state` argument of the FIRST `renderMap` call and, being
+// installed once for the whole run, redrew that same state on every later
+// resize. Visiting a node and then resizing repainted the PREVIOUS map --
+// the node you had just cleared showed as clickable and the newly-reachable
+// one did not. Reported as "select the first node, cannot go on to the
+// second".
+//
+// The shim does no layout so it cannot fire a real resize; the sandbox's
+// ResizeObserver hands the callback over instead, which is enough to pin the
+// staleness, which is the actual defect.
+// ---------------------------------------------------------------------------
+
+detector('N25: a resize redraws the map from the CURRENT state, not a stale one', () => {
+  // `.map-node` groups are appended in `map.nodes` order and carry no id
+  // attribute, so the POSITIONS of the clickable ones are what identifies a
+  // map state in the DOM.
+  const clickablePositions = (st) => {
+    const out = [];
+    (st.map.nodes || []).forEach((n, i) => { if (n.clickable) out.push(i); });
+    return out.join(',');
+  };
+  // Two DIFFERENT map states are required or the test is vacuous.
+  let a = null;
+  let b = null;
+  for (const [, st] of mapFixtures()) {
+    const ids = clickablePositions(st);
+    if (!ids) continue;
+    if (!a) { a = { st, ids }; continue; }
+    if (ids !== a.ids) { b = { st, ids }; break; }
+  }
+  if (!b) throw new Error('need two map fixtures with different clickable sets -- vacuous otherwise');
+
+  const { ctx, document, clock, observers } = boot();
+  ctx.render(a.st);
+  assert(observers.length, 'renderMap installed no ResizeObserver at all');
+
+  // Advance to the second state, exactly as visiting a node would.
+  ctx.render(b.st);
+
+  // Now a resize happens. Change the reported size so the debounced callback
+  // does not early-return on "size unchanged".
+  const container = document.getElementById('map-container');
+  container.clientWidth = 999;
+  container.clientHeight = 1665;
+  observers.forEach((o) => o.callback([]));
+  clock.drain();
+
+  const nodes = container.querySelectorAll('.map-node');
+  const drawn = [];
+  nodes.forEach((g, i) => {
+    if (g.classList.contains('map-node--clickable')) drawn.push(i);
+  });
+  assertEqual(drawn.join(','), b.ids,
+    `the post-resize map does not match the CURRENT state (drew [${drawn.join(',')}], ` +
+    `current is [${b.ids}], previous was [${a.ids}]) -- it was redrawn from a ` +
+    'captured state (stale-closure regression)');
+});
+
+// ---------------------------------------------------------------------------
+// M6/N26. The region selector.
+//
+// Unlike N23/N24/N25 this one IS mechanically testable: what the browser sends
+// to /api/reset is a real, checkable assertion, and it is exactly what was
+// broken -- the client sent `nuzlocke_mode` alone, so every browser run started
+// Gen1 no matter what (CODEX section 7.1).
+// ---------------------------------------------------------------------------
+
+detector('N26: each region builds the flags its generation needs', () => {
+  const { ctx } = boot();
+  assertEqual(JSON.stringify(ctx.resetBodyForRegion(1, false)),
+    JSON.stringify({ nuzlocke_mode: false }), 'Kanto must send NO gen flag');
+  assertEqual(JSON.stringify(ctx.resetBodyForRegion(2, false)),
+    JSON.stringify({ nuzlocke_mode: false, gen2_mode: true }), 'Johto must send gen2_mode');
+  assertEqual(JSON.stringify(ctx.resetBodyForRegion(3, false)),
+    JSON.stringify({ nuzlocke_mode: false, gen3_mode: true }), 'Hoenn must send gen3_mode');
+  assertEqual(JSON.stringify(ctx.resetBodyForRegion(4, false)),
+    JSON.stringify({ nuzlocke_mode: false, gen4_mode: true }), 'Sinnoh must send gen4_mode');
+});
+
+detector('N26: the generation flags are mutually exclusive by construction', () => {
+  const { ctx } = boot();
+  // server.py:140-142 rejects two at once. The UI must not be able to build it
+  // in the first place, which is a property of resetBodyForRegion itself.
+  for (const gen of [1, 2, 3, 4]) {
+    const body = ctx.resetBodyForRegion(gen, false);
+    const set = ['gen2_mode', 'gen3_mode', 'gen4_mode'].filter((k) => body[k]);
+    assert(set.length <= 1,
+      `generation ${gen} built ${set.length} generation flags: ${set.join(', ')}`);
+  }
+});
+
+detector('N26: the Classic/Nuzlocke toggle reaches the request body', () => {
+  const { ctx } = boot();
+  assertEqual(ctx.resetBodyForRegion(4, true).nuzlocke_mode, true,
+    'the Nuzlocke toggle did not reach the body');
+  assertEqual(ctx.resetBodyForRegion(4, false).nuzlocke_mode, false,
+    'the Classic toggle did not reach the body');
+  // ...and the region flag survives the toggle, which is the combination a
+  // naive implementation drops.
+  assertEqual(ctx.resetBodyForRegion(4, true).gen4_mode, true,
+    'selecting Nuzlocke discarded the chosen region');
+});
+
+detector('N26: clicking a region card POSTs that region to /api/reset', () => {
+  const { ctx, document, posts } = boot();
+  ctx.showRegionScreen(false);
+  const cards = document.querySelectorAll('#history-region-list .history-region-btn');
+  assertEqual(cards.length, 4, 'the region list did not draw all four regions');
+  cards[3].dispatch('click', {});
+  const reset = posts.filter((p) => p.url === '/api/reset').pop();
+  assert(reset, 'clicking a region card sent no /api/reset');
+  assertEqual(reset.body.gen4_mode, true,
+    'the fourth region card did not request Gen4 -- this is CODEX 7.1 exactly');
+});
+
+detector('N26: the title cards open the region screen instead of starting Gen1', () => {
+  const { ctx, document, posts } = boot();
+  document.getElementById('btn-start-story').dispatch('click', {});
+  assert(!posts.filter((p) => p.url === '/api/reset').length,
+    'the Story card started a run immediately, skipping region choice');
+  assert(document.getElementById('region-screen').classList.contains('active'),
+    'the Story card did not raise the region screen');
+  // The Nuzlocke card is this port's own shortcut: same screen, toggle preset.
+  // There is exactly ONE title card now. Nuzlocke is chosen by the toggle on
+  // the region screen, which is what the source does (`#btn-history-classic` /
+  // `#btn-history-nuzlocke`, pokelike_forked/index.html:694-697); the port's
+  // separate Nuzlocke title card was its own invention and, once the toggle
+  // existed, was a second control for the same setting showing the same
+  // artwork. Removed on a live report.
+  assert(document.getElementById('btn-start-nuzlocke') === null,
+    'the redundant Nuzlocke title card is back -- Nuzlocke is the region ' +
+    "screen's toggle, not a mode card");
+  ctx.setRegionMode(true);
+  assertEqual(ctx.resetBodyForRegion(1, true).nuzlocke_mode, true,
+    'the region screen toggle does not reach the request body');
+});
+
+// ---------------------------------------------------------------------------
+// R6/N33. Item presentation, and the hover card that should not be there.
+// ---------------------------------------------------------------------------
+
+/** The fixture for a phase, or a thrown error naming what is missing -- a
+ *  silently skipped detector is the failure mode this whole suite exists to
+ *  avoid. */
+function phaseFixture(phase) {
+  const entry = Object.entries(fixtures).find(([, st]) => st.phase === phase);
+  if (!entry) throw new Error(`no fixture reached ${phase} -- this detector would be vacuous`);
+  return entry;
+}
+
+detector('N33: item choice options carry the metadata the contract enriches them with', () => {
+  // Non-vacuity for the two detectors below, asserted on the DATA first: the
+  // renderer cannot draw an icon or a description the projection never sent,
+  // and before R6 it never sent them -- `item_view` fed the BAG only.
+  const [name, state] = phaseFixture('item_choice');
+  const opts = state.pending.options;
+  assert(opts.length, `fixture ${name}: item_choice carried no options`);
+  for (const opt of opts) {
+    for (const key of ['desc', 'icon', 'icon_url', 'known']) {
+      assert(key in opt,
+        `fixture ${name}: option ${opt.id} has no ${key} -- contract._pending_options ` +
+        'is no longer enriching ITEM_CHOICE, so the card cannot draw it');
+    }
+  }
+  assert(opts.some((o) => o.desc), `fixture ${name}: no offered item had a description at all`);
+  assert(opts.some((o) => o.icon), `fixture ${name}: no offered item had an icon at all`);
+});
+
+detector('N33: the item card renders the icon and description, not just the name', () => {
+  const [name, state] = phaseFixture('item_choice');
+  const { ctx, document } = boot();
+  ctx.render(state);
+
+  const cards = document.querySelectorAll('#item-choices .item-card');
+  assertEqual(cards.length, state.pending.options.length,
+    `fixture ${name}: the item screen did not build one .item-card per option ` +
+    '(the card used to be labelled `poke-card`, which matches none of the ' +
+    '.item-icon/.item-name/.item-desc rules that style its contents)');
+
+  const opt = state.pending.options[0];
+  const card = cards[0];
+
+  const iconBox = card.querySelector('.item-icon');
+  assert(iconBox, 'the item card drew no .item-icon');
+  const img = iconBox.querySelector('img');
+  assert(img, 'the item card drew no icon image at all');
+  assert(String(img.className).includes('item-sprite-icon'),
+    `the icon does not carry the source's own .item-sprite-icon class (${img.className})`);
+  const expectedSrc = opt.icon_url || ('/img/sprites/items/' + opt.id.replace(/_/g, '-') + '.png');
+  assertEqual(img.src, expectedSrc, 'the icon does not point at the item the contract named');
+
+  const nameEl = card.querySelector('.item-name');
+  assert(nameEl, 'the item card drew no .item-name');
+  assertEqual(nameEl.textContent, opt.name, 'the item card names the wrong item');
+
+  // The actual R6 §3.1 complaint: the description was thrown away.
+  const descEl = card.querySelector('.item-desc');
+  assert(descEl, 'the item card drew no .item-desc -- the description the contract supplies is still being discarded');
+  assertEqual(descEl.textContent, opt.desc, 'the item card shows a description that is not the contract\'s');
+
+  // And the literal "Usable"/"Held item" strings the port invented are gone:
+  // the source tags ONLY a usable item, and with its own wording.
+  const tag = card.querySelector('.item-tag');
+  if (opt.usable) {
+    assert(tag, 'a usable item drew no .item-tag');
+    assert(String(tag.className).includes('item-tag--usable'),
+      'the usable tag does not carry the source\'s own modifier class');
+  } else {
+    assert(!tag, 'a HELD item drew a tag -- the source tags only usable items (79391-79393)');
+  }
+  assert(!card.textContent.includes('Held item'),
+    'the invented "Held item" string is still being rendered');
+});
+
+detector('N33: a missing item sprite falls back to the emoji the contract carries', () => {
+  // R6 §4: this mirror ships no item sprites, and a fresh checkout that never
+  // runs tools/fetch-sprites/fetch_item_sprites.py has none either. The
+  // source's own onerror (52122-52128) is what covers that, so the fallback --
+  // not the happy path -- is the branch a browser here actually takes.
+  const [, state] = phaseFixture('item_choice');
+  const { ctx, document } = boot();
+  ctx.render(state);
+  const opt = state.pending.options.find((o) => o.icon);
+  assert(opt, 'no offered item carried an emoji icon -- the fallback would be vacuous');
+  const idx = state.pending.options.indexOf(opt);
+  const iconBox = document.querySelectorAll('#item-choices .item-card')[idx].querySelector('.item-icon');
+
+  iconBox.querySelector('img').dispatch('error', {});
+  assert(!iconBox.querySelector('img'), 'the failed image was left in the DOM');
+  assertEqual(iconBox.textContent, opt.icon,
+    'a failed item sprite did not degrade to the emoji the contract supplies');
+});
+
+detector('N33: the item-equip screen raises NO hover card, while the team bar still does', () => {
+  // THE R6 §3.2 REGRESSION. M6/N24 attached the hover card inside
+  // `mkPokeCardOption`, which the item-equip screen shares, so assigning an
+  // item raised a Pokemon-card overlay. The source's `showTeamHoverCard` call
+  // sites are the team bar (64672/64675/64811), the starter screen (75731) and
+  // the Elite-prep party/vs lists (78217/78223/78328) -- the item-equip target
+  // list (79495-79521) is not among them.
+  //
+  // Both halves are asserted together on purpose: "no hover card anywhere"
+  // would also pass the first half, and would be a different bug.
+  const [name, state] = phaseFixture('item_equip_choice');
+  const { ctx, document } = boot();
+  ctx.render(state);
+
+  const cards = document.querySelectorAll('#item-equip-choices .poke-card');
+  assert(cards.length, `fixture ${name}: the item-equip screen drew no target cards`);
+  const card = document.getElementById('team-hover-card');
+
+  for (const target of cards) {
+    assertEqual(target.listenerCount('mouseenter'), 0,
+      'an item-equip target still binds a mouseenter -- the unwanted hover card is back');
+    target.dispatch('mouseenter', {});
+    target.dispatch('mousemove', {});
+  }
+  assert(card.style.display !== 'block',
+    'hovering an item-equip target raised the hover card -- the source does not show one here');
+
+  // ...and the team bar, which the source DOES show one on, still works. This
+  // is what makes the assertion above a placement check rather than a deletion.
+  const [, teamState] = teamFixture();
+  ctx.renderTeamBar(teamState);
+  const slot = document.querySelector('#team-bar .team-slot');
+  assert(slot, 'the team bar drew no slot');
+  slot.dispatch('mouseenter', {});
+  assertEqual(card.style.display, 'block',
+    'the team bar no longer shows a hover card -- the fix deleted too much');
+});
+
+// ---------------------------------------------------------------------------
+// R6/N34. The move block: structured markup, not prose.
+// ---------------------------------------------------------------------------
+
+detector('N34: the projected move power is a real power, not a placeholder', () => {
+  // NON-TAUTOLOGY GUARD, and the reason it exists is worth recording: the
+  // detector below compares the rendered badge against `move_preview.power`.
+  // If the PROJECTION is what regressed, both sides move together and the
+  // comparison passes while showing the player nothing useful -- which is
+  // exactly what happened when `"power": move.power` was mutated to
+  // `"power": 0` and the whole suite stayed green.
+  //
+  // `power > 0 for a move not flagged no_damage` is independent of the
+  // projection's value, so it holds the projection to something. The Python
+  // side asserts the same invariant against the ported move table
+  // (test_renderer_contract.test_a_damaging_move_preview_never_reports_zero_power).
+  let checked = 0;
+  for (const [name, state] of Object.entries(fixtures)) {
+    for (const mon of state.team || []) {
+      const mp = mon.move_preview;
+      if (!mp || !mp.name) continue;
+      checked += 1;
+      if (mp.no_damage) continue;
+      assert(typeof mp.power === 'number' && mp.power > 0,
+        `fixture ${name}: ${mp.name} is a damaging move projected with power ` +
+        `${JSON.stringify(mp.power)} -- the card would render "${mp.power} PWR"`);
+    }
+  }
+  assert(checked > 0, 'no fixture carried a move_preview at all -- the N34 detectors are vacuous');
+});
+
+detector('N34: the move power reaches the DOM as .move-power-badge, not as prose', () => {
+  // R6 §6.1. The port rendered `Move: Magical Leaf (Grass 40)` as one text
+  // line in a `.hover-move` div, which M6 wrote; the source builds structured
+  // markup (64348-64366) whose CSS main.css already ships.
+  const [name, state] = teamFixture();
+  const mon = state.team.find((m) => m.move_preview && m.move_preview.name);
+  assert(mon, `fixture ${name}: no team member carried a move_preview -- vacuous`);
+  const idx = state.team.indexOf(mon);
+
+  const { ctx, document } = boot();
+  ctx.renderTeamBar(state);
+  const card = document.querySelectorAll('#team-bar .team-slot')[idx];
+  assert(card, 'the team bar drew no slot for the Pokemon with a move');
+
+  const block = card.querySelector('.poke-move');
+  assert(block, 'no .poke-move block was drawn at all');
+
+  const nameEl = block.querySelector('.move-name');
+  assert(nameEl, 'the move block drew no .move-name');
+  assertEqual(nameEl.textContent, mon.move_preview.name, 'the move block names the wrong move');
+  assertEqual(nameEl.getAttribute('title'), mon.move_preview.name,
+    'the source puts the move name in the title attribute too (64350-64352)');
+
+  // THE POINT OF THIS DETECTOR: the power is a value inside its own element.
+  const badge = block.querySelector('.move-power-badge');
+  assert(badge, 'the move power is not in a .move-power-badge -- it is still prose');
+  const expected = mon.move_preview.no_damage
+    ? '—'
+    : (mon.move_preview.power + ' PWR');
+  assertEqual(badge.textContent, expected,
+    'the power badge does not carry the value from move_preview');
+
+  const typeBadge = block.querySelector('.move-type-badge');
+  assert(typeBadge, 'the move block drew no .move-type-badge');
+  assertEqual(typeBadge.textContent, mon.move_preview.type || '—',
+    'the type badge does not carry the type from move_preview');
+
+  const cat = block.querySelector('.move-cat-icon');
+  assert(cat, 'the move block drew no category icon');
+  assertEqual(cat.src, mon.move_preview.is_special ? '/img/special.png' : '/img/physical.png',
+    'the category icon does not follow move_preview.is_special');
+
+  // The invented prose line is gone.
+  assert(!card.querySelector('.hover-move'), 'the invented .hover-move prose line is back');
+  assert(!card.textContent.includes('Move: '), 'the move is still being rendered as a sentence');
+});
+
+detector('N34: a missing category PNG degrades to the source\'s own text badge', () => {
+  // img/physical.png and img/special.png are absent from this mirror (R6 §4),
+  // so this fallback is what a browser here actually draws.
+  const [, state] = teamFixture();
+  const mon = state.team.find((m) => m.move_preview && m.move_preview.name);
+  assert(mon, 'no team member carried a move_preview -- vacuous');
+  const { ctx, document } = boot();
+  ctx.renderTeamBar(state);
+  const block = document.querySelectorAll('#team-bar .team-slot')[state.team.indexOf(mon)]
+    .querySelector('.poke-move');
+
+  block.querySelector('.move-cat-icon').dispatch('error', {});
+  const badge = block.querySelector('.move-meta .type-badge[class*="move-cat-"]')
+    || block.querySelectorAll('.move-meta span')[0];
+  assert(badge, 'a failed category icon left nothing behind');
+  const expectedClass = mon.move_preview.is_special ? 'move-cat-special' : 'move-cat-physical';
+  assert(String(badge.className).includes(expectedClass),
+    `the fallback badge does not use the source's own ${expectedClass} class (${badge.className})`);
+});
+
+detector('N34: the move-tutor card can say what the move actually is', () => {
+  // CODEX gap 10. The tutor option carried an opaque `move_tier` integer and
+  // nothing else, so the card read "tier 0" -- `contract._pending_options` now
+  // enriches it with the same `_move_preview` every mon_view uses.
+  const [name, state] = phaseFixture('move_tutor_choice');
+  const opts = state.pending.options;
+  assert(opts.some((o) => o.move_preview && o.move_preview.name),
+    `fixture ${name}: no move-tutor option carried a move_preview`);
+
+  const { ctx, document } = boot();
+  ctx.render(state);
+  const idx = opts.findIndex((o) => o.move_preview && o.move_preview.name);
+  const card = document.querySelectorAll('#move-tutor-choices .poke-card')[idx];
+  assert(card, 'the move-tutor screen drew no card for the option with a move');
+  const badge = card.querySelector('.move-power-badge');
+  assert(badge, 'the move-tutor card shows no move power');
+  const mp = opts[idx].move_preview;
+  assertEqual(badge.textContent, mp.no_damage ? '—' : (mp.power + ' PWR'),
+    'the move-tutor card\'s power does not come from its own move_preview');
+});
+
+detector('N38: a screen change tears down the hover card it left behind', () => {
+  // Found by LOOKING at a screenshot, not by reading: a Pokemon hover card was
+  // still floating over the item-choice screen, because removing an element
+  // never fires `mouseleave`. The source's own `showScreen`
+  // (bundle.deobfuscated.js:63765-63782) hides the node tooltip, the item
+  // tooltip and the hover card on every screen change; the port took none of
+  // it.
+  const [, state] = teamFixture();
+  const { ctx, document, clock } = boot();
+  ctx.renderTeamBar(state);
+  const card = document.getElementById('team-hover-card');
+
+  document.querySelector('#team-bar .team-slot').dispatch('mouseenter', {});
+  assertEqual(card.style.display, 'block', 'the hover card never came up -- vacuous');
+
+  // A screen change with no pointer movement at all, which is exactly what
+  // clicking a hovered card produces.
+  ctx.showScreen('item-screen');
+  // The fade starts immediately (opacity), and `display: none` lands 140ms
+  // later -- the source's own delay. Both are asserted: opacity alone would
+  // pass on a card that never un-displays, and draining alone would not prove
+  // the teardown began at the screen change.
+  assertEqual(card.style.opacity, '0',
+    'the screen change did not even begin hiding the hover card');
+  clock.drain();
+  assert(card.style.display !== 'block',
+    'the hover card survived the screen change and is now floating over an ' +
+    'unrelated screen');
+});
+
+// ---------------------------------------------------------------------------
+// R6/N35. Run navigation.
+// ---------------------------------------------------------------------------
+
+detector('N35: the run nav ships only buttons that are wired to something', () => {
+  // R6 §5 is explicit that a dead button is worse than no button.
+  //
+  // The shipped MARKUP is what has to be enumerated here, not the shim's
+  // document: the shim pre-creates one element per index.html id, flat under
+  // <body>, so it models no containment and `.map-menu-icons` has no id to
+  // find it by. Reading index.html directly is also the stronger check -- it
+  // is the bytes a browser gets.
+  const html = fs.readFileSync(INDEX_HTML, 'utf8');
+  const bar = /<div class="map-menu-icons">([\s\S]*?)<\/div>/.exec(html);
+  assert(bar, 'index.html declares no .map-menu-icons -- there is still no run navigation');
+
+  const ids = [...bar[1].matchAll(/<button\b[^>]*\bid="([^"]+)"/g)].map((m) => m[1]);
+  assert(ids.length, 'the run nav shipped no buttons at all');
+  // Every <button> in the bar must be one of the ids found -- an unidentified
+  // button could not be wired from `wireButtons` and would be dead by
+  // construction.
+  const buttonCount = (bar[1].match(/<button\b/g) || []).length;
+  assertEqual(buttonCount, ids.length, 'a run-nav button carries no id, so nothing can wire it');
+
+  const { document } = boot();
+  for (const id of ids) {
+    const btn = document.getElementById(id);
+    assert(btn, `run-nav button #${id} is in the markup but not in the document`);
+    assert(btn.listenerCount('click') > 0, `run-nav button #${id} is wired to nothing`);
+  }
+  // And the source's own asset for each control actually ships (R6 §5: the
+  // eight img/menu PNGs were already copied, so a 404 here is a port slip).
+  for (const src of [...bar[1].matchAll(/<img[^>]*\bsrc="([^"]+)"/g)].map((m) => m[1])) {
+    const onDisk = path.join(REPO, 'pokelike', 'webui', 'static', src.replace(/^\//, ''));
+    assert(fs.existsSync(onDisk), `run-nav icon ${src} does not exist on disk`);
+  }
+});
+
+detector('N35: reset from the run nav POSTs the CURRENT run\'s mode and region', () => {
+  // R6 §5: "Reset must go through the engine, not the DOM."
+  const [, state] = phaseFixture('on_map');
+  const gen4 = Object.assign(JSON.parse(JSON.stringify(state)), {
+    nuzlocke_mode: true, gen2_mode: false, gen3_mode: false, gen4_mode: true,
+  });
+
+  const { ctx, document, posts } = boot();
+  ctx.render(gen4);
+  assert(document.body.classList.contains('run-menu-in-run'),
+    'the run nav is not marked in-run on the map screen, so its buttons are hidden');
+
+  document.getElementById('btn-run-reset').dispatch('click', {});
+  // The source confirms before discarding a run (84556-84567); nothing may be
+  // sent until it is confirmed.
+  assert(!posts.filter((p) => p.url === '/api/reset').length,
+    'reset fired immediately -- it discarded the run with no confirmation');
+  const confirm = document.getElementById('btn-run-action-confirm');
+  assert(confirm, 'the reset confirmation offered no confirm button');
+  confirm.dispatch('click', {});
+
+  const reset = posts.filter((p) => p.url === '/api/reset').pop();
+  assert(reset, 'confirming a reset sent no /api/reset -- it did not go through the engine');
+  assertEqual(reset.body.gen4_mode, true, 'reset did not repeat the run\'s REGION');
+  assertEqual(reset.body.nuzlocke_mode, true, 'reset did not repeat the run\'s MODE');
+  assert(!reset.body.gen2_mode && !reset.body.gen3_mode,
+    'reset sent more than one generation flag');
+});
+
+detector('N35: abandoning a run returns to the title screen, and only when confirmed', () => {
+  const [, state] = phaseFixture('on_map');
+  const { ctx, document, posts } = boot();
+  ctx.render(state);
+
+  document.getElementById('btn-run-home').dispatch('click', {});
+  assert(!document.getElementById('title-screen').classList.contains('active'),
+    'abandon left the run with no confirmation');
+  document.getElementById('btn-run-action-confirm').dispatch('click', {});
+  assert(document.getElementById('title-screen').classList.contains('active'),
+    'confirming abandon did not return to the title screen');
+  // Abandoning is a client-side navigation, not an engine action: the source's
+  // `goHomeFromRun` (84594-84607) shows the title screen and posts nothing.
+  assert(!posts.filter((p) => p.url === '/api/reset').length,
+    'abandoning a run reset the engine, which is the OTHER control');
+});
+
+detector('N35: the run nav is hidden during battle and outside a run', () => {
+  const { ctx, document } = boot();
+  ctx.showScreen('title-screen');
+  assert(!document.body.classList.contains('run-menu-in-run'),
+    'the run nav claims to be in a run on the title screen');
+
+  const [, state] = phaseFixture('on_map');
+  ctx.render(state);
+  assert(document.body.classList.contains('run-menu-in-run'), 'the run nav is not live on the map');
+  assert(!document.body.classList.contains('in-battle'), 'the map screen claims to be a battle');
+
+  // main.css:7595 hides the whole bar while `body.in-battle` is set.
+  ctx.showScreen('battle-screen');
+  assert(document.body.classList.contains('in-battle'),
+    'the battle screen does not set body.in-battle, so the nav stays up over the battle');
+});
+
+detector('N35: R and H are inert outside a run', () => {
+  const { ctx, document, posts } = boot();
+  ctx.showScreen('title-screen');
+  ctx.handleShortcutKey({ code: 'KeyR', target: { tagName: 'DIV' }, preventDefault() {} });
+  ctx.handleShortcutKey({ code: 'KeyH', target: { tagName: 'DIV' }, preventDefault() {} });
+  assert(!document.getElementById('btn-run-action-confirm'),
+    'a run-nav shortcut fired on the title screen, where there is no run to reset');
+  assert(!posts.filter((p) => p.url === '/api/reset').length, 'a shortcut reset a nonexistent run');
 });
 
 // ---------------------------------------------------------------------------

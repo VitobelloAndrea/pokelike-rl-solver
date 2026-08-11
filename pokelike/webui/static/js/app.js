@@ -48,6 +48,213 @@ async function resetRun(opts) {
   render(state);
 }
 
+// ---------------------------------------------------------------------
+// M6/N26. Region select.
+//
+// `engine.reset` has taken gen2/gen3/gen4 since before the renderer track, and
+// `server.py:140-142` already decodes and mutual-exclusion-checks all three --
+// but the browser sent only `nuzlocke_mode`, so every run in the web UI
+// started Gen1 regardless. CODEX section 7.1's finding, never closed.
+//
+// The table is the source's own `HISTORY_REGIONS`
+// (bundle.deobfuscated.js:83084-83112), flag for flag. The `lock` field
+// records the source's gate (83223-83226) even though this port does not
+// enforce it -- see index.html's #region-screen comment for why.
+// ---------------------------------------------------------------------
+// `bg` is `STAGE_REGION_BG` (bundle.deobfuscated.js:83070-83078). NONE of
+// those files exists in this mirror -- `pokelike_forked/img/` has no
+// `regions/` directory at all, the same class of gap as the 33 absent
+// gym-leader sprites. The paths are still carried, and the card layers them
+// OVER the source's own gradient fallback (83226-83228), so a 404 simply falls
+// through to the gradient and the artwork appears by itself if the files are
+// ever added.
+const HISTORY_REGIONS = [
+  { gen: 1, label: 'Kanto', gens: 'Gen 1', flags: {},
+    bg: '/img/regions/kanto.jpg', lock: null },
+  { gen: 2, label: 'Johto', gens: 'Gen 2', flags: { gen2_mode: true },
+    bg: '/img/regions/johto.jpg', lock: 'Beat Kanto to unlock Johto' },
+  { gen: 3, label: 'Hoenn', gens: 'Gen 3', flags: { gen3_mode: true },
+    bg: '/img/regions/hoenn.jpg', lock: 'Beat the story once to unlock Hoenn' },
+  { gen: 4, label: 'Sinnoh', gens: 'Gen 4', flags: { gen4_mode: true },
+    bg: '/img/regions/sinnoh.jpg', lock: 'Beat the story once to unlock Sinnoh' },
+];
+
+// 83226-83228, the source's own fallback when a region has no background.
+const REGION_BG_GRADIENT = 'linear-gradient(135deg,#1a0a3e,#3a0a6e)';
+
+let _regionNuzlocke = false;
+
+/** The exact body `/api/reset` is sent for a region. Split out from the click
+ *  handler so it is directly testable: the mutual exclusion is a property of
+ *  THIS function, not of a DOM event. */
+function resetBodyForRegion(gen, nuzlocke) {
+  const region = HISTORY_REGIONS.find((r) => r.gen === gen);
+  if (!region) throw new Error('no such region generation: ' + gen);
+  // Built from the region's OWN flag set, so two generations can never both be
+  // true -- the UI cannot construct the invalid combination the server would
+  // reject. Gen 1 is the absence of all three, exactly as HISTORY_REGIONS
+  // spells it.
+  return Object.assign({ nuzlocke_mode: !!nuzlocke }, region.flags);
+}
+
+function renderRegionList() {
+  const list = document.getElementById('history-region-list');
+  if (!list) return;
+  list.innerHTML = '';
+  HISTORY_REGIONS.forEach((region) => {
+    // `createHistoryRegionCard` (83133-83145) builds a DIV with role=button and
+    // tabindex, NOT a <button>, and the class is `history-region-btn`. An
+    // earlier pass invented `history-region-card`, which matches nothing in
+    // main.css -- so the cards rendered completely unstyled. The
+    // `--no-challenge` variant is the source's own two-column layout; this port
+    // narrows it further (see index.html) because it has neither the
+    // achievements nor the run-history columns the other two carry.
+    const card = document.createElement('div');
+    card.className = 'history-region-btn history-region-btn--no-challenge';
+    card.setAttribute('role', 'button');
+    card.setAttribute('tabindex', '0');
+    card.setAttribute('data-gen', String(region.gen));
+
+    const visual = document.createElement('div');
+    visual.className = 'history-region-visual';
+    const bg = document.createElement('div');
+    bg.className = 'history-region-bg';
+    // The region art layered over the gradient: a missing file falls through
+    // to the gradient instead of leaving the card blank.
+    bg.style.backgroundImage = `url('${region.bg}'), ${REGION_BG_GRADIENT}`;
+    visual.appendChild(bg);
+
+    const drop = document.createElement('div');
+    drop.className = 'history-region-label-drop';
+    const name = document.createElement('div');
+    name.className = 'history-region-name';
+    name.textContent = region.label;
+    const gens = document.createElement('div');
+    gens.className = 'history-region-gens';
+    gens.textContent = region.gens;
+    drop.appendChild(name);
+    drop.appendChild(gens);
+    visual.appendChild(drop);
+    card.appendChild(visual);
+
+    // `bindHistoryRegionCardActivate` (83146+): a role=button div needs the
+    // keyboard half wired explicitly, which a real <button> would give free.
+    const activate = () => resetRun(resetBodyForRegion(region.gen, _regionNuzlocke));
+    card.addEventListener('click', activate);
+    card.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') activate();
+    });
+    list.appendChild(card);
+  });
+}
+
+function setRegionMode(nuzlocke) {
+  _regionNuzlocke = !!nuzlocke;
+  const classic = document.getElementById('btn-history-classic');
+  const nuz = document.getElementById('btn-history-nuzlocke');
+  // The source's own selected-state class (index.html:695-696).
+  if (classic) classic.classList.toggle('history-mode-btn--selected', !_regionNuzlocke);
+  if (nuz) nuz.classList.toggle('history-mode-btn--selected', _regionNuzlocke);
+}
+
+/** The body that repeats the CURRENT run's mode and region. Reads the
+ *  observation's own top-level flags, so it cannot drift from what the engine
+ *  actually started. */
+function repeatRunBody() {
+  const st = currentState;
+  if (!st) return { nuzlocke_mode: false };
+  const body = { nuzlocke_mode: !!st.nuzlocke_mode };
+  if (st.gen2_mode) body.gen2_mode = true;
+  else if (st.gen3_mode) body.gen3_mode = true;
+  else if (st.gen4_mode) body.gen4_mode = true;
+  return body;
+}
+
+function showRegionScreen(nuzlocke) {
+  setRegionMode(nuzlocke);
+  renderRegionList();
+  showScreen('region-screen');
+}
+
+// ---------------------------------------------------------------------
+// R6/N35. Run navigation: reset, and abandon.
+//
+// RESET GOES THROUGH THE ENGINE, NOT THE DOM. `confirmResetRun`
+// (bundle.deobfuscated.js:84556-84568) gates on a confirmation and then calls
+// `executeResetRun` (84245); the port's equivalent of "execute" is the
+// `/api/reset` call `resetRun` already makes, and the body is `repeatRunBody()`
+// -- the same helper M6 built to repeat the CURRENT run's mode and region,
+// read off the observation's own top-level flags so it cannot drift from what
+// the engine actually started. Nothing here reaches into the DOM to fake a
+// state change.
+//
+// The confirmation is the source's own behaviour, not added caution: 84559-
+// 84566 skips the modal only when the run is empty or a setting says to, and
+// shows `showResetRunConfirmModal` otherwise. This port has neither an
+// is-empty test nor a settings store, so it always confirms -- the safe
+// direction of that simplification, since the action discards a run.
+//
+// WHAT "BACK" MEANS, which R6 §5 asks to be justified. The engine's `Phase` is
+// not a navigation stack and almost nothing in it is reversible: a caught
+// Pokemon, a chosen reward, a resolved battle and a consumed item are all
+// committed by the time the next observation exists, and `engine.py` exposes
+// no inverse for any of them. A per-phase "back" would therefore have to be
+// faked in the browser, against a server-held state that had already moved --
+// exactly the DOM-not-engine reset the brief forbids.
+//
+// So "back" is ported as the one back the SOURCE actually has: `goHomeFromMenu`
+// (84582-84594) abandons the run and returns to the title screen. It is
+// labelled "Abandon Run" rather than "Back" because that is what it does, and
+// it confirms for the same reason reset does.
+//
+// `isMidFight` (84569-84581) is ported with it: the source refuses to leave
+// while a battle is unresolved and its Continue button is not yet showing.
+// This client's equivalent condition is simply that the battle screen is up,
+// since its battle replay owns the screen until the player continues.
+// ---------------------------------------------------------------------
+
+function isMidFight() {
+  return activeScreenId() === 'battle-screen';
+}
+
+/** The confirm-then-act modal both run-nav controls share. */
+function confirmRunAction(titleText, descText, confirmLabel, onConfirm) {
+  const { box, list } = buildModal(titleText, descText);
+  const confirm = document.createElement('button');
+  confirm.type = 'button';
+  confirm.id = 'btn-run-action-confirm';
+  confirm.className = 'btn-primary btn-md btn-block';
+  confirm.textContent = confirmLabel;
+  confirm.addEventListener('click', () => { closeModal(); onConfirm(); });
+  list.appendChild(confirm);
+  modalCancelButton(box, 'Cancel');
+}
+
+function confirmResetRun() {
+  if (isMidFight()) return;
+  confirmRunAction(
+    'Reset Run',
+    'Start this region and mode over from the beginning. The current run is lost.',
+    'Reset Run',
+    () => resetRun(repeatRunBody()));
+}
+
+function confirmAbandonRun() {
+  if (isMidFight()) return;
+  confirmRunAction(
+    'Abandon Run',
+    'Leave this run and return to the title screen. The current run is lost.',
+    'Abandon Run',
+    () => {
+      // `goHomeFromRun` (84594-84607) ends with `showScreen("title-screen")`.
+      // This port models no save/resume (P1.9), so there is no run to persist
+      // on the way out -- the engine simply keeps holding the abandoned run
+      // until the next /api/reset replaces it.
+      currentState = null;
+      showScreen('title-screen');
+    });
+}
+
 async function doAction(action) {
   let state;
   try {
@@ -92,10 +299,49 @@ function applyWithBattleInterstitial(state) {
   }
 }
 
+// R6/N35. The two body classes the source's quick-nav is driven by.
+//
+// `in-battle` hides the whole bar (main.css:7595). The source sets it from a
+// MutationObserver watching `#battle-screen`'s `active` class
+// (pokelike_forked/index.html:777-783); this client has a single funnel for
+// that -- `showScreen` -- so it sets it there instead. Same condition, one
+// fewer moving part.
+//
+// `run-menu-in-run` gates the `.nav-in-run` buttons (7597). The source's own
+// condition is `state.starterSpeciesId` present AND the screen is not
+// gameover/win (`updateRunMenuBar`, 63894-63899): a run exists once a starter
+// has been chosen, and stops being abandonable once it is already over. The
+// port's equivalent of "a starter has been chosen" is simply having an
+// observation whose phase is past `choose_starter`.
+const PRE_RUN_SCREENS = new Set(['title-screen', 'region-screen', 'starter-screen']);
+const RUN_OVER_SCREENS = new Set(['gameover-screen', 'win-screen']);
+
+function updateRunNav(screenId) {
+  const inRun = !!currentState
+    && !PRE_RUN_SCREENS.has(screenId)
+    && !RUN_OVER_SCREENS.has(screenId);
+  document.body.classList.toggle('run-menu-in-run', inRun);
+  document.body.classList.toggle('in-battle', screenId === 'battle-screen');
+}
+
 function showScreen(id) {
   document.querySelectorAll('.screen').forEach((s) => s.classList.remove('active'));
   const el = document.getElementById(id);
   if (el) el.classList.add('active');
+  // R6/N38. The source's own `showScreen` (bundle.deobfuscated.js:63765-63782)
+  // tears down the transient overlays on every screen change -- the node
+  // tooltip (63772-63773), the item tooltip, and the hover card (63775) --
+  // and only then updates the run menu (63777).
+  //
+  // The port took none of that, and it is a real defect, not tidiness:
+  // removing an element does NOT fire `mouseleave`, so a hover card raised
+  // over a card that is then clicked away survives its own screen. It was
+  // found by looking at a screenshot -- a Pokemon hover card was still
+  // floating over the item-choice screen, which is the very complaint R6 §3.2
+  // exists for, arriving by a second route.
+  mapTooltip.hide();
+  hideTeamHoverCard();
+  updateRunNav(id);
 }
 
 function showToast(msg) {
@@ -122,6 +368,202 @@ function spriteUrl(speciesId, shiny) {
 // item -- all share enough fields (species_id/name, optionally level/
 // types/current_hp/max_hp/status/held_item/is_shiny) that one builder
 // covers every screen that shows a Pokemon.
+// ---------------------------------------------------------------------
+// M6/N24. The stat hover card.
+//
+// `#team-hover-card` and its CSS were copied verbatim into main.css with R1
+// and sat unused ever since: R1 built exactly the data it needs
+// (`base_stats`, `effective_stats`, `stat_buffs`, `status_flags` on every
+// `mon_view`) so it could be built later, and no milestone from R2 to R5
+// claimed it.
+//
+// Ported from `showTeamHoverCard` (bundle.deobfuscated.js:64506-64564) and
+// `hideTeamHoverCard` (64565-64578). Content is the source's own:
+// `renderPokemonCard(mon, ...) + hoverCritLine(mon) + hoverAugmentLine(mon)`
+// (64523-64524). This client substitutes its own `makePokeCard`, which is the
+// same substitution R4 made for the battle field.
+// ---------------------------------------------------------------------
+
+// 64494: the crit line appears only when the value differs from the base by
+// at least 0.01, so an ordinary Pokemon shows no line at all.
+const HOVER_BASE_CRIT = 6.25;
+
+function hoverExtraLines(mon) {
+  const out = [];
+  if (mon.crit_chance !== undefined && mon.crit_chance !== null
+      && Math.abs(mon.crit_chance - HOVER_BASE_CRIT) >= 0.01) {
+    const line = document.createElement('div');
+    line.className = 'hover-crit';
+    // 64496: the source rounds to a whole percent.
+    line.textContent = 'Crit chance: ' + Math.round(mon.crit_chance) + '%';
+    out.push(line);
+  }
+  if (mon.augment_pct) {
+    const line = document.createElement('div');
+    line.className = 'hover-augment';
+    line.textContent = '🧬 Augment: +' + mon.augment_pct + '% all stats';
+    out.push(line);
+  }
+  return out;
+}
+
+let _hoverHideTimer = null;
+
+function showTeamHoverCard(mon, anchorEl, placement) {
+  const el = document.getElementById('team-hover-card');
+  if (!el || !mon || !anchorEl) return;
+  if (_hoverHideTimer) { clearTimeout(_hoverHideTimer); _hoverHideTimer = null; }
+  const wasHidden = el.style.display === 'none' || el.style.display === '' || el._fadingOut;
+  el._fadingOut = false;
+
+  el.innerHTML = '';
+  el.appendChild(makePokeCard(mon, { hover: true }));
+  hoverExtraLines(mon).forEach((line) => el.appendChild(line));
+  el.style.display = 'block';
+  if (wasHidden) el.style.opacity = '0';
+
+  // 64527-64555. Placement, viewport-clamped with the source's own 8px margin
+  // and 6px anchor gap. Side placement is desktop-only: the source gates it on
+  // `!matchMedia('(max-width: 768px)').matches` (64531).
+  const rect = anchorEl.getBoundingClientRect();
+  const w = el.offsetWidth || 200;   // 0xc8
+  const h = el.offsetHeight || 300;  // 0x12c
+  const side = (!window.matchMedia('(max-width: 768px)').matches
+    && (placement === 'left' || placement === 'right')) ? placement : null;
+  let top;
+  let left;
+  if (side) {
+    top = rect.top + rect.height / 2 - h / 2;
+    if (top + h > window.innerHeight - 8) top = window.innerHeight - h - 8;
+    if (top < 8) top = 8;
+    if (side === 'left') {
+      left = rect.left - w - 8;
+      if (left < 8) left = rect.right + 8;
+    } else {
+      left = rect.right + 8;
+      if (left + w > window.innerWidth - 8) left = rect.left - w - 8;
+    }
+    if (left < 8) left = 8;
+    if (left + w > window.innerWidth - 8) left = window.innerWidth - w - 8;
+  } else {
+    top = rect.bottom + 6;
+    if (top + h > window.innerHeight - 8) top = rect.top - h - 6;
+    left = rect.left + rect.width / 2 - w / 2;
+    if (left + w > window.innerWidth - 8) left = window.innerWidth - w - 8;
+    if (left < 8) left = 8;
+  }
+  el.style.left = left + 'px';
+  el.style.top = top + 'px';
+  if (wasHidden) {
+    requestAnimationFrame(() => { if (!el._fadingOut) el.style.opacity = '1'; });
+  } else {
+    el.style.opacity = '1';
+  }
+}
+
+function hideTeamHoverCard() {
+  const el = document.getElementById('team-hover-card');
+  if (!el) return;
+  if (_hoverHideTimer) clearTimeout(_hoverHideTimer);
+  el._fadingOut = true;
+  el.style.opacity = '0';
+  // 0x8c = 140 ms, the source's own fade-out delay before it un-displays.
+  _hoverHideTimer = setTimeout(() => {
+    el.style.display = 'none';
+    el._fadingOut = false;
+    _hoverHideTimer = null;
+  }, 140);
+}
+
+// 64671-64677: mouseenter AND mousemove both (re)show, mouseleave hides.
+// `makePokeCard` is shared across the team bar, reward picks, swap screens and
+// the battle field, so attaching here is what gives every one of them the same
+// card -- which is what the source does, since every one of those surfaces
+// calls `showTeamHoverCard` too (64672, 75731, 78217, 78328).
+function attachHoverCard(cardEl, mon, placement) {
+  cardEl.addEventListener('mouseenter', () => showTeamHoverCard(mon, cardEl, placement));
+  cardEl.addEventListener('mousemove', () => showTeamHoverCard(mon, cardEl, placement));
+  cardEl.addEventListener('mouseleave', () => hideTeamHoverCard());
+  // Deliberately NO `pointerdown` listener here. The source does not attach
+  // one either -- it calls `hideTeamHoverCard()` from the handlers that
+  // already exist (the held-item badge at 64701, the drag gesture at 64811) --
+  // and adding one would put a SECOND pointerdown handler on a team slot that
+  // already has the drag gesture's. That is exactly the double-dispatch class
+  // R3 found by executing app.js, and R5's standing detector catches it.
+}
+
+// R6/N34. `t("common.pwr")` in English (bundle.deobfuscated.js:29233), and
+// `t("move.physical")`/`t("move.special")` (29318). Spelled out rather than
+// invented, so the badge reads exactly as the site's does.
+const MOVE_PWR_LABEL = 'PWR';
+const MOVE_CAT_LABEL = { physical: 'Physical', special: 'Special' };
+
+/** The source's `.poke-move` block (bundle.deobfuscated.js:64348-64366).
+ *  Appends nothing when the contract supplied no `move_preview` -- the port
+ *  reports absence honestly rather than drawing a placeholder move. */
+function appendMoveBlock(card, mp) {
+  if (!mp || !mp.name) return;
+  const block = document.createElement('div');
+  block.className = 'poke-move';
+
+  const nameEl = document.createElement('div');
+  nameEl.className = 'move-name';
+  // 64350-64352: the name is both the text and the title attribute, because
+  // `.move-name` clips long names (main.css:1229-1240).
+  nameEl.setAttribute('title', mp.name);
+  nameEl.textContent = mp.name;
+  block.appendChild(nameEl);
+
+  const meta = document.createElement('div');
+  meta.className = 'move-meta';
+
+  // 64353-64357. `img/physical.png` and `img/special.png` are among the files
+  // GENUINELY ABSENT from this mirror (R6 §4) -- the same class of gap as the
+  // region art and the 33 gym-leader sprites. The source has no fallback here
+  // because on the real site the files exist.
+  //
+  // The fallback below is therefore this port's own, but the thing it falls
+  // back TO is not invented: `.move-cat-physical` / `.move-cat-special`
+  // (main.css:1287-1288) are the source's own badge classes for exactly this
+  // label, already carrying its red/purple palette. A missing PNG degrades to
+  // the source's own coloured text badge instead of a broken-image icon.
+  const catKey = mp.is_special ? 'special' : 'physical';
+  const catLabel = MOVE_CAT_LABEL[catKey];
+  const icon = document.createElement('img');
+  icon.className = 'move-cat-icon';
+  icon.src = '/img/' + catKey + '.png';
+  icon.alt = catLabel;
+  icon.setAttribute('title', catLabel);
+  icon.addEventListener('error', () => {
+    const badge = document.createElement('span');
+    badge.className = 'type-badge move-cat-' + catKey;
+    badge.setAttribute('title', catLabel);
+    // The badge row is 16px tall and very narrow; the initial is what fits.
+    badge.textContent = catLabel.charAt(0);
+    icon.replaceWith(badge);
+  }, { once: true });
+  meta.appendChild(icon);
+
+  // 64358-64361. `type-` + lowercase type is the source's own class rule, and
+  // the em dash is its own placeholder for a typeless move.
+  const typeBadge = document.createElement('span');
+  typeBadge.className = 'type-badge move-type-badge'
+    + (mp.type ? ' type-' + String(mp.type).toLowerCase() : '');
+  typeBadge.textContent = mp.type ? mp.type : '—';
+  meta.appendChild(typeBadge);
+
+  // 64362-64363. `noDamage` shows the em dash; everything else shows the real
+  // power. This is the field R6 §6.1 exists for: it reaches the DOM as a value
+  // in `.move-power-badge`, not as prose inside a sentence.
+  const power = document.createElement('span');
+  power.className = 'move-power-badge';
+  power.textContent = mp.no_damage ? '—' : (mp.power + ' ' + MOVE_PWR_LABEL);
+  meta.appendChild(power);
+
+  block.appendChild(meta);
+  card.appendChild(block);
+}
+
 function makePokeCard(data, opts) {
   opts = opts || {};
   const card = document.createElement('div');
@@ -212,26 +654,283 @@ function makePokeCard(data, opts) {
     status.textContent = data.status;
     card.appendChild(status);
   }
+
+  // R6/N34. The move, as STRUCTURED markup on every card.
+  //
+  // M6 rendered this as the prose line `Move: Magical Leaf (Grass 40)` in a
+  // `.hover-move` div, and only on the hover card. Both halves of that were
+  // this port's invention. The source builds
+  // `renderPokemonCard`'s `.poke-move` block (bundle.deobfuscated.js:64348-
+  // 64366) on EVERY card it draws, not on a hover overlay:
+  //
+  //   .poke-move
+  //     .move-name          (also the title attribute)
+  //     .move-meta
+  //       img.move-cat-icon        img/physical.png | img/special.png
+  //       span.type-badge.move-type-badge
+  //       span.move-power-badge    power + " PWR", or "—" when noDamage
+  //
+  // main.css already styles all of it verbatim -- `.poke-move` (1176),
+  // `.move-meta` (1191), `.move-name` (1229), `.move-power-badge` (1270),
+  // `.move-cat-icon` (1198-1209) -- exactly the situation M6 found for
+  // `#team-hover-card` itself: the rules shipped and no markup ever used them.
+  //
+  // ON EVERY CARD, not hover-only, because that is where the source puts it and
+  // because it is the answer to the other half of R6/N33: with the hover card
+  // now correctly confined to the two screens the source shows it on (see
+  // `mkPokeCardOption`), a hover-only move would leave the catch, swap, trade
+  // and move-tutor screens with no move information at all -- and the move is
+  // the single most decision-relevant fact on a move-tutor card.
+  appendMoveBlock(card, data.move_preview);
+
+  // M6/N24. The stat block, drawn only on the hover card. This is the data R1
+  // put on every `mon_view` specifically so this could be built later:
+  // `effective_stats` is what the battle engine would actually read right now
+  // (stages, buffs and the mon's own held item folded in via the same
+  // `get_effective_stat` the damage formula calls), `base_stats` is the
+  // unmodified table, and `stat_buffs`/`stages` are why they differ.
+  //
+  // Showing the effective number ALONE would be misleading mid-battle, and
+  // showing the base alone is what the port did everywhere before this, so
+  // both are shown and the delta is called out.
+  if (opts.hover && data.effective_stats) {
+    const table = document.createElement('div');
+    table.className = 'hover-stats';
+    // The number shown is the EFFECTIVE stat -- what the battle engine would
+    // really read right now.
+    //
+    // `base_stats` is deliberately NOT shown beside it as a delta. The two are
+    // different quantities on different scales, not a before/after pair:
+    // `base_stats` is the species table (Bulbasaur Atk 49) and
+    // `effective_stats` is the computed battle stat at this level (Atk 9 at
+    // Lv5). Differencing them yields "-40", which reads as a crippling debuff
+    // and means nothing. What actually moves the effective number is `stages`
+    // and `stat_buffs`, so those are what get annotated.
+    //
+    // Note also the key asymmetry: `base_stats` spells the defence stat
+    // `defense` and carries `hp`; `effective_stats`, `stages` and `stat_buffs`
+    // all spell it `def` and have no `hp` (HP is `current_hp`/`max_hp`).
+    const stages = data.stages || {};
+    const buffs = data.stat_buffs || {};
+    const rows = [
+      { label: 'Atk', key: 'atk' },
+      { label: 'Def', key: 'def' },
+      { label: 'SpA', key: 'special' },
+      { label: 'SpD', key: 'spdef' },
+      { label: 'Spe', key: 'speed' },
+    ];
+    rows.forEach((spec) => {
+      const value = data.effective_stats[spec.key];
+      if (value === undefined) return;
+      const row = document.createElement('div');
+      row.className = 'hover-stat-row';
+      const nameEl = document.createElement('span');
+      nameEl.className = 'hover-stat-name';
+      nameEl.textContent = spec.label;
+      const valEl = document.createElement('span');
+      valEl.className = 'hover-stat-value';
+      valEl.textContent = String(value);
+      row.appendChild(nameEl);
+      row.appendChild(valEl);
+      const stage = stages[spec.key] || 0;
+      const buff = buffs[spec.key] || 0;
+      if (stage || buff) {
+        const note = document.createElement('span');
+        note.className = 'hover-stat-delta';
+        const total = stage + buff;
+        note.style.color = total > 0 ? 'var(--green, #3cc24a)' : 'var(--red, #e22a18)';
+        const bits = [];
+        if (stage) bits.push((stage > 0 ? '+' : '') + stage + ' stg');
+        if (buff) bits.push((buff > 0 ? '+' : '') + buff + ' buf');
+        note.textContent = ' ' + bits.join(' ');
+        row.appendChild(note);
+      }
+      table.appendChild(row);
+    });
+    if (table.children.length) card.appendChild(table);
+
+    // `status` alone is not the whole story: it only ever holds freeze/sleep,
+    // while burn, paralysis and poison live in separate fields. R1 collapsed
+    // all of them into `status_flags` for exactly this reason.
+    const sf = data.status_flags || {};
+    const flags = [];
+    if (sf.sleep_or_freeze) flags.push(String(sf.sleep_or_freeze));
+    if (sf.burned) flags.push('burned');
+    if (sf.paralyzed) flags.push('paralyzed');
+    if (sf.poison_stacks) flags.push('poison x' + sf.poison_stacks);
+    if (flags.length) {
+      const row = document.createElement('div');
+      row.className = 'hover-status-flags';
+      row.style.color = 'var(--red, #e22a18)';
+      row.textContent = flags.join(' · ');
+      card.appendChild(row);
+    }
+
+    if (data.ability) {
+      const row = document.createElement('div');
+      row.className = 'hover-ability';
+      row.textContent = 'Ability: ' + data.ability;
+      card.appendChild(row);
+    }
+  }
   return card;
+}
+
+// ---------------------------------------------------------------------
+// R6/N33. Item cards.
+//
+// `makeItemCard` rendered a bare name plus the literal string "Usable" /
+// "Held item" and ignored `icon`, `icon_url` and `desc` -- all three of which
+// `contract.item_view` (render/contract.py:419-441) has carried on every
+// option since R3, which added them precisely so the browser would stop being
+// handed bare string ids (CODEX gap 6). The data was there for three
+// milestones and the renderer never read it.
+//
+// Ported from the source's OWN item-offer card
+// (bundle.deobfuscated.js:79378-79394):
+//
+//   .item-card
+//     .item-icon                 itemIconHtml(item, 0x24)   -> 36px
+//     .item-name                 tItemName(id, name)
+//     .item-desc                 tItemDesc(id, desc)
+//     .item-tag.item-tag--usable "USABLE ITEM"   (only when usable)
+//
+// THE CLASS WAS WRONG, and this is the R6 §3.1 question answered from the
+// source rather than by taste: the card was labelled `poke-card`, the same
+// class Pokemon cards use. `.item-card` is a real, distinct rule in the
+// stylesheet (main.css:1989-2003) with its own border, hover lift and
+// `.locked` state, and `.item-icon`/`.item-name`/`.item-desc`/`.item-tag`/
+// `.item-tag--usable` (2015-2029) only ever apply INSIDE it. Under
+// `poke-card` every one of those child rules was inert, which is the direct
+// reason the screen looked like bare text. `poke-card` is also wrong on its
+// own terms -- it is a 180px flex column built around a sprite (1072-1080),
+// and an item has no sprite slot. The same pairing appears again at
+// 84906-84914 for the Challenge passive picker, so `.item-card` is the
+// source's settled item-card class, not a one-off.
+// ---------------------------------------------------------------------
+
+/** The source's `itemIconHtml` (bundle.deobfuscated.js:52113-52141), as DOM.
+ *
+ *  One deliberate substitution. The source falls back to
+ *  `raw.githubusercontent.com/PokeAPI/sprites/.../items/<id>.png` -- a REMOTE
+ *  URL fetched at render time. This client is local-only and offline, and its
+ *  species sprites are already served from a local cache that
+ *  `tools/fetch-sprites/` fills from that same public dataset, so the item
+ *  icon points at the local mirror of it on the same path shape. The id
+ *  transform (`_` -> `-`) is the source's own (52116).
+ *
+ *  The `onerror` behaviour is the source's own too (52122-52128): a failed
+ *  load is replaced by a span carrying the item's emoji at 80% of the icon
+ *  box, floored at 10px. That is why a missing PNG is not a defect here --
+ *  every ported item carries an emoji `icon`, so the card always shows
+ *  something. */
+function appendItemIcon(parent, opt, size) {
+  const px = size || 36;
+  const img = document.createElement('img');
+  img.className = 'item-sprite-icon pixel-art';
+  img.src = opt.icon_url || ('/img/sprites/items/' + String(opt.id).replace(/_/g, '-') + '.png');
+  img.alt = opt.name || '';
+  img.setAttribute('title', opt.name || '');
+  img.style.width = px + 'px';
+  img.style.height = px + 'px';
+  img.style.verticalAlign = 'middle';
+  img.addEventListener('error', () => {
+    const span = document.createElement('span');
+    span.textContent = opt.icon || '';
+    span.style.fontSize = Math.max(10, Math.round(px * 0.8)) + 'px';
+    span.style.lineHeight = '1';
+    span.style.verticalAlign = 'middle';
+    img.replaceWith(span);
+  }, { once: true });
+  parent.appendChild(img);
 }
 
 function makeItemCard(opt, onClick) {
   const card = document.createElement('div');
-  card.className = 'poke-card';
+  card.className = 'item-card';
   card.setAttribute('role', 'button');
   card.setAttribute('tabindex', '0');
   card.addEventListener('click', onClick);
+  // The source sets `cursor: pointer` inline (79395) and routes the card
+  // through `_kbCard` for keyboard activation; this client wires the keyboard
+  // half directly, as it already does for the region cards.
+  card.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') onClick(e);
+  });
+
+  const icon = document.createElement('div');
+  icon.className = 'item-icon';
+  appendItemIcon(icon, opt, 36);
+  card.appendChild(icon);
+
   const name = document.createElement('div');
-  name.className = 'poke-name';
+  name.className = 'item-name';
   name.textContent = opt.name;
   card.appendChild(name);
-  const kind = document.createElement('div');
-  kind.className = 'poke-level';
-  kind.textContent = opt.usable ? 'Usable' : 'Held item';
-  card.appendChild(kind);
+
+  // The description the contract has been carrying unread since R3. Omitted
+  // rather than blanked when the item is one `item_view` reports `known:
+  // false` for (Mega Stones -- a separate source table with a different
+  // shape), so an unknown item degrades to icon + name instead of an empty row.
+  if (opt.desc) {
+    const desc = document.createElement('div');
+    desc.className = 'item-desc';
+    desc.textContent = opt.desc;
+    card.appendChild(desc);
+  }
+
+  // 79391-79393: the tag is drawn ONLY for a usable item. A held item gets no
+  // tag at all -- the port's old unconditional "Held item" line was its own
+  // invention.
+  if (opt.usable) {
+    const tag = document.createElement('div');
+    tag.className = 'item-tag item-tag--usable';
+    tag.textContent = 'USABLE ITEM';
+    card.appendChild(tag);
+  }
   return card;
 }
 
+// ---------------------------------------------------------------------
+// R6/N33. The hover card is attached PER SCREEN, not inside this helper.
+//
+// M6/N24 called `attachHoverCard` from inside `mkPokeCardOption`, on the
+// stated belief that the source shows a hover card on every screen where the
+// player chooses between Pokemon. That belief was wrong, and the concrete
+// symptom the owner reported is that assigning an item to a Pokemon raised an
+// unwanted Pokemon-card overlay on the item-equip screen.
+//
+// The `showTeamHoverCard` call sites, re-derived here rather than taken on
+// trust, are exhaustively:
+//
+//   64672, 64675, 64811   the team bar (`renderTeamBar`; 64811 is the same
+//                         function's pointer-drag release path)
+//   75731                 the starter screen
+//   78217, 78223          the Elite-prep party list
+//   78328                 the Elite-prep "vs" comparison
+//
+// That is the whole list. The item-equip target list (79495-79521) is NOT on
+// it, and neither are the catch, swap, trade, move-tutor or reward screens.
+// Ports of the two Elite-prep sites do not arise: this client has no
+// Elite-prep screen.
+//
+// So the attachment now happens at exactly two places -- `renderTeamBar` and
+// `renderStarterScreen` -- and `mkPokeCardOption`, which every other choice
+// screen shares, attaches nothing. Being a shared helper is what made the
+// regression reach a screen nobody intended it to; keeping the attachment at
+// the call site is what stops the next change from doing the same.
+//
+// What the other choice screens lose is not lost information: the source does
+// not need a hover card there because its own `renderPokemonCard` draws the
+// move block on the card itself, which `makePokeCard` now does too (N34). The
+// stat block remains hover-only, which is this port's own reduction and is
+// recorded as an open finding rather than silently widened here.
+// ---------------------------------------------------------------------
+// The two surfaces that DO get a hover card already attach their own, on the
+// elements they build themselves: `renderTeamBar` (app.js, on each
+// `.team-slot`) and `renderStarterScreen`. Neither goes through this helper,
+// so no hover-attaching variant of it is needed -- and adding one "for
+// symmetry" would just re-create the shared attachment point this removes.
 function mkPokeCardOption(opt, idx) {
   return makePokeCard(opt, { onClick: () => doAction({ type: 'SelectOption', index: idx }) });
 }
@@ -343,9 +1042,35 @@ function tooltipHtml(tip) {
 // renderMap's circle+icon branch (bundle.deobfuscated.js:54315-54348): fill is
 // #2a2a3a when unexplored, else getNodeColor; the stroke and its pulse mark a
 // clickable node; the glyph is ✓ for the node you are standing on.
+// The source's no-sprite branch (bundle.deobfuscated.js:54314-54348). This is
+// the source's REAL behaviour on an image-load error, not an invention -- but
+// because no node sprite files ship with this mirror (R6 §4), it is the branch
+// this port draws for EVERY node, all the time, rather than the rare fallback
+// it is on the live site. That is why R6 asks for it to be made more legible.
+//
+// Everything the source decides is still the source's: `circle_radius` (22 for
+// a boss, 18 otherwise, 54315), the per-type fill from `getNodeColor`, the
+// unexplored `#2a2a3a`/`#aaa` pair, the stroke colours and widths, the
+// clickable pulse, and the glyph from `getNodeIcon`. The contract already
+// carries all of them.
+//
+// R6/N37 — the two legibility changes, both labelled as this port's own:
+//
+//  1. The glyph gets a black outline via `paint-order: stroke`. The source
+//     draws it as bare `fill: #fff` over per-type fills that range from
+//     `#6a4a1a` to `#333`, and a white glyph on a light fill washes out. The
+//     technique is NOT invented: it is the source's own, used 20 lines above
+//     on the boss-preview level text (54294-54299, `paint-order: stroke` /
+//     `stroke: #000` / `stroke-width: 2`). Applied here to the node glyph.
+//  2. The glyph scales with the circle instead of being a fixed 14px. The
+//     source hard-codes 14 for both radii, so a boss's larger 22px circle
+//     carries the same size glyph as an ordinary 18px one and reads as
+//     emptier, not bigger. Scaling keeps 14 at r=18 exactly, so the ordinary
+//     node is unchanged from the source and only the boss grows.
 function appendNodeCircle(g, node) {
+  const radius = node.sprite_size.circle_radius;
   const circle = svgEl('circle', {
-    r: node.sprite_size.circle_radius,
+    r: radius,
     fill: node.unexplored ? '#2a2a3a' : node.color,
     stroke: node.clickable ? '#fff' : node.unexplored ? '#444' : '#555',
     'stroke-width': node.clickable ? 3 : 1,
@@ -359,7 +1084,12 @@ function appendNodeCircle(g, node) {
   g.appendChild(circle);
   const text = svgEl('text', {
     'text-anchor': 'middle', 'dominant-baseline': 'central',
-    'font-size': 14, fill: node.unexplored ? '#aaa' : '#fff',
+    // 14 at the source's ordinary radius of 18, by construction.
+    'font-size': Math.round((14 * radius) / 18),
+    fill: node.unexplored ? '#aaa' : '#fff',
+    'paint-order': 'stroke',
+    stroke: '#000',
+    'stroke-width': 2,
   });
   text.textContent = node.is_current ? '✓' : node.icon;
   g.appendChild(text);
@@ -417,16 +1147,58 @@ function appendNodeSprite(g, node) {
   }));
 }
 
+// M6/N25. The map is drawn at whatever size the container happens to be when
+// `renderMap` runs, and `renderMap` only runs on a state update -- so before
+// this, resizing the window or rotating a phone left every node at its old
+// pixel position until the player next clicked something. There was no
+// `resize` handler of any kind.
+//
+// The container's size no longer depends on sibling content (see index.html's
+// #map-container override, which is the actual N25 fix), so this observer now
+// fires only on a REAL viewport change rather than every time the team grew.
+// It is still debounced: a drag-resize emits a continuous stream, and
+// re-rendering the whole SVG per frame is wasted work.
+let _mapResizeObserver = null;
+let _mapResizeTimer = null;
+let _mapLastSize = '';
+
+function observeMapContainer(container) {
+  if (typeof ResizeObserver !== 'function' || _mapResizeObserver) return;
+  _mapResizeObserver = new ResizeObserver(() => {
+    if (_mapResizeTimer) clearTimeout(_mapResizeTimer);
+    _mapResizeTimer = setTimeout(() => {
+      _mapResizeTimer = null;
+      const size = Math.round(container.clientWidth) + 'x' + Math.round(container.clientHeight);
+      // Only redraw once the size has actually SETTLED on something new --
+      // the observer also fires for the render we just did.
+      if (size === _mapLastSize) return;
+      // MUST read the app's CURRENT state, never a captured one. The observer
+      // is installed once and lives for the whole run, so an earlier version
+      // of this closed over the `state` argument of the FIRST renderMap call
+      // and redrew that forever: after visiting a node, any later resize
+      // repainted the PREVIOUS map, showing the node you had just cleared as
+      // still clickable and the newly-reachable one as not. That is a live bug
+      // report -- "select the first node, cannot go on to the second".
+      if (currentState && currentState.map) renderMap(currentState);
+    }, 120);
+  });
+  _mapResizeObserver.observe(container);
+}
+
 function renderMap(state) {
   const container = document.getElementById('map-container');
   container.innerHTML = '';
   const mapData = state.map;
   if (!mapData) return;
+  observeMapContainer(container);
 
   // The source sizes its SVG from the live container, with the same fallbacks
   // (bundle.deobfuscated.js:54113-54125).
   const w = Math.round(container.clientWidth) || MAP_DEFAULT_W;
   const h = Math.round(container.clientHeight) || MAP_DEFAULT_H;
+  // What the observer above compares against, so it can tell "the size really
+  // changed" from "we just re-rendered at the same size".
+  _mapLastSize = w + 'x' + h;
 
   const svg = svgEl('svg', {
     id: 'map-svg', width: w, height: h,
@@ -759,6 +1531,8 @@ function renderTeamBar(state) {
   const reorder = legalReorder(state);
   state.team.forEach((mon, idx) => {
     const card = makePokeCard(mon);
+    // M6/N24. 64671-64677 attaches the hover card to every team slot.
+    attachHoverCard(card, mon);
     // The source's own class pair (64625-64627): `team-slot` always,
     // `team-slot-reorder` plus a grab cursor only when reordering is live.
     card.classList.add('team-slot');
@@ -782,6 +1556,9 @@ function renderTeamBar(state) {
       heldBadge.addEventListener('pointerdown', (e) => e.stopPropagation());
       heldBadge.addEventListener('click', (e) => {
         e.stopPropagation();
+        // 64701: the source dismisses the hover card before opening the
+        // overlay, or it would sit on top of the modal it just raised.
+        hideTeamHoverCard();
         openHeldItemModal(state, idx);
       });
     }
@@ -999,60 +1776,64 @@ function openEquipFromBagModal(state, bagIdx) {
 }
 
 // openItemEquipModal's `fromPokemonIdx >= 0` branch (79442-79570), reached
-// from a held-item badge (64702-64709).
+// from a held-item badge (64702-64709 on the team bar, 78203 on the party
+// screen).
 //
-// PARTIAL, and deliberately so -- see docs/audits/R3-implementation.md. The
-// source offers "Unequip (return to bag)" (79530) and a direct hand-off to
-// another member (79544-79545). Neither is expressible: engine.EquipItem
-// moves BAG -> member only (engine.py:301-321, 1833-1860) and the port has no
-// unequip/hand-off action at all. Inventing one would be new engine surface,
-// which R3 is explicitly not scoped to add. What IS reachable is shown: the
-// item can be displaced by equipping a different BAG item onto that member,
-// which returns the held one to the bag.
+// M6 completes this. R3 built the shell but could draw neither of the source's
+// two remaining exits, because the engine had no action for either; both now
+// exist (engine.UnequipItem / engine.HandOffItem), so the modal is now the
+// source's own layout:
+//
+//   * one row per member, labelled exactly as the source labels it (79470):
+//     "Holding" for the member the overlay was opened from, "Swap" for a
+//     member already holding something, "Equip" otherwise;
+//   * "⬇ Unequip (return to bag)" -- `#btn-equip-to-bag` with
+//     `fromPokemonIdx >= 0` (79518, 79549-79553);
+//   * "Cancel" -- `#btn-equip-cancel` (79563-79569), whose whole body is
+//     `overlay.remove()`, which is why it closes locally and sends nothing.
+//
+// The member rows send HandOffItem, NOT EquipItem: the source's hand-off gives
+// the target's old item to the SOURCE member (79544-79545), where an
+// unequip-then-equip would send it to the bag. See engine.HandOffItem.
 function openHeldItemModal(state, teamIdx) {
   const mon = state.team[teamIdx];
+  const info = mon.held_item_info || null;
+  const itemLabel = (info && info.name) || mon.held_item;
   const { box, list } = buildModal(
-    (mon.nickname || mon.name) + ' is holding ' + mon.held_item,
-    'Equip a different bag item onto this Pokemon to send ' + mon.held_item + ' back to the bag.'
+    (mon.nickname || mon.name) + ' is holding ' + itemLabel,
+    (info && info.desc) || ''
   );
-  const eq = (state.legal_actions && state.legal_actions.equip_item) || null;
-  const candidates = eq ? eq.bag_indices : [];
-  if (!candidates.length) {
-    const note = document.createElement('div');
-    note.className = 'equip-poke-lv';
-    note.style.padding = '8px';
-    note.textContent = 'No equippable item in the bag right now.';
-    list.appendChild(note);
-  }
-  candidates.forEach((bagIdx) => {
-    const info = (state.items_info && state.items_info[bagIdx]) || { name: state.items[bagIdx] };
-    const row = document.createElement('div');
-    row.className = 'equip-pokemon-row';
-    const label = document.createElement('div');
-    label.className = 'equip-poke-info';
-    const nm = document.createElement('div');
-    nm.className = 'equip-poke-name';
-    nm.textContent = info.name || state.items[bagIdx];
-    label.appendChild(nm);
-    const ds = document.createElement('div');
-    ds.className = 'equip-poke-lv';
-    ds.textContent = info.desc || '';
-    label.appendChild(ds);
-    row.appendChild(label);
-    const group = document.createElement('div');
-    group.className = 'equip-btn-group';
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'btn-primary btn-sm';
-    btn.textContent = 'Swap in';
-    btn.addEventListener('click', () => {
+
+  const legal = state.legal_actions || {};
+  const canHandOff = !!legal.hand_off_item
+    && (legal.hand_off_item.from_indices || []).includes(teamIdx);
+
+  state.team.forEach((other, otherIdx) => {
+    if (otherIdx === teamIdx) {
+      // The source still draws this row, disabled, labelled "Holding".
+      list.appendChild(equipRow(other, 'Holding', false, null));
+      return;
+    }
+    list.appendChild(equipRow(other, other.held_item ? 'Swap' : 'Equip', canHandOff, () => {
       closeModal();
-      doAction({ type: 'EquipItem', bag_index: bagIdx, team_index: teamIdx });
-    });
-    group.appendChild(btn);
-    row.appendChild(group);
-    list.appendChild(row);
+      doAction({ type: 'HandOffItem', from_index: teamIdx, to_index: otherIdx });
+    }));
   });
+
+  const canUnequip = !!legal.unequip_item
+    && (legal.unequip_item.team_indices || []).includes(teamIdx);
+  const toBag = document.createElement('button');
+  toBag.type = 'button';
+  toBag.id = 'btn-equip-to-bag';
+  toBag.className = 'btn-primary btn-md btn-block';
+  toBag.textContent = '⬇ Unequip (return to bag)';
+  toBag.disabled = !canUnequip;
+  toBag.addEventListener('click', () => {
+    closeModal();
+    doAction({ type: 'UnequipItem', team_index: teamIdx });
+  });
+  box.appendChild(toBag);
+
   modalCancelButton(box, 'Cancel');
 }
 
@@ -1260,9 +2041,14 @@ function renderBattle(logEntry, state, onContinue) {
     if (token !== battleReplayToken) return;
     // The source does exactly this at the end of the replay:
     // renderBattleField(Bch, BcL) (81278) redraws from the real post-battle
-    // teams. It is not cosmetic -- HP changes that no event records (held-item
-    // recoil and healing, battle_loop.py:726-739) are invisible to the replay,
-    // so the last replayed HP and the true final HP can legitimately differ.
+    // teams.
+    //
+    // M6/N10 closed the biggest reason this mattered: held-item recoil and
+    // healing now emit their own `effect` records, so the replay accounts for
+    // those HP changes rather than ending on a number the roster contradicts.
+    // The redraw stays -- it is what the source does, and the families still
+    // unrecorded (send-outs, transforms) can move a roster the replay never
+    // mentions.
     p.innerHTML = '';
     view.player_team.forEach((m, idx) => p.appendChild(makeBattleCard(m, idx)));
     e.innerHTML = '';
@@ -1298,6 +2084,17 @@ function renderBattle(logEntry, state, onContinue) {
       setTimeout(() => card && card.classList.remove('crit-flash'), 800);
     }
     if (step.kind === 'faint' && card) card.classList.remove('active-pokemon');
+    // M6/N10. The source's `effect` branch (bundle.deobfuscated.js:69352-69375)
+    // does two things beyond the HP bar every step already gets: it spawns a
+    // damage popup whenever `hpChange` is truthy, keyed "heal" when positive
+    // and "normal" otherwise (69364-69368), and it clears the `fainted` class
+    // when the new HP is above zero (69369) -- a heal can bring a card back.
+    if (step.kind === 'effect' && card) {
+      if (step.hp_after > 0) card.classList.remove('fainted');
+      if (step.damage) {
+        spawnBattlePopup(card, (step.damage > 0 ? '+' : '') + step.damage + ' HP');
+      }
+    }
 
     // The log line. The source builds this exact string
     // (bundle.deobfuscated.js:69309-69322) but never shows it -- its log
@@ -1430,9 +2227,11 @@ function renderStarterScreen(state) {
   const container = document.getElementById('starter-choices');
   container.innerHTML = '';
   state.pending.options.forEach((opt) => {
-    container.appendChild(
-      makePokeCard(opt, { onClick: () => doAction({ type: 'ChooseStarter', species_id: opt.species_id }) })
-    );
+    const card = makePokeCard(
+      opt, { onClick: () => doAction({ type: 'ChooseStarter', species_id: opt.species_id }) });
+    // M6/N24. The source shows the hover card here too (75731).
+    attachHoverCard(card, opt);
+    container.appendChild(card);
   });
   showScreen('starter-screen');
 }
@@ -1505,13 +2304,29 @@ function render(state) {
 // ---------------------------------------------------------------------
 
 function wireButtons() {
-  document.getElementById('btn-start-story').onclick = () => resetRun({ nuzlocke_mode: false });
-  document.getElementById('btn-start-nuzlocke').onclick = () => resetRun({ nuzlocke_mode: true });
+  // M6/N26. Both title cards now open the region screen instead of starting a
+  // Gen1 run immediately -- which is what the source does (its Story card
+  // opens `#history-region-select`, index.html:302-312 -> 682). The Nuzlocke
+  // card is this port's own extra entry point and simply pre-sets the toggle
+  // the source puts on that screen.
+  document.getElementById('btn-start-story').onclick = () => showRegionScreen(false);
+  document.getElementById('btn-region-back').onclick = () => showScreen('title-screen');
+  document.getElementById('btn-history-classic').onclick = () => setRegionMode(false);
+  document.getElementById('btn-history-nuzlocke').onclick = () => setRegionMode(true);
   document.getElementById('btn-next-map').onclick = () => doAction({ type: 'AdvanceMap' });
-  document.getElementById('btn-retry').onclick = () =>
-    resetRun({ nuzlocke_mode: currentState ? currentState.nuzlocke_mode : false });
-  document.getElementById('btn-play-again').onclick = () =>
-    resetRun({ nuzlocke_mode: currentState ? currentState.nuzlocke_mode : false });
+  // M6/N26. These used to send `nuzlocke_mode` ALONE, so retrying or replaying
+  // after a Johto/Hoenn/Sinnoh run silently restarted it in Kanto. The
+  // observation has carried `gen2_mode`/`gen3_mode`/`gen4_mode` at top level
+  // since R1, so the current run's own region is what gets repeated.
+  document.getElementById('btn-retry').onclick = () => resetRun(repeatRunBody());
+  document.getElementById('btn-play-again').onclick = () => resetRun(repeatRunBody());
+  // R6/N35. The floating quick-nav. Both go through the engine or through
+  // `showScreen`; neither fabricates state in the DOM. The source binds these
+  // with inline `onclick="confirmResetRun()"` / `goHomeFromMenu()`
+  // (pokelike_forked/index.html:445-446); this client keeps its own convention
+  // of wiring every button from one place.
+  document.getElementById('btn-run-reset').onclick = () => confirmResetRun();
+  document.getElementById('btn-run-home').onclick = () => confirmAbandonRun();
   document.getElementById('btn-skip-catch').onclick = () => doAction({ type: 'SelectOption', index: null });
   document.getElementById('btn-skip-item').onclick = () => doAction({ type: 'SelectOption', index: null });
   document.getElementById('btn-skip-tutor').onclick = () => doAction({ type: 'SelectOption', index: null });
@@ -1618,6 +2433,18 @@ function handleShortcutKey(ev) {
     if (screen === 'map-screen' && digit >= 1) {
       if (swapPartyLeadWith(digit)) ev.preventDefault();
     }
+    return;
+  }
+
+  // R6/N35. The quick-nav's own shortcuts, which its markup already declares
+  // as `data-shortcut="R"` / `"H"` -- the same letters the source binds
+  // (pokelike_forked/index.html:445-446) and the same badges main.css draws
+  // for them (8476). Both are inert outside a run, because `.nav-in-run` hides
+  // the buttons there and `pressButton` is the same path a click takes.
+  if (ev.code === 'KeyR' || ev.code === 'KeyH') {
+    if (!document.body.classList.contains('run-menu-in-run')) return;
+    const id = ev.code === 'KeyR' ? 'btn-run-reset' : 'btn-run-home';
+    if (pressButton(id)) ev.preventDefault();
     return;
   }
 

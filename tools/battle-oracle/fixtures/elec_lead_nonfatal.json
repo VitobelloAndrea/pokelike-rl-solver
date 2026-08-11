@@ -1,0 +1,28 @@
+{
+  "description": "elec_lead's onStartFight extra hit (bundle.deobfuscated.js:61187-61292) must re-invoke traits_config's OWN whenAttacked/afterAttack (called via `this` inside onStartFight, which the source binds to the raw traits object, never the merged wrapper or the ability config -- see README). Nonfatal: Rattata's huge HP survives Pikachu's opening hit, so afterAttack must fire and elec_chain (gated on the ATTACKER being Electric-type) must grant Pikachu +1 speed stage from that extra hit alone, before round 1 even starts. Pre-fix Python never calls after_attack for elec_lead at all, so this stage change -- and everything downstream it perturbs (turn order, subsequent rounds) -- was missing.",
+  "gen": 3,
+  "passives": ["elec_lead", "elec_chain"],
+  "seed": 9001,
+  "player_team": [
+    {
+      "species_id": 25,
+      "name": "Pikachu",
+      "level": 20,
+      "types": ["Electric"],
+      "base_stats": {"hp": 35, "atk": 55, "def": 40, "speed": 90, "special": 50, "spdef": 50},
+      "move_tier": 1
+    }
+  ],
+  "enemy_team": [
+    {
+      "species_id": 19,
+      "name": "Rattata",
+      "level": 20,
+      "types": ["Normal"],
+      "base_stats": {"hp": 30, "atk": 56, "def": 35, "speed": 72, "special": 25, "spdef": 35},
+      "move_tier": 1,
+      "max_hp": 500,
+      "current_hp": 500
+    }
+  ]
+}

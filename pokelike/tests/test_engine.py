@@ -1580,6 +1580,119 @@ class EquipItemLegalityTests(unittest.TestCase):
             eng.step(action)
 
 
+class UnequipAndHandOffTests(unittest.TestCase):
+    """M6 / the item-equip overlay's two remaining exits, which R3 disclosed
+    as unbuilt because the engine had no action for either.
+
+    Sources: the `[data-unequip]` rows (bundle.deobfuscated.js:79521-79531)
+    and `#btn-equip-to-bag` with `fromPokemonIdx >= 0` (79549-79553) for the
+    unequip; the `[data-idx]` row's `iu >= 0` branch (79541-79545) for the
+    hand-off.
+    """
+
+    def test_unequip_moves_the_held_item_to_the_end_of_the_bag(self):
+        eng, state = _start(seed=20)
+        state.team[0].held_item = battle.HeldItem(id="leftovers")
+        state.items = ["eviolite"]
+        state = eng.step(engine.UnequipItem(team_index=0))
+        self.assertIsNone(state.team[0].held_item)
+        # `items.push`, not an insert: bag order is index-addressable.
+        self.assertEqual(state.items, ["eviolite", "leftovers"])
+
+    def test_unequip_is_offered_only_for_members_actually_holding(self):
+        eng, state = _start(seed=20)
+        self.assertNotIn("unequip_item", engine.legal_actions(state))
+        state.team[0].held_item = battle.HeldItem(id="leftovers")
+        self.assertEqual(
+            engine.legal_actions(state)["unequip_item"]["team_indices"], [0])
+
+    def test_unequipping_an_empty_slot_is_rejected(self):
+        eng, state = _start(seed=20)
+        state.items = []
+        with self.assertRaises(ValueError):
+            eng.step(engine.UnequipItem(team_index=0))
+        self.assertEqual(state.items, [])
+
+    def test_hand_off_swaps_two_members_items_and_never_touches_the_bag(self):
+        """The discriminating case, and the reason this is its own action
+        rather than a composition: when the TARGET is also holding something,
+        the source gives that item to the SOURCE member (79544-79545). An
+        unequip-then-equip would route it to the bag instead."""
+        eng, state = _start(seed=20)
+        state.team.append(_mon(4, level=5))
+        state.team[0].held_item = battle.HeldItem(id="leftovers")
+        state.team[1].held_item = battle.HeldItem(id="eviolite")
+        state.items = ["moon_stone"]
+        state = eng.step(engine.HandOffItem(from_index=0, to_index=1))
+        self.assertEqual(state.team[0].held_item.id, "eviolite")
+        self.assertEqual(state.team[1].held_item.id, "leftovers")
+        self.assertEqual(state.items, ["moon_stone"])
+
+    def test_hand_off_to_an_empty_member_leaves_the_source_empty(self):
+        eng, state = _start(seed=20)
+        state.team.append(_mon(4, level=5))
+        state.team[0].held_item = battle.HeldItem(id="leftovers")
+        state.items = []
+        state = eng.step(engine.HandOffItem(from_index=0, to_index=1))
+        self.assertIsNone(state.team[0].held_item)
+        self.assertEqual(state.team[1].held_item.id, "leftovers")
+        self.assertEqual(state.items, [])
+
+    def test_hand_off_from_an_empty_member_is_rejected(self):
+        eng, state = _start(seed=20)
+        state.team.append(_mon(4, level=5))
+        with self.assertRaises(ValueError):
+            eng.step(engine.HandOffItem(from_index=0, to_index=1))
+
+    def test_hand_off_to_self_is_rejected(self):
+        """The source labels the opening member's own row "Holding" (79470)
+        and gives it a `[data-unequip]` button instead of a `[data-idx]` one
+        (79490-79495), so there is no reachable hand-off to yourself."""
+        eng, state = _start(seed=20)
+        state.team[0].held_item = battle.HeldItem(id="leftovers")
+        with self.assertRaises(ValueError):
+            eng.step(engine.HandOffItem(from_index=0, to_index=0))
+
+    def test_hand_off_needs_more_than_one_member_to_be_offered(self):
+        eng, state = _start(seed=20)
+        state.team[0].held_item = battle.HeldItem(id="leftovers")
+        self.assertNotIn("hand_off_item", engine.legal_actions(state))
+        state.team.append(_mon(4, level=5))
+        legal = engine.legal_actions(state)
+        self.assertEqual(legal["hand_off_item"]["from_indices"], [0])
+        self.assertEqual(legal["hand_off_item"]["team_size"], 2)
+
+    def test_out_of_range_indices_are_rejected_before_any_mutation(self):
+        eng, state = _start(seed=20)
+        state.team[0].held_item = battle.HeldItem(id="leftovers")
+        state.items = []
+        for action in (
+            engine.UnequipItem(team_index=9),
+            engine.HandOffItem(from_index=0, to_index=9),
+            engine.HandOffItem(from_index=9, to_index=0),
+        ):
+            with self.assertRaises(ValueError):
+                eng.step(action)
+        self.assertEqual(state.team[0].held_item.id, "leftovers")
+        self.assertEqual(state.items, [])
+
+    def test_both_actions_decode_from_the_web_transport(self):
+        from pokelike.webui import state_json
+
+        self.assertEqual(
+            state_json.decode_action({"type": "UnequipItem", "team_index": 1}),
+            engine.UnequipItem(team_index=1),
+        )
+        self.assertEqual(
+            state_json.decode_action(
+                {"type": "HandOffItem", "from_index": 0, "to_index": 2}),
+            engine.HandOffItem(from_index=0, to_index=2),
+        )
+        for bad in ({"type": "UnequipItem"}, {"type": "HandOffItem", "from_index": 0}):
+            with self.assertRaises(state_json.ActionDecodeError):
+                state_json.decode_action(bad)
+
+
 class TradeAndLegendaryAndShinyTests(unittest.TestCase):
     def test_trade_decline_is_a_no_op(self):
         eng, state = _start(seed=13)

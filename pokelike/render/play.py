@@ -61,9 +61,16 @@ def _party_action(state: engine.RunState, legal: dict):
         offers.append("u")
     if "equip_item" in legal:
         offers.append("e")
+    if "unequip_item" in legal:
+        offers.append("x")
+    if "hand_off_item" in legal:
+        offers.append("h")
     if not offers:
         return None
-    print(f"Party actions: {'/'.join(offers)} (r=reorder, u=use item, e=equip item), or enter to move on")
+    print(
+        f"Party actions: {'/'.join(offers)} (r=reorder, u=use item, e=equip item, "
+        f"x=unequip to bag, h=hand off held item), or enter to move on"
+    )
     choice = input("> ").strip().lower()
     if choice not in offers:
         return None
@@ -101,6 +108,35 @@ def _party_action(state: engine.RunState, legal: dict):
             print("  that target is not eligible for this item")
         return engine.UseItem(item_index=entry["item_index"], target_index=t)
 
+    if choice == "x":
+        # `#btn-equip-to-bag` with the overlay opened from a member
+        # (bundle.deobfuscated.js:79549-79553), and the `[data-unequip]` rows
+        # (79521-79531) -- same effect, one action.
+        holders = legal["unequip_item"]["team_indices"]
+        for i in holders:
+            mon = state.team[i]
+            print(f"  {i}: {mon.nickname or mon.name} holding {mon.held_item.id}")
+        t = None
+        while t not in holders:
+            t = _prompt_int(f"unequip whose item? {holders}", 0, len(state.team) - 1)
+        return engine.UnequipItem(team_index=t)
+
+    if choice == "h":
+        # The member-to-member hand-off (79541-79545). A SWAP, not an unequip
+        # followed by an equip -- see engine.HandOffItem.
+        ho = legal["hand_off_item"]
+        holders = ho["from_indices"]
+        for i, mon in enumerate(state.team):
+            held = f" (holding {mon.held_item.id})" if mon.held_item is not None else " (empty)"
+            print(f"  {i}: {mon.nickname or mon.name}{held}")
+        src = None
+        while src not in holders:
+            src = _prompt_int(f"hand off whose item? {holders}", 0, ho["team_size"] - 1)
+        dst = None
+        while dst is None or dst == src:
+            dst = _prompt_int(f"to which member? (not {src})", 0, ho["team_size"] - 1)
+        return engine.HandOffItem(from_index=src, to_index=dst)
+
     eq = legal["equip_item"]
     for b in eq["bag_indices"]:
         print(f"  bag slot {b}: {state.items[b]}")
@@ -123,10 +159,23 @@ def _autopilot_party_action(state: engine.RunState, legal: dict):
     """
     if random.random() >= 0.12:
         return None
-    candidates = [k for k in ("reorder_team", "use_item", "equip_item") if k in legal]
+    candidates = [
+        k for k in ("reorder_team", "use_item", "equip_item", "unequip_item", "hand_off_item")
+        if k in legal
+    ]
     if not candidates:
         return None
     kind = random.choice(candidates)
+    if kind == "unequip_item":
+        return engine.UnequipItem(
+            team_index=random.choice(legal["unequip_item"]["team_indices"]))
+    if kind == "hand_off_item":
+        ho = legal["hand_off_item"]
+        src = random.choice(ho["from_indices"])
+        others = [i for i in range(ho["team_size"]) if i != src]
+        if not others:
+            return None
+        return engine.HandOffItem(from_index=src, to_index=random.choice(others))
     if kind == "reorder_team":
         size = legal["reorder_team"]["team_size"]
         if size < 2:

@@ -1,0 +1,30 @@
+{
+  "description": "P0.3: half_twice and dragon_first_double both active on the same Dragon-type attacker. Proves sequential (not nested/recursive) ordering -- half_twice's extra hit runs and mutates target HP FIRST, then dragon_first_double's own guard re-checks target.current_hp/mover.current_hp against that already-mutated state (bundle.deobfuscated.js: the half_twice block at 56220-56284 precedes the dragon_first_double block at 56285-56364, sequential ifs, not mutually exclusive) -- and that neither trait's own extra hit re-triggers itself or the other (BIO's post-hit subset never re-checks half_twice/dragon_first_double). Gen1 so ability_config/traits_config are both null.",
+  "gen": 1,
+  "passives": ["half_twice", "dragon_first_double"],
+  "seed": 3306,
+  "player_team": [
+    {
+      "species_id": 147,
+      "name": "Dratini",
+      "level": 20,
+      "types": ["Dragon"],
+      "base_stats": {"hp": 41, "atk": 64, "def": 45, "speed": 50, "special": 50, "spdef": 50},
+      "move_tier": 1,
+      "max_hp": 200,
+      "current_hp": 200
+    }
+  ],
+  "enemy_team": [
+    {
+      "species_id": 213,
+      "name": "Shuckle",
+      "level": 5,
+      "types": ["Bug", "Rock"],
+      "base_stats": {"hp": 20, "atk": 10, "def": 230, "speed": 5, "special": 10, "spdef": 230},
+      "move_tier": 1,
+      "max_hp": 200,
+      "current_hp": 200
+    }
+  ]
+}

@@ -1,0 +1,30 @@
+[
+  {
+    "id": "sacred_ash",
+    "name": "Sacred Ash",
+    "desc": "Fully restores HP and revives a Pokémon (works on fainted or alive)",
+    "icon": "✨",
+    "usable": true
+  },
+  {
+    "id": "rare_candy",
+    "name": "Rare Candy",
+    "desc": "Gives a Pokémon +3 levels",
+    "icon": "🍬",
+    "usable": true
+  },
+  {
+    "id": "moon_stone",
+    "name": "Moon Stone",
+    "desc": "Force evolves a Pokémon regardless of level",
+    "icon": "🌙",
+    "usable": true
+  },
+  {
+    "id": "tm_normal",
+    "name": "TM",
+    "desc": "Upgrades a Pokémon's move tier by 1",
+    "icon": "💿",
+    "usable": true
+  }
+]

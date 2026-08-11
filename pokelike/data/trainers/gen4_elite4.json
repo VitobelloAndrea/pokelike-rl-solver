@@ -1,0 +1,522 @@
+[
+  {
+    "name": "Aaron",
+    "title": "Elite Four",
+    "type": "Bug",
+    "team": [
+      {
+        "speciesId": 416,
+        "name": "Vespiquen",
+        "types": [
+          "Bug",
+          "Flying"
+        ],
+        "baseStats": {
+          "hp": 70,
+          "atk": 80,
+          "def": 102,
+          "speed": 40,
+          "special": 80,
+          "spdef": 102
+        },
+        "level": 82
+      },
+      {
+        "speciesId": 469,
+        "name": "Yanmega",
+        "types": [
+          "Bug",
+          "Flying"
+        ],
+        "baseStats": {
+          "hp": 86,
+          "atk": 76,
+          "def": 86,
+          "speed": 95,
+          "special": 116,
+          "spdef": 56
+        },
+        "level": 83
+      },
+      {
+        "speciesId": 212,
+        "name": "Scizor",
+        "types": [
+          "Bug",
+          "Steel"
+        ],
+        "baseStats": {
+          "hp": 70,
+          "atk": 130,
+          "def": 100,
+          "speed": 65,
+          "special": 55,
+          "spdef": 80
+        },
+        "level": 84
+      },
+      {
+        "speciesId": 214,
+        "name": "Heracross",
+        "types": [
+          "Bug",
+          "Fighting"
+        ],
+        "baseStats": {
+          "hp": 80,
+          "atk": 125,
+          "def": 75,
+          "speed": 85,
+          "special": 40,
+          "spdef": 95
+        },
+        "level": 86
+      },
+      {
+        "speciesId": 452,
+        "name": "Drapion",
+        "types": [
+          "Poison",
+          "Dark"
+        ],
+        "baseStats": {
+          "hp": 70,
+          "atk": 90,
+          "def": 110,
+          "speed": 95,
+          "special": 60,
+          "spdef": 75
+        },
+        "level": 88,
+        "heldItem": {
+          "id": "black_glasses",
+          "name": "Black Glasses",
+          "icon": "🕶️"
+        }
+      }
+    ]
+  },
+  {
+    "name": "Bertha",
+    "title": "Elite Four",
+    "type": "Ground",
+    "team": [
+      {
+        "speciesId": 340,
+        "name": "Whiscash",
+        "types": [
+          "Water",
+          "Ground"
+        ],
+        "baseStats": {
+          "hp": 110,
+          "atk": 78,
+          "def": 73,
+          "speed": 60,
+          "special": 76,
+          "spdef": 71
+        },
+        "level": 83
+      },
+      {
+        "speciesId": 76,
+        "name": "Golem",
+        "types": [
+          "Rock",
+          "Ground"
+        ],
+        "baseStats": {
+          "hp": 80,
+          "atk": 120,
+          "def": 130,
+          "speed": 45,
+          "special": 55,
+          "spdef": 65
+        },
+        "level": 84
+      },
+      {
+        "speciesId": 472,
+        "name": "Gliscor",
+        "types": [
+          "Ground",
+          "Flying"
+        ],
+        "baseStats": {
+          "hp": 75,
+          "atk": 95,
+          "def": 125,
+          "speed": 95,
+          "special": 45,
+          "spdef": 75
+        },
+        "level": 86
+      },
+      {
+        "speciesId": 464,
+        "name": "Rhyperior",
+        "types": [
+          "Ground",
+          "Rock"
+        ],
+        "baseStats": {
+          "hp": 115,
+          "atk": 140,
+          "def": 130,
+          "speed": 40,
+          "special": 55,
+          "spdef": 55
+        },
+        "level": 87
+      },
+      {
+        "speciesId": 450,
+        "name": "Hippowdon",
+        "types": [
+          "Ground"
+        ],
+        "baseStats": {
+          "hp": 108,
+          "atk": 112,
+          "def": 118,
+          "speed": 47,
+          "special": 68,
+          "spdef": 72
+        },
+        "level": 89,
+        "heldItem": {
+          "id": "soft_sand",
+          "name": "Soft Sand",
+          "icon": "🏖️"
+        }
+      }
+    ]
+  },
+  {
+    "name": "Flint",
+    "title": "Elite Four",
+    "type": "Fire",
+    "team": [
+      {
+        "speciesId": 78,
+        "name": "Rapidash",
+        "types": [
+          "Fire"
+        ],
+        "baseStats": {
+          "hp": 65,
+          "atk": 100,
+          "def": 70,
+          "speed": 105,
+          "special": 80,
+          "spdef": 80
+        },
+        "level": 83
+      },
+      {
+        "speciesId": 136,
+        "name": "Flareon",
+        "types": [
+          "Fire"
+        ],
+        "baseStats": {
+          "hp": 65,
+          "atk": 130,
+          "def": 60,
+          "speed": 65,
+          "special": 95,
+          "spdef": 110
+        },
+        "level": 84
+      },
+      {
+        "speciesId": 229,
+        "name": "Houndoom",
+        "types": [
+          "Dark",
+          "Fire"
+        ],
+        "baseStats": {
+          "hp": 75,
+          "atk": 90,
+          "def": 50,
+          "speed": 95,
+          "special": 110,
+          "spdef": 80
+        },
+        "level": 86
+      },
+      {
+        "speciesId": 467,
+        "name": "Magmortar",
+        "types": [
+          "Fire"
+        ],
+        "baseStats": {
+          "hp": 75,
+          "atk": 95,
+          "def": 67,
+          "speed": 83,
+          "special": 125,
+          "spdef": 95
+        },
+        "level": 87
+      },
+      {
+        "speciesId": 392,
+        "name": "Infernape",
+        "types": [
+          "Fire",
+          "Fighting"
+        ],
+        "baseStats": {
+          "hp": 76,
+          "atk": 104,
+          "def": 71,
+          "speed": 108,
+          "special": 104,
+          "spdef": 71
+        },
+        "level": 89,
+        "heldItem": {
+          "id": "charcoal",
+          "name": "Charcoal",
+          "icon": "🔥"
+        }
+      }
+    ]
+  },
+  {
+    "name": "Lucian",
+    "title": "Elite Four",
+    "type": "Psychic",
+    "team": [
+      {
+        "speciesId": 203,
+        "name": "Girafarig",
+        "types": [
+          "Normal",
+          "Psychic"
+        ],
+        "baseStats": {
+          "hp": 70,
+          "atk": 80,
+          "def": 65,
+          "speed": 85,
+          "special": 90,
+          "spdef": 65
+        },
+        "level": 83
+      },
+      {
+        "speciesId": 122,
+        "name": "Mr. Mime",
+        "types": [
+          "Psychic"
+        ],
+        "baseStats": {
+          "hp": 40,
+          "atk": 45,
+          "def": 65,
+          "speed": 90,
+          "special": 100,
+          "spdef": 120
+        },
+        "level": 84
+      },
+      {
+        "speciesId": 308,
+        "name": "Medicham",
+        "types": [
+          "Fighting",
+          "Psychic"
+        ],
+        "baseStats": {
+          "hp": 60,
+          "atk": 60,
+          "def": 75,
+          "speed": 80,
+          "special": 60,
+          "spdef": 75
+        },
+        "level": 85
+      },
+      {
+        "speciesId": 437,
+        "name": "Bronzong",
+        "types": [
+          "Steel",
+          "Psychic"
+        ],
+        "baseStats": {
+          "hp": 67,
+          "atk": 89,
+          "def": 116,
+          "speed": 33,
+          "special": 79,
+          "spdef": 116
+        },
+        "level": 86
+      },
+      {
+        "speciesId": 65,
+        "name": "Alakazam",
+        "types": [
+          "Psychic"
+        ],
+        "baseStats": {
+          "hp": 55,
+          "atk": 50,
+          "def": 45,
+          "speed": 120,
+          "special": 135,
+          "spdef": 95
+        },
+        "level": 90,
+        "heldItem": {
+          "id": "twisted_spoon",
+          "name": "Twisted Spoon",
+          "icon": "🥄"
+        }
+      }
+    ]
+  },
+  {
+    "name": "Cynthia",
+    "title": "Champion",
+    "type": "Dragon",
+    "team": [
+      {
+        "speciesId": 442,
+        "name": "Spiritomb",
+        "types": [
+          "Ghost",
+          "Dark"
+        ],
+        "baseStats": {
+          "hp": 50,
+          "atk": 92,
+          "def": 108,
+          "speed": 35,
+          "special": 92,
+          "spdef": 108
+        },
+        "level": 90,
+        "heldItem": {
+          "id": "black_glasses",
+          "name": "Black Glasses",
+          "icon": "🕶️"
+        }
+      },
+      {
+        "speciesId": 407,
+        "name": "Roserade",
+        "types": [
+          "Grass",
+          "Poison"
+        ],
+        "baseStats": {
+          "hp": 60,
+          "atk": 70,
+          "def": 65,
+          "speed": 90,
+          "special": 125,
+          "spdef": 105
+        },
+        "level": 91,
+        "heldItem": {
+          "id": "choice_specs",
+          "name": "Choice Specs",
+          "icon": "👓"
+        }
+      },
+      {
+        "speciesId": 423,
+        "name": "Gastrodon",
+        "types": [
+          "Water",
+          "Ground"
+        ],
+        "baseStats": {
+          "hp": 111,
+          "atk": 83,
+          "def": 68,
+          "speed": 39,
+          "special": 92,
+          "spdef": 82
+        },
+        "level": 92,
+        "heldItem": {
+          "id": "leftovers",
+          "name": "Leftovers",
+          "icon": "🍃"
+        }
+      },
+      {
+        "speciesId": 350,
+        "name": "Milotic",
+        "types": [
+          "Water"
+        ],
+        "baseStats": {
+          "hp": 95,
+          "atk": 60,
+          "def": 79,
+          "speed": 81,
+          "special": 100,
+          "spdef": 125
+        },
+        "level": 93,
+        "heldItem": {
+          "id": "mystic_water",
+          "name": "Mystic Water",
+          "icon": "💧"
+        }
+      },
+      {
+        "speciesId": 448,
+        "name": "Lucario",
+        "types": [
+          "Fighting",
+          "Steel"
+        ],
+        "baseStats": {
+          "hp": 70,
+          "atk": 110,
+          "def": 70,
+          "speed": 90,
+          "special": 115,
+          "spdef": 70
+        },
+        "level": 95,
+        "heldItem": {
+          "id": "expert_belt",
+          "name": "Expert Belt",
+          "icon": "🥊"
+        }
+      },
+      {
+        "speciesId": 445,
+        "name": "Garchomp",
+        "types": [
+          "Dragon",
+          "Ground"
+        ],
+        "baseStats": {
+          "hp": 108,
+          "atk": 130,
+          "def": 95,
+          "speed": 102,
+          "special": 80,
+          "spdef": 85
+        },
+        "level": 99,
+        "heldItem": {
+          "id": "dragon_fang",
+          "name": "Dragon Fang",
+          "icon": "🐉"
+        }
+      }
+    ]
+  }
+]

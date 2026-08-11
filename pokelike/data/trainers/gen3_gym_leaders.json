@@ -1,0 +1,580 @@
+[
+  {
+    "name": "Roxanne",
+    "badge": "Stone Badge",
+    "type": "Rock",
+    "moveTier": 0,
+    "team": [
+      {
+        "speciesId": 74,
+        "name": "Geodude",
+        "types": [
+          "Rock",
+          "Ground"
+        ],
+        "baseStats": {
+          "hp": 40,
+          "atk": 80,
+          "def": 100,
+          "speed": 20,
+          "special": 30,
+          "spdef": 30
+        },
+        "level": 9
+      },
+      {
+        "speciesId": 299,
+        "name": "Nosepass",
+        "types": [
+          "Rock"
+        ],
+        "baseStats": {
+          "hp": 30,
+          "atk": 45,
+          "def": 135,
+          "speed": 30,
+          "special": 45,
+          "spdef": 90
+        },
+        "level": 12
+      }
+    ]
+  },
+  {
+    "name": "Brawly",
+    "badge": "Knuckle Badge",
+    "type": "Fighting",
+    "moveTier": 0,
+    "team": [
+      {
+        "speciesId": 66,
+        "name": "Machop",
+        "types": [
+          "Fighting"
+        ],
+        "baseStats": {
+          "hp": 70,
+          "atk": 80,
+          "def": 50,
+          "speed": 35,
+          "special": 35,
+          "spdef": 35
+        },
+        "level": 17
+      },
+      {
+        "speciesId": 307,
+        "name": "Meditite",
+        "types": [
+          "Fighting",
+          "Psychic"
+        ],
+        "baseStats": {
+          "hp": 30,
+          "atk": 40,
+          "def": 55,
+          "speed": 60,
+          "special": 40,
+          "spdef": 55
+        },
+        "level": 18
+      },
+      {
+        "speciesId": 296,
+        "name": "Makuhita",
+        "types": [
+          "Fighting"
+        ],
+        "baseStats": {
+          "hp": 72,
+          "atk": 60,
+          "def": 30,
+          "speed": 25,
+          "special": 20,
+          "spdef": 30
+        },
+        "level": 20
+      }
+    ]
+  },
+  {
+    "name": "Wattson",
+    "badge": "Dynamo Badge",
+    "type": "Electric",
+    "moveTier": 1,
+    "team": [
+      {
+        "speciesId": 100,
+        "name": "Voltorb",
+        "types": [
+          "Electric"
+        ],
+        "baseStats": {
+          "hp": 40,
+          "atk": 30,
+          "def": 50,
+          "speed": 100,
+          "special": 55,
+          "spdef": 55
+        },
+        "level": 25
+      },
+      {
+        "speciesId": 82,
+        "name": "Magneton",
+        "types": [
+          "Electric",
+          "Steel"
+        ],
+        "baseStats": {
+          "hp": 50,
+          "atk": 60,
+          "def": 95,
+          "speed": 70,
+          "special": 120,
+          "spdef": 70
+        },
+        "level": 27
+      },
+      {
+        "speciesId": 309,
+        "name": "Electrike",
+        "types": [
+          "Electric"
+        ],
+        "baseStats": {
+          "hp": 40,
+          "atk": 45,
+          "def": 40,
+          "speed": 65,
+          "special": 65,
+          "spdef": 40
+        },
+        "level": 28
+      },
+      {
+        "speciesId": 310,
+        "name": "Manectric",
+        "types": [
+          "Electric"
+        ],
+        "baseStats": {
+          "hp": 70,
+          "atk": 75,
+          "def": 60,
+          "speed": 105,
+          "special": 105,
+          "spdef": 60
+        },
+        "level": 30
+      }
+    ]
+  },
+  {
+    "name": "Flannery",
+    "badge": "Heat Badge",
+    "type": "Fire",
+    "moveTier": 1,
+    "team": [
+      {
+        "speciesId": 322,
+        "name": "Numel",
+        "types": [
+          "Fire",
+          "Ground"
+        ],
+        "baseStats": {
+          "hp": 60,
+          "atk": 60,
+          "def": 40,
+          "speed": 35,
+          "special": 65,
+          "spdef": 45
+        },
+        "level": 35
+      },
+      {
+        "speciesId": 218,
+        "name": "Slugma",
+        "types": [
+          "Fire"
+        ],
+        "baseStats": {
+          "hp": 40,
+          "atk": 40,
+          "def": 40,
+          "speed": 20,
+          "special": 70,
+          "spdef": 40
+        },
+        "level": 36
+      },
+      {
+        "speciesId": 323,
+        "name": "Camerupt",
+        "types": [
+          "Fire",
+          "Ground"
+        ],
+        "baseStats": {
+          "hp": 70,
+          "atk": 100,
+          "def": 70,
+          "speed": 40,
+          "special": 105,
+          "spdef": 75
+        },
+        "level": 38
+      },
+      {
+        "speciesId": 324,
+        "name": "Torkoal",
+        "types": [
+          "Fire"
+        ],
+        "baseStats": {
+          "hp": 70,
+          "atk": 85,
+          "def": 140,
+          "speed": 20,
+          "special": 85,
+          "spdef": 70
+        },
+        "level": 40
+      }
+    ]
+  },
+  {
+    "name": "Norman",
+    "badge": "Balance Badge",
+    "type": "Normal",
+    "moveTier": 1,
+    "team": [
+      {
+        "speciesId": 327,
+        "name": "Spinda",
+        "types": [
+          "Normal"
+        ],
+        "baseStats": {
+          "hp": 60,
+          "atk": 60,
+          "def": 60,
+          "speed": 60,
+          "special": 60,
+          "spdef": 60
+        },
+        "level": 44
+      },
+      {
+        "speciesId": 288,
+        "name": "Vigoroth",
+        "types": [
+          "Normal"
+        ],
+        "baseStats": {
+          "hp": 80,
+          "atk": 80,
+          "def": 80,
+          "speed": 90,
+          "special": 55,
+          "spdef": 55
+        },
+        "level": 46
+      },
+      {
+        "speciesId": 264,
+        "name": "Linoone",
+        "types": [
+          "Normal"
+        ],
+        "baseStats": {
+          "hp": 78,
+          "atk": 70,
+          "def": 61,
+          "speed": 100,
+          "special": 50,
+          "spdef": 61
+        },
+        "level": 47
+      },
+      {
+        "speciesId": 289,
+        "name": "Slaking",
+        "types": [
+          "Normal"
+        ],
+        "baseStats": {
+          "hp": 150,
+          "atk": 160,
+          "def": 100,
+          "speed": 100,
+          "special": 95,
+          "spdef": 65
+        },
+        "level": 50
+      }
+    ]
+  },
+  {
+    "name": "Winona",
+    "badge": "Feather Badge",
+    "type": "Flying",
+    "moveTier": 2,
+    "team": [
+      {
+        "speciesId": 333,
+        "name": "Swablu",
+        "types": [
+          "Normal",
+          "Flying"
+        ],
+        "baseStats": {
+          "hp": 45,
+          "atk": 40,
+          "def": 60,
+          "speed": 50,
+          "special": 40,
+          "spdef": 75
+        },
+        "level": 54
+      },
+      {
+        "speciesId": 357,
+        "name": "Tropius",
+        "types": [
+          "Grass",
+          "Flying"
+        ],
+        "baseStats": {
+          "hp": 99,
+          "atk": 68,
+          "def": 83,
+          "speed": 51,
+          "special": 72,
+          "spdef": 87
+        },
+        "level": 55
+      },
+      {
+        "speciesId": 279,
+        "name": "Pelipper",
+        "types": [
+          "Water",
+          "Flying"
+        ],
+        "baseStats": {
+          "hp": 60,
+          "atk": 50,
+          "def": 100,
+          "speed": 65,
+          "special": 95,
+          "spdef": 70
+        },
+        "level": 56
+      },
+      {
+        "speciesId": 227,
+        "name": "Skarmory",
+        "types": [
+          "Steel",
+          "Flying"
+        ],
+        "baseStats": {
+          "hp": 65,
+          "atk": 80,
+          "def": 140,
+          "speed": 70,
+          "special": 40,
+          "spdef": 70
+        },
+        "level": 58
+      },
+      {
+        "speciesId": 334,
+        "name": "Altaria",
+        "types": [
+          "Dragon",
+          "Flying"
+        ],
+        "baseStats": {
+          "hp": 75,
+          "atk": 70,
+          "def": 90,
+          "speed": 80,
+          "special": 70,
+          "spdef": 105
+        },
+        "level": 60
+      }
+    ]
+  },
+  {
+    "name": "Tate & Liza",
+    "badge": "Mind Badge",
+    "type": "Psychic",
+    "moveTier": 2,
+    "team": [
+      {
+        "speciesId": 344,
+        "name": "Claydol",
+        "types": [
+          "Ground",
+          "Psychic"
+        ],
+        "baseStats": {
+          "hp": 60,
+          "atk": 70,
+          "def": 105,
+          "speed": 75,
+          "special": 70,
+          "spdef": 120
+        },
+        "level": 68
+      },
+      {
+        "speciesId": 178,
+        "name": "Xatu",
+        "types": [
+          "Psychic",
+          "Flying"
+        ],
+        "baseStats": {
+          "hp": 65,
+          "atk": 75,
+          "def": 70,
+          "speed": 95,
+          "special": 95,
+          "spdef": 70
+        },
+        "level": 69
+      },
+      {
+        "speciesId": 337,
+        "name": "Lunatone",
+        "types": [
+          "Rock",
+          "Psychic"
+        ],
+        "baseStats": {
+          "hp": 90,
+          "atk": 55,
+          "def": 65,
+          "speed": 70,
+          "special": 95,
+          "spdef": 85
+        },
+        "level": 70
+      },
+      {
+        "speciesId": 338,
+        "name": "Solrock",
+        "types": [
+          "Rock",
+          "Psychic"
+        ],
+        "baseStats": {
+          "hp": 90,
+          "atk": 95,
+          "def": 85,
+          "speed": 70,
+          "special": 55,
+          "spdef": 65
+        },
+        "level": 72
+      }
+    ]
+  },
+  {
+    "name": "Wallace",
+    "badge": "Rain Badge",
+    "type": "Water",
+    "moveTier": 2,
+    "team": [
+      {
+        "speciesId": 370,
+        "name": "Luvdisc",
+        "types": [
+          "Water"
+        ],
+        "baseStats": {
+          "hp": 43,
+          "atk": 30,
+          "def": 55,
+          "speed": 97,
+          "special": 40,
+          "spdef": 65
+        },
+        "level": 74
+      },
+      {
+        "speciesId": 340,
+        "name": "Whiscash",
+        "types": [
+          "Water",
+          "Ground"
+        ],
+        "baseStats": {
+          "hp": 110,
+          "atk": 78,
+          "def": 73,
+          "speed": 60,
+          "special": 76,
+          "spdef": 71
+        },
+        "level": 76
+      },
+      {
+        "speciesId": 364,
+        "name": "Sealeo",
+        "types": [
+          "Ice",
+          "Water"
+        ],
+        "baseStats": {
+          "hp": 90,
+          "atk": 60,
+          "def": 70,
+          "speed": 45,
+          "special": 75,
+          "spdef": 70
+        },
+        "level": 77
+      },
+      {
+        "speciesId": 342,
+        "name": "Crawdaunt",
+        "types": [
+          "Water",
+          "Dark"
+        ],
+        "baseStats": {
+          "hp": 63,
+          "atk": 120,
+          "def": 85,
+          "speed": 55,
+          "special": 90,
+          "spdef": 55
+        },
+        "level": 78
+      },
+      {
+        "speciesId": 230,
+        "name": "Kingdra",
+        "types": [
+          "Water",
+          "Dragon"
+        ],
+        "baseStats": {
+          "hp": 75,
+          "atk": 95,
+          "def": 95,
+          "speed": 85,
+          "special": 95,
+          "spdef": 95
+        },
+        "level": 80
+      }
+    ]
+  }
+]

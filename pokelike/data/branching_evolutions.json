@@ -1,0 +1,267 @@
+{
+  "44": [
+    {
+      "into": 45,
+      "level": 36,
+      "name": "Vileplume",
+      "types": [
+        "Grass",
+        "Poison"
+      ]
+    },
+    {
+      "into": 182,
+      "level": 36,
+      "name": "Bellossom",
+      "types": [
+        "Grass"
+      ]
+    }
+  ],
+  "61": [
+    {
+      "into": 62,
+      "level": 40,
+      "name": "Poliwrath",
+      "types": [
+        "Water",
+        "Fighting"
+      ]
+    },
+    {
+      "into": 186,
+      "level": 40,
+      "name": "Politoed",
+      "types": [
+        "Water"
+      ]
+    }
+  ],
+  "79": [
+    {
+      "into": 80,
+      "level": 37,
+      "name": "Slowbro",
+      "types": [
+        "Water",
+        "Psychic"
+      ]
+    },
+    {
+      "into": 199,
+      "level": 37,
+      "name": "Slowking",
+      "types": [
+        "Water",
+        "Psychic"
+      ]
+    }
+  ],
+  "133": [
+    {
+      "into": 136,
+      "level": 20,
+      "name": "Flareon",
+      "types": [
+        "Fire"
+      ]
+    },
+    {
+      "into": 134,
+      "level": 20,
+      "name": "Vaporeon",
+      "types": [
+        "Water"
+      ]
+    },
+    {
+      "into": 135,
+      "level": 20,
+      "name": "Jolteon",
+      "types": [
+        "Electric"
+      ]
+    },
+    {
+      "into": 196,
+      "level": 20,
+      "name": "Espeon",
+      "types": [
+        "Psychic"
+      ]
+    },
+    {
+      "into": 197,
+      "level": 20,
+      "name": "Umbreon",
+      "types": [
+        "Dark"
+      ]
+    },
+    {
+      "into": 470,
+      "level": 20,
+      "name": "Leafeon",
+      "types": [
+        "Grass"
+      ]
+    },
+    {
+      "into": 471,
+      "level": 20,
+      "name": "Glaceon",
+      "types": [
+        "Ice"
+      ]
+    },
+    {
+      "into": 700,
+      "level": 20,
+      "name": "Sylveon",
+      "types": [
+        "Fairy"
+      ]
+    }
+  ],
+  "236": [
+    {
+      "into": 106,
+      "level": 20,
+      "name": "Hitmonlee",
+      "types": [
+        "Fighting"
+      ]
+    },
+    {
+      "into": 107,
+      "level": 20,
+      "name": "Hitmonchan",
+      "types": [
+        "Fighting"
+      ]
+    },
+    {
+      "into": 237,
+      "level": 20,
+      "name": "Hitmontop",
+      "types": [
+        "Fighting"
+      ]
+    }
+  ],
+  "265": [
+    {
+      "into": 266,
+      "level": 7,
+      "name": "Silcoon",
+      "types": [
+        "Bug"
+      ]
+    },
+    {
+      "into": 268,
+      "level": 7,
+      "name": "Cascoon",
+      "types": [
+        "Bug"
+      ]
+    }
+  ],
+  "281": [
+    {
+      "into": 282,
+      "level": 30,
+      "name": "Gardevoir",
+      "types": [
+        "Psychic",
+        "Fairy"
+      ]
+    },
+    {
+      "into": 475,
+      "level": 30,
+      "name": "Gallade",
+      "types": [
+        "Psychic",
+        "Fighting"
+      ]
+    }
+  ],
+  "361": [
+    {
+      "into": 362,
+      "level": 42,
+      "name": "Glalie",
+      "types": [
+        "Ice"
+      ]
+    },
+    {
+      "into": 478,
+      "level": 42,
+      "name": "Froslass",
+      "types": [
+        "Ice",
+        "Ghost"
+      ]
+    }
+  ],
+  "366": [
+    {
+      "into": 367,
+      "level": 40,
+      "name": "Huntail",
+      "types": [
+        "Water"
+      ]
+    },
+    {
+      "into": 368,
+      "level": 40,
+      "name": "Gorebyss",
+      "types": [
+        "Water"
+      ]
+    }
+  ],
+  "412": [
+    {
+      "into": 414,
+      "level": 20,
+      "name": "Mothim",
+      "types": [
+        "Bug",
+        "Flying"
+      ]
+    },
+    {
+      "into": 413,
+      "level": 20,
+      "name": "Wormadam (Plant)",
+      "types": [
+        "Bug",
+        "Grass"
+      ]
+    },
+    {
+      "into": 413,
+      "formSlug": "wormadam-sandy",
+      "level": 20,
+      "name": "Wormadam (Sandy)",
+      "types": [
+        "Bug",
+        "Ground"
+      ]
+    },
+    {
+      "into": 413,
+      "formSlug": "wormadam-trash",
+      "level": 20,
+      "name": "Wormadam (Trash)",
+      "types": [
+        "Bug",
+        "Steel"
+      ]
+    }
+  ]
+}

@@ -88,13 +88,28 @@ class BattleResult:
     # status/KO sequencing only; they are not yet the public animation log.
     status_events: list = field(default_factory=list)
     hook_trace: list = field(default_factory=list)
-    # Ordered, turn-delimited attack stream for the M3 route oracle (M3.3b
-    # workstream 5). A flat list of `{"type": "turn_start", "round": n}`
-    # markers interleaved with `{"type": "attack", ...}` records, in the order
-    # `run_battle` produces them -- the counterpart of the source's own
-    # `detailedLog` entries with `type === "attack"`, partitioned by its round
-    # loop. Purely additive: every write is an `append` to this list, no
+    # Ordered, turn-delimited presentation stream. A flat list of
+    # `{"type": "turn_start", "round": n}` markers interleaved with the
+    # records `run_battle` produces, in production order -- the counterpart of
+    # the source's own single flat `detailedLog` (`BcM`), partitioned by its
+    # round loop. Purely additive: every write is an `append` to this list, no
     # control flow, no state mutation and no RNG draw depends on it.
+    #
+    # Record families, and who consumes them:
+    #   * `attack`  -- M3.3b workstream 5. The ONLY family the route oracle
+    #     compares: `run_scenario._fold_turns` projects it and `driver.js`'s
+    #     `deriveTurns` (route-oracle/driver.js:244) filters the source's log
+    #     to `type === 'attack'` on the other side. Adding a family here does
+    #     NOT widen the compared surface -- see `_fold_turns`.
+    #   * `effect` -- M6/N10. Held-item and passive HP changes that happen
+    #     AFTER the attack record is appended (rocky_helmet, enemy_recoil,
+    #     life_orb, shell_bell; source 56366-56442), so a renderer can
+    #     attribute the HP delta to its real cause instead of silently
+    #     disagreeing with the attack record's `attacker_hp_after`.
+    #   * `faint` -- M6/N11. The ordinary combat KO (source 56445 / 56482).
+    #     `status_events` carries only the status-tick-caused subset, which is
+    #     what `driver.js`'s `deriveStatusEvents` filters the source log down
+    #     to; an ordinary KO produced no record anywhere before M6.
     battle_events: list = field(default_factory=list)
 
 
@@ -133,6 +148,33 @@ def _attack_event(
         # matrix never grants, and if one ever fired the projections would
         # disagree in length rather than silently agree.
         "extra_attack": False,
+    }
+
+
+def _effect_event(side, idx, hp_change, hp_after, reason) -> dict:
+    """One `type: "effect"` record, shaped like the source's own
+    (bundle.deobfuscated.js:56372-56381, 56391-56399, 56410-56418,
+    56433-56441). Pure construction: it mutates nothing.
+
+    `name` is deliberately absent for the same reason `_attack_event` drops
+    `attacker_name`: `side` plus `idx` identifies the combatant exactly and
+    the source's names go through `nickname || name`, which the port does not
+    model.
+
+    `reason` is the STABLE CAUSE KEY, not the source's prose. The source's
+    own `reason` strings are display text that interpolate both the name and
+    the rolled amount ("Rocky Helmet hurt <name> for <n> HP!"); reproducing
+    them would re-introduce exactly the naming the port does not model. The
+    renderer builds its own prose from this key plus `hp_change` -- the same
+    read-side enrichment rule R1 set for every other record family.
+    """
+    return {
+        "type": "effect",
+        "side": side,
+        "idx": idx,
+        "hp_change": hp_change,
+        "hp_after": hp_after,
+        "reason": reason,
     }
 
 
@@ -723,20 +765,49 @@ def run_battle(
                 overtime_mult, actual_damage, no_heal_revive,
             )
 
+            # The four post-hit HP changes, source 56366-56442. Each mutates
+            # HP AFTER the attack record above was appended, so each emits its
+            # own `effect` record (M6/N10) -- without one, a replay shows the
+            # mover's HP moving with no event to attribute it to, and the
+            # attack record's own `attacker_hp_after` silently disagrees with
+            # the post-battle roster.
             if target.held_item is not None and target.held_item.id == "rocky_helmet":
                 recoil = max(1, int(mover.max_hp * 0.12))
                 mover.current_hp = max(0, mover.current_hp - recoil)
-            if side == "enemy" and has_passive(traits, "enemy_recoil") and actual_damage > 0:
+                battle_events.append(_effect_event(
+                    side, mover_idx, -recoil, mover.current_hp, "rocky_helmet",
+                ))
+            # `mover.current_hp > 0` is the source's own guard (56386), which
+            # this port omitted before M6. It is HP-neutral -- the only way to
+            # reach it at 0 HP is the rocky_helmet block just above, and
+            # `max(0, 0 - recoil)` is 0 either way -- but it decides whether
+            # the record above exists, so it has to be right now that the
+            # record does.
+            if (
+                side == "enemy"
+                and actual_damage > 0
+                and mover.current_hp > 0
+                and has_passive(traits, "enemy_recoil")
+            ):
                 recoil = max(1, int(actual_damage * 0.2))
                 mover.current_hp = max(0, mover.current_hp - recoil)
+                battle_events.append(_effect_event(
+                    side, mover_idx, -recoil, mover.current_hp, "enemy_recoil",
+                ))
             if mover.held_item is not None and mover.held_item.id == "life_orb" and actual_damage > 0 and mover.current_hp > 0:
                 recoil = max(1, int(mover.max_hp * 0.1))
                 mover.current_hp = max(0, mover.current_hp - recoil)
+                battle_events.append(_effect_event(
+                    side, mover_idx, -recoil, mover.current_hp, "life_orb",
+                ))
             if mover.held_item is not None and mover.held_item.id == "shell_bell" and side == "player" and damage > 0:
                 heal_pct = 0.3 if has_passive(traits, "heal_boost") else 0.15
                 heal = min(int(damage * heal_pct), mover.max_hp - mover.current_hp)
                 if heal > 0:
                     mover.current_hp += heal
+                    battle_events.append(_effect_event(
+                        side, mover_idx, heal, mover.current_hp, "shell_bell",
+                    ))
 
             # Two INDEPENDENT faint blocks in the source (bundle.deobfuscated.js:
             # 56442/56480) -- when the target dies from the hit AND the
@@ -745,9 +816,9 @@ def run_battle(
             # confirmed defect this `if`/`if` -- not `if`/`elif` -- fixes,
             # CODEX.md issue 5).
             if target.current_hp <= 0:
-                _handle_faint(target, target_side, p_team, e_team, mover, side, ability_config, traits_config, battle_config, player_participants)
+                _handle_faint(target, target_side, p_team, e_team, mover, side, ability_config, traits_config, battle_config, player_participants, battle_events)
             if mover.current_hp <= 0:
-                _handle_faint(mover, side, p_team, e_team, None, None, ability_config, traits_config, battle_config, player_participants)
+                _handle_faint(mover, side, p_team, e_team, None, None, ability_config, traits_config, battle_config, player_participants, battle_events)
 
         p_alive = _first_alive_index(p_team)
         e_alive = _first_alive_index(e_team)
@@ -1377,6 +1448,7 @@ def _handle_faint(
     traits_config,
     battle_config: BattleConfig,
     player_participants: set,
+    battle_events: Optional[list] = None,
 ) -> None:
     """`player_team`/`enemy_team` are always the FULL rosters (available
     throughout `run_battle`) regardless of whether this faint came from a
@@ -1389,6 +1461,17 @@ def _handle_faint(
     """
     fainted_team = player_team if fainted_side == "player" else enemy_team
     fainted_idx = fainted_team.index(fainted)
+
+    # M6/N11: the ordinary combat KO's own record. The source pushes it at
+    # 56445 (target-of-a-direct-hit) and 56482 (mover killed by its own
+    # recoil), in both cases BEFORE the onKO/onFaint hooks below run -- so
+    # this append has to stay above them to preserve the source's order.
+    # `status_events` only ever carried the status-tick-caused subset, which
+    # is all `driver.js`'s `deriveStatusEvents` keeps from the source log
+    # (route-oracle/driver.js:273-278: a `faint` is projected only when a
+    # preceding `status_tick` on the same combatant left `hpAfter <= 0`).
+    if battle_events is not None:
+        battle_events.append({"type": "faint", "side": fainted_side, "idx": fainted_idx})
 
     if ability_config is not None and killer is not None:
         ability_config.on_ko(fainted, killer)

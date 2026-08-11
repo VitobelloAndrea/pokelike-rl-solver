@@ -51,6 +51,114 @@
     .battle-log .log-enemy  { color: #f0908c; }
     .battle-log .log-faint  { color: #c8a6ff; font-weight: 600; }
     .battle-log .log-item   { color: #e7d67a; }
+
+    /* M6/N24. The hover card's stat block. `.hover-crit` and `.hover-augment`
+       ARE the source's own classes and main.css already styles them
+       (main.css:6799, 6810); the rows below are this port's, because the
+       source fills its card with `renderPokemonCard`'s markup and this client
+       substitutes its own `makePokeCard` -- the same substitution R4 made for
+       the battle field. Labelled as this port's own, not as a port.
+
+       R6/N36 — READABILITY. These rows shipped at `font-size: 0.78em` and
+       `0.76em`. Those two numbers were THIS PORT'S, not the source's, and they
+       are the reason the card read as cramped: they are relative multipliers
+       applied on top of `body { font-size: var(--text-base) }` = 0.5rem = 8px,
+       so the rows rendered at roughly 6px -- BELOW the source's own smallest
+       token. The source sizes the equivalent rows on its card with
+       `var(--text-xs)` (`.stat-lbl` / `.stat-val`, main.css:1151-1152), so
+       that is what they use now: the source's token, not a new invented
+       number. */
+    .hover-stats {
+      margin-top: 0.35em;
+      padding-top: 0.3em;
+      border-top: 1px solid rgba(255, 255, 255, 0.18);
+      font-size: var(--text-xs);
+      line-height: 1.5;
+    }
+    .hover-stat-row { display: flex; align-items: baseline; gap: 0.35em; }
+    .hover-stat-name { flex: 0 0 2.4em; opacity: 0.75; }
+    .hover-stat-value { font-weight: 600; }
+    .hover-stat-delta { font-size: var(--text-xs); }
+    .hover-status-flags,
+    .hover-ability {
+      font-size: var(--text-xs);
+      line-height: 1.5;
+      margin-top: 0.2em;
+    }
+    .hover-ability { opacity: 0.85; }
+
+    /* R6/N36 — the actual readability fix, and a DECLARED DEVIATION.
+       Matching the source's tokens (above) removes this port's invented scale
+       but does not by itself answer the owner's report, because the source's
+       own scale is genuinely tiny: `--text-base` is 0.5rem and `--text-xs`
+       resolves to 6px. Rather than pick new per-row pixel values -- which is
+       what produced the 0.78em/0.76em problem in the first place -- the whole
+       scale is rebased ON THIS CARD ONLY. Every `--text-*` token is derived
+       from `--text-base` (main.css:150-160), so raising it once scales the
+       card's name, level, types, HP text, move block and stat rows together
+       and keeps every one of the source's ratios intact.
+
+       `#team-hover-card`'s `width: 200px` (main.css:1638) IS the source's own
+       value, so widening it in proportion is a deviation from a
+       copied-verbatim rule and is labelled here as one. It is necessary: the
+       card holds a fixed-width `.poke-card` (main.css:1072-1076, 180px), and
+       rebasing the type scale without giving the box room would just move the
+       clipping from the font to the layout.
+
+       THE DERIVED TOKENS HAVE TO BE RESTATED, not just `--text-base`. This was
+       measured, not assumed: overriding `--text-base` alone left
+       `--text-xs` reading `calc(0.5rem * 0.75)` inside the card and the stat
+       rows still rendering at 6px, because a custom property's `var()`
+       references are substituted where the property is DECLARED -- so
+       `--text-xs`, declared at `:root`, had already frozen the root's
+       `0.5rem` and never saw the override. Only rules using `--text-base`
+       directly rebased, which made the card scale incoherently: 11.2px HP
+       text above 6px stat rows. The ratios below are main.css:151-155's own,
+       unchanged; they are simply re-derived from this card's base. */
+    #team-hover-card {
+      --text-base: 0.7rem;
+      --text-xs: calc(var(--text-base) * 0.75);
+      --text-sm: calc(var(--text-base) * 0.875);
+      --text-lg: calc(var(--text-base) * 1.125);
+      --text-xl: calc(var(--text-base) * 1.25);
+      width: 260px;
+    }
+    #team-hover-card .poke-card { width: 100%; }
+
+    /* M6/N25. The map SVG visibly resized during play.
+       ROOT CAUSE, re-derived: `#map-container` is `flex: 1` with
+       `aspect-ratio: 1600/2668` and `width: auto` (main.css:1665-1678), and it
+       is a flex-COLUMN sibling sitting below `.map-panels` -- the team bar,
+       item bar and badge panel. As a run progresses those panels grow
+       (team 1 -> 6, bag fills, badges accumulate), so they claim more column
+       height, `flex: 1` leaves the map less, and `aspect-ratio` shrinks its
+       WIDTH to match. The map therefore changes size because the team grew,
+       which is what a player sees as it "jumping".
+       FIX: size the container from the VIEWPORT instead of from whatever the
+       siblings left over. That removes the dependency rather than debouncing
+       its symptom -- a ResizeObserver alone (see app.js) would still let the
+       map resize every time a Pokemon was caught, it would just do it
+       smoothly. The observer is still there, for the case this cannot cover:
+       an actual viewport change.
+       Overridden HERE rather than edited in main.css, because main.css is a
+       verbatim copy of the source's and this is this port's own layout
+       decision -- the same reason the .battle-log rules above live here. */
+    #map-container {
+      flex: 0 0 auto;
+      height: clamp(320px, 62vh, 780px);
+      min-height: 0;
+    }
+
+    /* M6/N26. The source's `.history-region-btn` is a 3-column grid --
+       image | run stats | achievements (main.css:5323-5344). This port models
+       neither run history nor achievements, so both of those columns would be
+       permanently empty; the card is narrowed to the image column alone rather
+       than shipping two blank thirds. Everything else about the card (border,
+       hover lift, overflow, the label drop) is main.css's own. */
+    .history-region-btn.history-region-btn--no-challenge {
+      grid-template-columns: 1fr;
+    }
+    .history-region-btn .history-region-visual { min-height: 132px; }
   </style>
 </head>
 <body>
@@ -58,7 +166,12 @@
 <!-- ===== TITLE SCREEN ===== -->
 <div id="title-screen" class="screen active">
   <header class="title-hero">
-    <h1 class="game-logo">Pokelike</h1>
+    <!-- M6/N23. main.css was copied verbatim and its `.game-logo img` rule
+         (main.css:3470-3479) sizes a 113x30 pixel-art wordmark; the port had
+         plain text there, so that rule matched nothing. The source's own
+         markup is `<h1 class="game-logo"><img src="img/logo.png" ...>`
+         (pokelike_forked/index.html:293). -->
+    <h1 class="game-logo"><img src="/img/logo.png" alt="Pokelike"></h1>
     <p class="game-subtitle"><span class="game-subtitle-inner">
       <span class="game-subtitle-text">Python engine -- local web UI</span>
     </span></p>
@@ -67,13 +180,10 @@
     <div class="title-mode-col">
       <button type="button" id="btn-start-story" class="title-mode-card title-mode-card--story">
         <span class="title-mode-card-title">Story</span>
-        <span class="title-mode-card-figure"><span class="title-mode-card-action">Play Story</span></span>
-      </button>
-    </div>
-    <div class="title-mode-col">
-      <button type="button" id="btn-start-nuzlocke" class="title-mode-card title-mode-card--story">
-        <span class="title-mode-card-title">Nuzlocke</span>
-        <span class="title-mode-card-figure"><span class="title-mode-card-action">Play Nuzlocke</span></span>
+        <span class="title-mode-card-figure">
+          <img class="title-mode-card-img" src="/img/modeImages/story-mode.png" alt="">
+          <span class="title-mode-card-action">Play Story</span>
+        </span>
       </button>
     </div>
   </div>
@@ -83,10 +193,90 @@
   </p>
 </div>
 
+<!-- ===== M6/N26: REGION SELECT =====
+     Traced, not invented. The source does NOT put region choice on the title
+     screen: its Story card (`#btn-history-run`) opens a SEPARATE screen,
+     `#history-region-select` (pokelike_forked/index.html:682-704), and the
+     regions themselves come from `HISTORY_REGIONS`
+     (bundle.deobfuscated.js:83084-83112) -- four descriptors, one per
+     generation, each carrying exactly the `gen2Mode`/`gen3Mode`/`gen4Mode`
+     flags this port's `/api/reset` already accepts. The list is rendered at
+     83211-83270.
+
+     Classic vs Nuzlocke is a TOGGLE on this screen in the source
+     (`#btn-history-classic` / `#btn-history-nuzlocke`), not a second title
+     card. The port's two title cards were its own invention; the Story card
+     now opens this screen and the Nuzlocke card is a shortcut into it with the
+     toggle pre-set, so both entry points still work.
+
+     DELIBERATE DEVIATION -- the progressive locks are NOT ported. The source
+     gates Johto behind `hasStoryWin(1)` and Hoenn/Sinnoh behind
+     `hasAnyStoryWin()` (83223-83226), reading account-level history from
+     localStorage. This port models no account state (P1.8, explicitly out of
+     scope), so porting the gate would leave every region except Kanto
+     permanently locked and make N26 pointless. All four are offered and the
+     lock rule is recorded here instead. -->
+<div id="region-screen" class="screen">
+  <div class="history-select-panel">
+    <div class="history-select-topbar">
+      <button type="button" id="btn-region-back" class="run-menu-btn btn-primary btn-md history-select-back">Back</button>
+      <div class="run-menu-btn btn-primary btn-md history-select-logo" aria-hidden="true"><span class="run-menu-logo"><img src="/img/logo.png" alt=""></span></div>
+    </div>
+    <header class="history-header">
+      <div class="history-header-text">
+        <h1 class="history-header-title history-header-title--story">Story</h1>
+        <p class="history-header-intro">Choose Classic or Nuzlocke, then pick a region to begin.</p>
+      </div>
+    </header>
+    <div class="history-mode-toggle-wrap">
+      <button type="button" id="btn-history-classic" class="btn-primary btn-md history-mode-btn history-mode-btn--classic history-mode-btn--selected">Classic</button>
+      <button type="button" id="btn-history-nuzlocke" class="btn-primary btn-md history-mode-btn history-mode-btn--nuzlocke">Nuzlocke</button>
+    </div>
+    <div id="history-region-list" class="history-region-list"></div>
+  </div>
+</div>
+
 <!-- ===== STARTER SELECT ===== -->
 <div id="starter-screen" class="screen">
   <header class="screen-intro"><h2>Choose Your Starter!</h2></header>
   <div id="starter-choices"></div>
+</div>
+
+<!-- ===== RUN NAVIGATION (R6/N35) =====
+     The port had #btn-retry and #btn-play-again (game-over / victory only) and
+     #btn-region-back (region screen only), so from the starter screen onward
+     there was no way to abandon a run, reset, or go back at all.
+
+     This is the source's OWN floating quick-nav (`.map-menu-icons`,
+     pokelike_forked/index.html:433-447), not an invention: a fixed overlay
+     that the stylesheet already positions, styles and shows/hides verbatim
+     (main.css:7577-7616), driven by the same two body classes the source uses
+     -- `body.in-battle` hides the whole bar (7595) and `body.run-menu-in-run`
+     gates the `.nav-in-run` buttons (7597).
+
+     WHY THIS SYSTEM AND NOT `#run-menu-bar`. The source ships two overlapping
+     navigations and both carry Reset + Home. The sidebar's buttons are
+     text-only; it is `.map-menu-icons` whose buttons carry the `img/menu/*.png`
+     icons M6 copied into this port, `reset.png` and `exit.png` among them. It
+     is also the one that is visible at EVERY phase rather than only where a
+     sidebar is laid out, which is exactly the gap reported -- and it needs no
+     `body.run-menu-active` padding, which the sidebar does and which would
+     have reached the `#map-container` sizing M6/N25 had just fixed.
+
+     ONLY THE TWO CONTROLS THIS PORT CAN HONESTLY SATISFY ARE SHIPPED. The
+     source's bar also carries Pokédex, Achievements, Mega Bracelet, League
+     map, Settings, Fullscreen and Poké Mart; this client models none of those,
+     and a button wired to nothing would be worse than no button. The omitted
+     ones are left out of the markup entirely rather than disabled. -->
+<div class="map-menu-icons">
+  <button type="button" id="btn-run-reset" class="btn-icon-sm nav-in-run"
+          data-shortcut="R" data-tip="Reset Run" aria-label="Reset Run">
+    <img src="/img/menu/reset.png" alt="">
+  </button>
+  <button type="button" id="btn-run-home" class="btn-icon-sm nav-in-run"
+          data-shortcut="H" data-tip="Abandon Run" aria-label="Abandon Run">
+    <img src="/img/menu/exit.png" alt="">
+  </button>
 </div>
 
 <!-- ===== MAP SCREEN ===== -->
@@ -109,6 +299,12 @@
      bundle.deobfuscated.js:54026-54051). The stylesheet already carried
      #map-node-tooltip; only the element was missing. -->
 <div id="map-node-tooltip"></div>
+<!-- M6/N24: the source's own stat hover card element
+     (pokelike_forked/index.html:288). Exactly the same situation R2 found for
+     #map-node-tooltip above: main.css carried the #team-hover-card rules
+     (main.css:1633-1646) verbatim from R1 onward and only the ELEMENT was
+     missing, so nothing could ever show one. -->
+<div id="team-hover-card"></div>
 
 <!-- ===== BATTLE SCREEN (pre/post snapshot, not animated -- see webui docstring) ===== -->
 <div id="battle-screen" class="screen">

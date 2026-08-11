@@ -78,7 +78,7 @@ def render_team(state: engine.RunState) -> str:
         return "  (no team)"
     lines = []
     for i, mon in enumerate(state.team):
-        view = contract.mon_view(mon)
+        view = contract.mon_view(mon, state.passives)
         frac = (view["current_hp"] / view["max_hp"]) if view["max_hp"] else 0.0
         shiny = " (shiny)" if view["is_shiny"] else ""
         held = f" @{view['held_item']}" if view["held_item"] is not None else ""
@@ -87,7 +87,66 @@ def render_team(state: engine.RunState) -> str:
             f"{_status_text(view['status_flags'])}  "
             f"{hp_bar(frac)} {view['current_hp']}/{view['max_hp']}"
         )
+        lines.append(_stat_line(view))
     return "\n".join(lines)
+
+
+def _stat_line(view: dict) -> str:
+    """M6/N24, the console side.
+
+    **Decision, and why.** The web client got the source's real hover card
+    (`showTeamHoverCard`, bundle.deobfuscated.js:64506-64564). A terminal has
+    no pointer, so a literal port is meaningless here -- but "do nothing" would
+    leave this renderer unable to show data the other one shows, and the whole
+    finding was that R1 built `effective_stats`/`stat_buffs`/`crit_chance`
+    for a card nobody drew. So the equivalent information is shown INLINE,
+    always, rather than behind an interaction this renderer cannot offer.
+
+    That is a different choice from R2's map-parity ceiling, where the console
+    genuinely could not reach the source's presentation at all. Here it can
+    reach the *content*; only the trigger is inexpressible.
+
+    The number shown is the EFFECTIVE stat, because that is what the battle
+    engine would actually read right now.
+
+    **`base_stats` is deliberately not shown next to it as a delta.** The two
+    are different quantities on different scales, not a before/after pair:
+    `base_stats` is the species' base table (Bulbasaur's Atk 49) while
+    `effective_stats` is the computed battle stat at this level (Atk 9 at
+    Lv5). Subtracting them produces "-40", which reads as a crippling debuff
+    and means nothing. What genuinely modifies the effective number is
+    `stages` and `stat_buffs`, so those are what get annotated.
+    """
+    eff = view["effective_stats"]
+    stages, buffs = view["stages"], view["stat_buffs"]
+    parts = []
+    for label, key in (
+        ("Atk", "atk"), ("Def", "def"), ("SpA", "special"),
+        ("SpD", "spdef"), ("Spe", "speed"),
+    ):
+        value = eff.get(key)
+        if value is None:
+            continue
+        marks = ""
+        stage = stages.get(key) or 0
+        if stage:
+            marks += f" {stage:+d}stg"
+        buff = buffs.get(key) or 0
+        if buff:
+            marks += f" {buff:+d}buf"
+        parts.append(f"{label} {value}{marks}")
+    extra = ""
+    # The source's own conditions: 64494-64496 and 64500-64504.
+    if abs((view["crit_chance"] or 0) - contract._BASE_CRIT_PCT) >= 0.01:
+        extra += f"  crit {round(view['crit_chance'])}%"
+    if view["augment_pct"]:
+        extra += f"  augment +{view['augment_pct']}%"
+    # R6/N34. The move the web client now draws on every card. On the team
+    # line it is the same fact the browser shows, in the form this medium has.
+    move = _move_text(view.get("move_preview"))
+    if move:
+        extra += f"  move {move}"
+    return "       " + "  ".join(parts) + extra
 
 
 def _node_cell(view: dict) -> str:
@@ -172,6 +231,28 @@ def render_map(state: engine.RunState) -> str:
     return "\n".join(lines)
 
 
+def _move_text(mp) -> str:
+    """R6/N34, the console side of the source's `.poke-move` block
+    (bundle.deobfuscated.js:64348-64366).
+
+    The web client renders that block as real markup -- category icon, type
+    badge, power badge. All three are *values*, and a terminal can carry
+    values; only the badges' shape is inexpressible. So the same four facts
+    are rendered as one text run, in the source's own order (name, category,
+    type, power) and with the source's own em dash for a no-damage move
+    (64362-64363).
+
+    Returns "" when the contract supplied no `move_preview`, so a caller can
+    omit the field entirely rather than print a placeholder.
+    """
+    if not mp or not mp.get("name"):
+        return ""
+    category = "Spe" if mp.get("is_special") else "Phy"
+    move_type = mp.get("type") or "--"
+    power = "--" if mp.get("no_damage") else f"{mp.get('power')} PWR"
+    return f"{mp['name']} {category} {move_type} {power}"
+
+
 def _format_option(opt: dict) -> str:
     # R3. The escape-rope option is `{"action": ..., "item_index": ...}`
     # (engine.py:1546-1551), which matched no branch below and fell through to
@@ -186,7 +267,18 @@ def _format_option(opt: dict) -> str:
         suffix = f" [{'/'.join(types)}]" if types else ""
         return f"{opt['name']}{suffix}"
     if "id" in opt and "usable" in opt:
-        return opt["name"] + (" (usable)" if opt["usable"] else " (held item)")
+        # R6/N33, the console side. The web client's item card was ignoring
+        # `icon`/`icon_url`/`desc`; this renderer was ignoring `desc` for the
+        # same reason -- nobody read the fields `contract.item_view` had been
+        # supplying since R3. The icon is a 36px sprite and the emoji fallback
+        # is decorative, so neither is ported here; the DESCRIPTION is plain
+        # text and is exactly the thing that makes an item choice decidable,
+        # so it is. That is the §7.5 split: port what the medium can carry,
+        # and say plainly what it cannot.
+        label = opt["name"] + (" (usable)" if opt["usable"] else " (held item)")
+        if opt.get("desc"):
+            label += f" -- {opt['desc']}"
+        return label
     if "species_id" in opt or "team_index" in opt:
         label = opt.get("name", "?")
         if opt.get("is_shiny"):
@@ -195,6 +287,13 @@ def _format_option(opt: dict) -> str:
             label += f" Lv{opt['level']}"
         if "move_tier" in opt:
             label += f" (tier {opt['move_tier']})"
+        # R6/N34, the console side. The move block the web client now draws on
+        # every card is text here, and on the move-tutor screen it is the whole
+        # decision -- "tier 3" alone says nothing about what the Pokemon would
+        # actually attack with.
+        move = _move_text(opt.get("move_preview"))
+        if move:
+            label += f" [{move}]"
         return label
     return str(opt)
 
@@ -209,12 +308,25 @@ def render_pending(state: engine.RunState) -> str:
     # the header was actively misleading rather than merely terse. The
     # contract's `pending.context` carries the source's own title/desc for
     # exactly the phases that have one; phases that don't are unchanged.
-    ctx = contract.pending_view(state.pending, state)["context"]
+    view = contract.pending_view(state.pending, state)
+    ctx = view["context"]
     if ctx["title"]:
         lines.append(f"  {ctx['title']}")
     if ctx["desc"]:
         lines.append(f"  {ctx['desc']}")
-    for i, opt in enumerate(state.pending.options):
+    # R6/N39. The OPTIONS come from the same projection as the context.
+    #
+    # This used to iterate `state.pending.options` -- the engine's own raw
+    # dicts -- while taking `context` from the contract, so the console read
+    # half of the projection and half of the producer. Every read-side option
+    # enrichment therefore stopped at the browser: R3's `escape_rope`
+    # `label`/`item_id` never reached this renderer (it only appeared to work
+    # because `_format_option` carries a hard-coded default for that one
+    # label), and R6's item `desc` and move-tutor `move_preview` would not
+    # have either. That is precisely the drift `render.contract` exists to
+    # make impossible, so the fix is to read the contract, not to re-enrich
+    # here.
+    for i, opt in enumerate(view["options"]):
         lines.append(f"  {i}: {_format_option(opt)}")
     if state.pending.optional:
         lines.append("  (or skip / decline)")
@@ -276,10 +388,14 @@ def render_battle_replay(state: engine.RunState) -> str:
     lines.append(_replay_roster("final  enemy ", view["enemy_team"]))
     # The source does exactly this: `animateBattleVisually` replays the log,
     # then `renderBattleField(Bch, BcL)` (bundle.deobfuscated.js:81278) redraws
-    # from the real post-battle teams. It matters, because HP changes with no
-    # record in either stream -- held-item recoil and healing
-    # (battle_loop.py:726-739) -- are invisible to the replay, so the last
-    # replayed HP and the final roster legitimately disagree.
+    # from the real post-battle teams.
+    #
+    # M6/N10 closed the reason this used to matter most. Held-item recoil and
+    # healing now emit their own `effect` records, so the replay accounts for
+    # those HP changes instead of silently disagreeing with the final roster.
+    # The redraw stays, because it is what the source does and because the
+    # remaining unrecorded families (send-outs, transforms) can still move a
+    # roster the replay never mentions.
     return "\n".join(lines)
 
 

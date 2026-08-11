@@ -1,0 +1,34 @@
+{
+  "normal": {
+    "hp": 50,
+    "atk": 150,
+    "def": 50,
+    "speed": 150,
+    "special": 150,
+    "spdef": 50
+  },
+  "attack": {
+    "hp": 50,
+    "atk": 180,
+    "def": 20,
+    "speed": 150,
+    "special": 180,
+    "spdef": 20
+  },
+  "defense": {
+    "hp": 50,
+    "atk": 70,
+    "def": 160,
+    "speed": 90,
+    "special": 70,
+    "spdef": 160
+  },
+  "speed": {
+    "hp": 50,
+    "atk": 95,
+    "def": 90,
+    "speed": 180,
+    "special": 95,
+    "spdef": 90
+  }
+}

@@ -51,7 +51,13 @@ from pokelike.battle import Combatant
 # 4 (R4): `battle` gained `player_team_start`/`enemy_team_start` (the
 #         pre-battle rosters a replay's first frame needs) and `replay` (the
 #         ordered presentation steps both renderers drain) -- see `battle_view`.
-CONTRACT_VERSION = 4
+# 5 (M6): `battle.turns[*].events` can now carry `effect` (N10: the four
+#         post-hit held-item/passive HP changes) and `faint` (N11: the ordinary
+#         combat KO) records, not `attack` alone, and `replay` therefore gained
+#         `effect`/`faint` steps inside a turn. No key was added to any
+#         existing record; this is a new member of an existing family, which is
+#         still a shape change a renderer switches on -- see BATTLE_EVENT_TYPES.
+CONTRACT_VERSION = 5
 
 #: Things the real site displays that this port has no faithful source for.
 #: Named here rather than filled with a plausible-looking placeholder, per
@@ -103,6 +109,12 @@ MON_FIELDS = frozenset({
     "held_item", "held_item_info", "move_tier", "move_preview",
     "base_stats", "effective_stats", "stages", "stat_buffs",
     "sprite_url", "ability",
+    # M6/N24: the two lines the source's hover card adds beneath the card
+    # itself -- `hoverCritLine` (64491-64497) and `hoverAugmentLine`
+    # (64498-64505). Both are conditional in the source, so both are carried
+    # unconditionally here and the RENDERER applies the condition; that is the
+    # same read-side rule every other view field follows.
+    "crit_chance", "augment_pct",
 })
 
 NODE_FIELDS = frozenset({
@@ -164,8 +176,28 @@ OBSERVATION_FIELDS = frozenset({
 
 #: Every `type` string a renderer can see in `battle.turns[*].events` or
 #: `battle.status_events`. Pinned so renaming one in `battle_loop` fails here.
-BATTLE_EVENT_TYPES = frozenset({"attack"})
+#: `effect`/`faint` are new in contract version 5 (M6/N10/N11).
+BATTLE_EVENT_TYPES = frozenset({"attack", "effect", "faint"})
 STATUS_EVENT_TYPES = frozenset({"status_tick", "faint", "poison_drain"})
+
+#: M6/N10. `battle_loop._effect_event`'s stable cause keys -> the source's own
+#: `reason` prose, which is what `animateBattleVisually` writes to the log for
+#: an `effect` record (bundle.deobfuscated.js:69374, `BcT(Bch["reason"],
+#: "log-item")` -- the RECORD's reason, not the earlier inline `Bco(...)` line,
+#: which differs for `life_orb`).
+#:
+#: `{name}` is the combatant label this layer joins from the roster and `{n}`
+#: the absolute HP amount. The source interpolates both directly into the
+#: string it stores; the port keeps the cause key on the record (so no
+#: presentation reaches the engine) and rebuilds the same text here.
+#: Sources, in order: 56380, 56398, 56417, 56440. The minus signs are the
+#: source's own U+2212, not a hyphen.
+_EFFECT_REASON_TEXT = {
+    "rocky_helmet": "Rocky Helmet hurt {name} for {n} HP!",
+    "enemy_recoil": "Iron Thorns: −{n} HP recoil",
+    "life_orb": "Life Orb: −{n} HP recoil",
+    "shell_bell": "Shell Bell restored {n} HP to {name}!",
+}
 
 #: R4. `battle_view`'s own top level. `player_team_start`/`enemy_team_start`
 #: and `replay` are new in contract version 4.
@@ -278,10 +310,53 @@ def _sprite_url(mon: Combatant) -> Optional[str]:
     return entry.shiny_sprite_url if mon.is_shiny else entry.sprite_url
 
 
-def mon_view(mon: Combatant) -> dict:
+#: M6/N24. `_BASE_CRIT` (bundle.deobfuscated.js:64449), as a PERCENT -- the
+#: source's hover card talks in percent, while `battle.py`'s damage path uses
+#: the same numbers as fractions.
+_BASE_CRIT_PCT = 6.25
+
+
+def _crit_chance_pct(mon: Combatant, passives: Sequence) -> float:
+    """Port of `currentCritChance` (bundle.deobfuscated.js:64450-64489), the
+    number the hover card's crit line shows.
+
+    This is deliberately a SEPARATE computation from the one inside
+    `battle.calc_damage` (`battle.py:605-621`), because the source keeps them
+    separate too: `currentCritChance` is a display helper that reads the run's
+    collected passives and the mon's own held item, while the damage path also
+    folds in per-battle config, `force_crit` and the overflow rule. Reusing
+    the damage path here would report a number the player never sees.
+
+    The `state.isEndlessMode` Dark-team branch (64462-64479) is not ported:
+    this port has no Endless mode, so the branch is unreachable rather than
+    omitted. Same for `battle_config.dark_crit_floor`, which is battle-local
+    and has no value outside one.
+    """
+    pct = _BASE_CRIT_PCT
+    if mon.held_item is not None and mon.held_item.id == "scope_lens":
+        pct += 30
+    if battle.has_passive(passives, "crit_overflow"):
+        pct += 35
+    if battle.has_passive(passives, "crit_lifesteal"):
+        pct += 10
+    if battle.has_passive(passives, "crit_boost"):
+        pct += 10
+    if battle.has_passive(passives, "crit_flinch"):
+        pct += 10
+    if battle.has_passive(passives, "dark_lvlcrit") and "Dark" in (mon.types or ()):
+        pct += (mon.level or 0) / 1.5
+    return min(100.0, pct)
+
+
+def mon_view(mon: Combatant, passives: Sequence = ()) -> dict:
     """One team/enemy member, fully presented. Superset of the old
     `state_json._mon_json`: every field that one emitted is still here with
     the same name and type, so an existing client keeps working.
+
+    `passives` is the run's collected trait list, needed only by
+    `crit_chance`. It defaults to empty so that the battle-replay call sites,
+    which project rosters rather than live run state, keep working unchanged --
+    and a battle roster's crit line is not something the source shows anyway.
     """
     return {
         "species_id": mon.species_id,
@@ -305,6 +380,13 @@ def mon_view(mon: Combatant) -> dict:
         "stages": dict(mon.stages),
         "stat_buffs": dict(mon.stat_buffs or {}),
         "sprite_url": _sprite_url(mon),
+        # M6/N24. The hover card's two extra lines. Both are carried always and
+        # the renderer applies the source's own conditions: the crit line is
+        # shown only when the value differs from `_BASE_CRIT` by >= 0.01
+        # (64494-64496), the augment line only when `_augmentPct` is truthy
+        # (64500-64504).
+        "crit_chance": _crit_chance_pct(mon, passives),
+        "augment_pct": mon.augment_pct,
         # R2/N1: CODEX section 3 item 8 names `ability` among the hover-card
         # fields, and it is load-bearing in the battle engine (`battle.py:307`
         # smack_down, `battle.py:362` multitype), so a hover card that omits it
@@ -1104,6 +1186,8 @@ _REPLAY_DELAY_MS = {
     "attack": 100,
     # `await BcF(0x12c)` after a faint (69398).
     "faint": 300,
+    # M6/N10. `await BcF(0x64)` closing the `effect` branch (69375).
+    "effect": 100,
     # Every `status_tick` branch converges on `await BcF(0x64)` (69676).
     "status_tick": 100,
     # `poison_drain` has no branch of its own in the source's animation -- see
@@ -1259,13 +1343,49 @@ def _replay_steps(turns: list, status_events: list, rosters: dict) -> list:
     for turn in turns:
         number = turn.get("turn")
         for event in turn.get("events") or []:
-            if event.get("type") != "attack":
+            kind = event.get("type")
+            if kind == "effect":
+                # M6/N10. 69352-69375: popup (only when `hpChange` is truthy,
+                # "heal" when positive and "normal" otherwise), HP bar animated
+                # to `hpAfter`, then the reason line at `log-item`.
+                side = event.get("side")
+                idx = event.get("idx")
+                change = event.get("hp_change") or 0
+                template = _EFFECT_REASON_TEXT.get(event.get("reason"))
+                text = (
+                    template.format(name=_combatant_label(rosters, side, idx), n=abs(change))
+                    if template else str(event.get("reason"))
+                )
+                steps.append(_replay_step(
+                    "effect", turn=number, text=text, cls="log-item",
+                    side=side, idx=idx,
+                    hp_after=event.get("hp_after"),
+                    hp_max=_combatant_max_hp(rosters, side, idx),
+                    damage=change or None,
+                    popup=(("heal" if change > 0 else "normal") if change else None),
+                ))
+                continue
+            if kind == "faint":
+                # M6/N11. The ordinary combat KO, presented exactly like the
+                # status-tick faint below -- 69389-69402 is ONE branch in the
+                # source's animation and does not care which stream the record
+                # reached it on.
+                side = event.get("side")
+                idx = event.get("idx")
+                steps.append(_replay_step(
+                    "faint", turn=number,
+                    text=f"{_combatant_label(rosters, side, idx)} fainted!",
+                    cls="log-faint", side=side, idx=idx, hp_after=0,
+                    hp_max=_combatant_max_hp(rosters, side, idx),
+                ))
+                continue
+            if kind != "attack":
                 # Unknown/new event family: show it rather than dropping it
                 # silently, and let `BATTLE_EVENT_TYPES`' detector be the thing
                 # that fails loudly.
                 steps.append(_replay_step(
-                    str(event.get("type")), turn=number,
-                    text=str(event.get("type")), cls="log-item",
+                    str(kind), turn=number,
+                    text=str(kind), cls="log-item",
                     side=event.get("side"), idx=event.get("idx"),
                 ))
                 continue
@@ -1514,6 +1634,32 @@ def _pending_options(pending: "engine.PendingChoice",
     - `ESCAPE_ROPE_CHOICE`: the engine's option is `{action, item_index}`,
       which renders as a raw dict. The button's own label is the source's
       (81407).
+
+    R6/N33 and N34 add two more, for the same reason and by the same rule --
+    no engine structure changes and no key is required inside a producer's
+    record:
+
+    - `ITEM_CHOICE`: the engine's option is `{id, name, usable}`. R3 built
+      `item_view` so the browser would stop being handed bare string ids
+      (CODEX gap 6) and wired it into the BAG (`observation()["items_info"]`),
+      but the item *offer* screen's options were never routed through it -- so
+      the icon and description existed on one surface and not on the other, and
+      the item card could not have drawn them however it was written. Enriched
+      here with `desc`/`icon`/`icon_url` from the same `item_view`, so the two
+      surfaces cannot disagree about what an item is.
+    - `MOVE_TUTOR_CHOICE`: the engine's option is `{team_index, species_id,
+      name, move_tier}`. `move_tier` is the tutor's whole subject and it is an
+      opaque integer -- the card said "tier 0" and could not say what the
+      Pokemon would actually attack with, which is the decision. Enriched with
+      `move_preview`, computed by the same `_move_preview` every `mon_view`
+      uses, off the real `Combatant` `team_index` names.
+
+      Deliberately NOT extended to `CATCH_CHOICE`, `TRADE_CHOICE` or
+      `ITEM_EQUIP_CHOICE`. Their options describe a Pokemon but carry no index
+      into anything, and `pending.extra` holds either nothing usable or a
+      candidate list whose correspondence to the option order is an assumption
+      rather than a fact. Guessing that correspondence would put a wrong move
+      on a card, which is worse than putting none. Recorded as an open finding.
     """
     options = [dict(o) if isinstance(o, dict) else o for o in pending.options]
     extra = pending.extra or {}
@@ -1539,6 +1685,33 @@ def _pending_options(pending: "engine.PendingChoice",
             if isinstance(opt, dict) and opt.get("action") == "use_escape_rope":
                 opt["item_id"] = engine._ESCAPE_ROPE_ITEM_ID
                 opt["label"] = "Use Escape Rope"
+
+    elif pending.phase == engine.Phase.ITEM_CHOICE:
+        # R6/N33. The same `item_view` the bag already goes through, so an
+        # offered item and a carried one describe themselves identically.
+        # `name` is left as the engine wrote it rather than overwritten: the
+        # engine is the authority on what it is offering, and `item_view`
+        # reports `known: False` with `name == id` for an item in neither
+        # ported table, which would be a downgrade.
+        for opt in options:
+            if not isinstance(opt, dict) or "id" not in opt:
+                continue
+            view = item_view(opt["id"])
+            opt["desc"] = view["desc"]
+            opt["icon"] = view["icon"]
+            opt["icon_url"] = view["icon_url"]
+            opt["known"] = view["known"]
+
+    elif pending.phase == engine.Phase.MOVE_TUTOR_CHOICE:
+        # R6/N34. `team_index` is the engine's own field on this option, so the
+        # Combatant is addressed rather than inferred.
+        for opt in options:
+            if not isinstance(opt, dict):
+                continue
+            idx = opt.get("team_index")
+            if state is None or idx is None or not (0 <= idx < len(state.team)):
+                continue
+            opt["move_preview"] = _move_preview(state.team[idx])
 
     return options
 
@@ -1602,7 +1775,7 @@ def observation(state: engine.RunState, *, recent_log: int = 5) -> dict:
         "gen3_mode": state.gen3_mode,
         "gen4_mode": state.gen4_mode,
         "in_sub_map": state.in_sub_map,
-        "team": [mon_view(m) for m in state.team],
+        "team": [mon_view(m, state.passives) for m in state.team],
         "items": list(state.items),
         "items_info": [item_view(i) for i in state.items],
         "map": map_view(state),

@@ -1,0 +1,30 @@
+{
+  "description": "P0.3: half_twice fires a real extra half-power attack (fresh calcDamage, own crit/variance rolls) every round the attacker's main hit connects -- `_halfTwiceUsed` is reset each round for that round's active attacker (bundle.deobfuscated.js:55430-55431), so despite the name it is NOT a battle-lifetime flag; this fixture's 14 rounds each get their own extra hit. Gen1 so ability_config/traits_config are both null -- isolates the raw extra-attack damage/RNG mechanic from any hook re-entry.",
+  "gen": 1,
+  "passives": ["half_twice"],
+  "seed": 3301,
+  "player_team": [
+    {
+      "species_id": 150,
+      "name": "Mewtwo",
+      "level": 5,
+      "types": ["Psychic"],
+      "base_stats": {"hp": 106, "atk": 110, "def": 90, "speed": 130, "special": 154, "spdef": 90},
+      "move_tier": 1,
+      "max_hp": 200,
+      "current_hp": 200
+    }
+  ],
+  "enemy_team": [
+    {
+      "species_id": 213,
+      "name": "Shuckle",
+      "level": 5,
+      "types": ["Bug", "Rock"],
+      "base_stats": {"hp": 20, "atk": 10, "def": 230, "speed": 5, "special": 10, "spdef": 230},
+      "move_tier": 1,
+      "max_hp": 200,
+      "current_hp": 200
+    }
+  ]
+}

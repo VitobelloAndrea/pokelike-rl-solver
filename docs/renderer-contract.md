@@ -1,8 +1,9 @@
-# Renderer observation/event contract — version 4
+# Renderer observation/event contract — version 5
 
-**Status: R1 deliverable, extended by R2, R3 and R4 (all closed, independently
-audited). Frozen and test-pinned. R5 is OPEN pending an independent audit and
-made NO contract change — the version stays 4; see §12.**
+**Status: R1 deliverable, extended by R2, R3, R4 and R5 (all closed,
+independently audited). Frozen and test-pinned. M6 is OPEN pending an
+independent audit and took the version to 5 — `battle.turns[*].events` can now
+carry `effect` and `faint` records, not `attack` alone; see §13.**
 
 Version 2 (R2) is strictly additive except for one shape change, and is
 described in §9. In summary: `ability` on every Pokemon view (N1), both battle
@@ -18,6 +19,13 @@ frame needs) and `replay` (the ordered presentation steps both renderers
 drain), described in §11. It is the first version to require an engine change
 since R1 — two pre-battle roster snapshots on `RunState.last_battle` — and no
 `battle_events`/`status_events` record gained a key.
+
+Version 5 (M6) closes two of §11's three declared feed limitations:
+`battle_events` now also carries `effect` (held-item and passive HP changes)
+and `faint` (the ordinary combat KO) records, so a replay can attribute every
+HP delta it shows. Described in §13, including why this needed **no**
+`SCHEMA.md` bump and no re-freeze — the premise that it would was R4's, stated
+rather than traced, and re-deriving it is what M6 did first.
 
 This is the single, versioned description of what `pokelike`'s engine exposes
 to a renderer. It exists so R2–R5 (map sprites, hover cards, battle
@@ -37,7 +45,7 @@ way to break the M5 baseline.
 | | Route-oracle schema | Renderer contract |
 |---|---|---|
 | Document | `route-oracle/SCHEMA.md` | this file |
-| Version | `schema_version: 2` | `CONTRACT_VERSION = 4` |
+| Version | `schema_version: 2` | `CONTRACT_VERSION = 5` |
 | Consumer | cross-runtime parity | a UI running only against Python |
 | Requirement | both runtimes produce it and it must agree **byte for byte** | presentation completeness |
 | Cost of a new field | schema bump + re-freeze of `frozen_signature.json` | none |
@@ -476,6 +484,36 @@ inside a producer's record. Two phases use it, and no engine structure changed:
   (`70601-70603`).
 - `escape_rope_choice`'s option gains `item_id` and a `label`.
 
+R6 adds two more, by the same rule and with no engine change and no
+`CONTRACT_VERSION` bump (see §8.2 — these add no field to any *pinned* set;
+`PENDING_FIELDS` is unchanged):
+
+- `item_choice` options gain `desc`, `icon`, `icon_url` and `known`, from the
+  same `item_view` the bag already goes through. R3 built `item_view` so the
+  browser would stop being handed bare string ids (CODEX gap 6) but wired it
+  into `observation()["items_info"]` only, so an *offered* item and a *carried*
+  one described themselves differently and the item card could not draw an icon
+  or a description however it was written. `name` is deliberately left as the
+  engine wrote it: the engine is the authority on what it is offering, and
+  `item_view` reports `known: false` with `name == id` for an item in neither
+  ported table, which would be a downgrade.
+- `move_tutor_choice` options gain `move_preview`, computed by the same
+  `_move_preview` every `mon_view` uses, off the `Combatant` the option's own
+  `team_index` names. `move_tier` is the tutor's whole subject and is an opaque
+  integer; without this the card can only say "tier 0" (CODEX gap 10).
+
+  **Not** extended to `catch_choice`, `trade_choice` or `item_equip_choice`:
+  their options describe a Pokemon but carry no index into anything, and
+  `pending.extra` holds either nothing usable or a candidate list whose
+  correspondence to option order is an assumption rather than a fact. Guessing
+  it would put a wrong move on a card, which is worse than putting none.
+
+**Both renderers must read the projection, not the producer.** R6 found
+`console.render_pending` taking `context` from `pending_view` while iterating
+`state.pending.options` — the engine's raw dicts — so every enrichment above
+stopped at the browser, including R3's two. That is exactly the drift this
+document exists to prevent; the console now reads `pending_view(...)["options"]`.
+
 ### Derived, not hard-coded
 
 `stat10`'s description interpolates a percentage. The source computes it as
@@ -625,35 +663,30 @@ What each step carries is traced, not invented:
 
 ### Three declared limitations of the feed itself
 
-None is fixable inside R4: each would require changing `battle_loop.py`'s
-record shape, which is the oracle's compared surface and forbidden by §2.
+R4 declared all three unfixable inside its own scope, on the stated grounds
+that each "would require changing `battle_loop.py`'s record shape, which is the
+oracle's compared surface". **M6 re-derived that premise and found it wrong for
+two of the three** — see §13. Limitation 1 stands; 2 and 3 are closed.
 
-1. **Status events cannot be attributed to a round.** `battle_events` and
-   `status_events` are separate streams and only the first carries
-   `turn_start` markers. The source has no such problem — it animates one
-   interleaved `detailedLog`. So status steps are appended after the turn steps
-   in stream order with `turn: None`, and both renderers label them as
+1. **Status events cannot be attributed to a round.** *(Still open.)*
+   `battle_events` and `status_events` are separate streams and only the first
+   carries `turn_start` markers. The source has no such problem — it animates
+   one interleaved `detailedLog`. So status steps are appended after the turn
+   steps in stream order with `turn: None`, and both renderers label them as
    post-turn effects rather than implying a round they cannot know.
-2. **Some HP changes have no record at all.** Held-item recoil and healing
-   (`battle_loop.py:726-739`: `rocky_helmet`, `enemy_recoil`, `life_orb`,
-   `shell_bell`) mutate HP after the `attack` event is appended and emit
-   nothing. The source covers this with an `effect` record family
-   (`animateBattleVisually` handles `type === "effect"` at `69352-69375`) that
-   this port does not produce. **Consequence: the last replayed HP and the true
-   final HP can legitimately differ.** Both renderers therefore end on the real
-   post-battle rosters, which is what the source does too —
-   `renderBattleField(Bch, BcL)` at `81278`, immediately after the replay.
-3. **A combat KO produces no `faint` record.** `status_events` gains
-   `{"type": "faint", ...}` only inside `_status_tick_round`
-   (`battle_loop.py:1293` and `1330`) — that is, only when a burn or poison
-   tick is what killed the combatant. The ordinary case, a Pokemon knocked out
-   by an attack, goes through `_handle_faint` (`battle_loop.py:747-750`),
-   which emits nothing. Observed directly in the console transcript in
-   `docs/audits/R4-implementation.md`: a member's HP bar reaches `0/17` mid-
-   replay with no "fainted!" line under it. `STATUS_EVENT_TYPES` still pins
-   `faint` because the status-tick path genuinely produces it; what is missing
-   is coverage of the commoner path, and adding it means a new record in the
-   oracle's compared stream.
+2. **Some HP changes have no record at all.** *(Closed by M6/N10 — see §13.)*
+   Held-item recoil and healing (`rocky_helmet`, `enemy_recoil`, `life_orb`,
+   `shell_bell`) mutate HP after the `attack` event is appended and emitted
+   nothing. The source covers this with an `effect` record family, which the
+   port now produces too.
+3. **A combat KO produces no `faint` record.** *(Closed by M6/N11 — see §13.)*
+   `status_events` gained `{"type": "faint", ...}` only inside
+   `_status_tick_round` — that is, only when a burn or poison tick was what
+   killed the combatant. The ordinary case, a Pokemon knocked out by an attack,
+   goes through `_handle_faint`, which emitted nothing; observed directly in
+   the console transcript in `docs/audits/R4-implementation.md`, where a
+   member's HP bar reaches `0/17` mid-replay with no "fainted!" line under it.
+   `_handle_faint` now emits the record.
 
 ## 12. Version 4 (unchanged) — R5's interaction ports
 
@@ -717,3 +750,79 @@ league/mart quick-nav.
 ### 12.3 The 30-second overtime speed bump
 
 See §11's "Speed control" entry above, which R5 rewrote.
+
+## 13. Version 5 — M6's `effect` and `faint` records
+
+`CONTRACT_VERSION` **4 → 5**. `battle.turns[*].events` can now carry `effect`
+and `faint` records, not `attack` alone, and `replay` therefore gained
+`effect`/`faint` steps *inside* a turn. No key was added to any existing
+record — this is a new member of an existing family — but a renderer switches
+on `type`, so §8 calls it a shape change and it bumps.
+
+### The premise R4 stated, and what re-deriving it found
+
+R4 declared §11's limitations 2 and 3 unfixable because a new record in
+`battle_loop.py` meant touching "the oracle's compared surface". That framing
+was stated rather than traced. Traced, it is half right, and the half that is
+wrong is the half that matters:
+
+- `status_events` **is** strictly compared. It sits inside the checkpoint dict,
+  `checkpoints.canonical` drops exactly one key (`__diagnostic_event_count`),
+  and `diff_values` recurses into every remaining key — including one present
+  on only one side, which it reports as `<missing>`. There is no
+  `FROZEN_DIFF_PATHS`-style allowance anywhere in `compare.py`.
+- But the JavaScript side's projections are deliberate **filters**, not full
+  copies. `deriveStatusEvents` (`route-oracle/driver.js:255-282`) keeps a
+  `faint` **only** when a preceding `status_tick` on that same combatant left
+  `hpAfter <= 0`, and keeps an `effect` **only** when its `reason` begins
+  `"Pecha Berry:"` (re-labelled `poison_drain`). `deriveTurns` (`:244`) keeps
+  `type === 'attack'` and nothing else.
+
+So the source *already produces* every record N10 and N11 wanted; both oracle
+projections drop them. Adding them to `status_events` would therefore have
+manufactured a difference out of records **both** runtimes produce and
+**neither** compared. The carrier choice, not the record, was the whole risk.
+
+**Conclusion: no `SCHEMA.md` bump, no re-freeze.** The records go on
+`battle_events`, the Python counterpart of the source's single flat
+`detailedLog`, and `run_scenario._fold_turns` filters the projection to the
+compared family exactly as `deriveTurns` does on the other side — stricter, in
+fact: an *unclassified* type raises rather than being silently dropped, so a
+family added later cannot quietly leave the comparison. The frozen signature
+`b7ab9749…` is byte-identical after the change, in all three orders.
+
+### What each record carries
+
+| Field | `effect` | `faint` |
+| --- | --- | --- |
+| source | `56366-56442` (four blocks) | `56445`, `56482` |
+| `side` / `idx` | the combatant whose HP moved | the combatant that fainted |
+| `hp_change` / `hp_after` | signed delta and the resulting HP | — |
+| `reason` | a stable cause key | — |
+
+`reason` is **the cause key, not the source's prose**. The source's own
+`reason` strings interpolate both the combatant's `nickname || name` and the
+rolled amount — presentation this port deliberately does not model, per the
+same rule that keeps `attacker_name` off `attack`. `contract._EFFECT_REASON_TEXT`
+rebuilds the source's exact strings (`56380`, `56398`, `56417`, `56440`) on the
+read side, which is where §2 says enrichment belongs.
+
+### Presentation, ported not invented
+
+`animateBattleVisually`'s `effect` branch (`69352-69375`) spawns a damage popup
+whenever `hpChange` is truthy — `"heal"` when positive, `"normal"` otherwise —
+animates the HP bar to `hpAfter`, clears the `fainted` class when the new HP is
+above zero, logs `reason` at `log-item`, and pauses `0x64` = 100 ms. Its
+`faint` branch (`69389-69402`) is one branch and does not care which stream the
+record arrived on, so the ordinary KO is presented exactly like the status one.
+`console.py` needed no change: it drains steps generically and renders the new
+ones as text automatically.
+
+### One source guard this port had been missing
+
+Tracing `56383-56400` to place the `enemy_recoil` record turned up a condition
+the port had dropped: the source requires `BEX["currentHp"] > 0` (`56386`)
+before applying enemy recoil, and the port did not. It is HP-neutral — the only
+way to arrive there at 0 HP is the `rocky_helmet` block immediately above, and
+`max(0, 0 - recoil)` is 0 either way — which is why it was invisible for as
+long as it was. It decides whether the new record exists, so it is now ported.

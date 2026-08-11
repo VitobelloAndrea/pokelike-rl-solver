@@ -1,0 +1,26 @@
+{
+  "description": "Stage 4 / CODEX P0.1: proves the discard bug is not ability-only -- a TraitsConfig-side beforeTurn skip (sword_charm: one-shot +4 Atk, 'skip turn', bundle.deobfuscated.js buildTraitsConfig BT block) is ALSO a generic hook, so it's discarded the same way once merged with the (always-built, for gen3/4) Gen3AbilityConfig. Just picking sword_charm as the only passive already forces the merge (ability_config is unconditional in gen3/4; traits_config becomes non-null as soon as passives is non-empty) -- no separate ability needs to be relevant on this species.",
+  "gen": 3,
+  "passives": ["sword_charm"],
+  "seed": 5,
+  "player_team": [
+    {
+      "species_id": 19,
+      "name": "Rattata",
+      "level": 50,
+      "types": ["Normal"],
+      "base_stats": {"hp": 30, "atk": 56, "def": 35, "speed": 72, "special": 25, "spdef": 35},
+      "move_tier": 3
+    }
+  ],
+  "enemy_team": [
+    {
+      "species_id": 4,
+      "name": "Charmander",
+      "level": 50,
+      "types": ["Fire"],
+      "base_stats": {"hp": 39, "atk": 52, "def": 43, "speed": 65, "special": 60, "spdef": 50},
+      "move_tier": 3
+    }
+  ]
+}

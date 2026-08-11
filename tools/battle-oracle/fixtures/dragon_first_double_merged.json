@@ -1,0 +1,30 @@
+{
+  "description": "P0.3: Gen3 forces the merged ability+traits battleConfig (buildGen3AbilityConfig always built, buildTraitsConfig non-null because passives is non-empty). dragon_first_double's extra attack DOES re-invoke the threaded attackerDamageMod hook (unlike half_twice, which skips it entirely) -- power_bracer's flat 1.2x must land on the extra hit's damage too, in the same ability-then-traits order the main hit's own threaded call uses (attackerDamageMod is one of mergeBattleConfigs' four threaded hooks, so it behaves the same whether or not a traits config exists). Also proves whenAttacked/afterAttack(is_extra_attack=True) re-entry through a live merged config rather than null ability_config/traits_config.",
+  "gen": 3,
+  "passives": ["dragon_first_double", "power_bracer"],
+  "seed": 3305,
+  "player_team": [
+    {
+      "species_id": 147,
+      "name": "Dratini",
+      "level": 20,
+      "types": ["Dragon"],
+      "base_stats": {"hp": 41, "atk": 64, "def": 45, "speed": 50, "special": 50, "spdef": 50},
+      "move_tier": 1,
+      "max_hp": 200,
+      "current_hp": 200
+    }
+  ],
+  "enemy_team": [
+    {
+      "species_id": 213,
+      "name": "Shuckle",
+      "level": 5,
+      "types": ["Bug", "Rock"],
+      "base_stats": {"hp": 20, "atk": 10, "def": 230, "speed": 5, "special": 10, "spdef": 230},
+      "move_tier": 1,
+      "max_hp": 200,
+      "current_hp": 200
+    }
+  ]
+}

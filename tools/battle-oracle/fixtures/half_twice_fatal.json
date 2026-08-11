@@ -1,0 +1,30 @@
+{
+  "description": "P0.3: half_twice's extra attack itself finishes off a target that survived the main hit (main hit crits for 8, leaving 1 HP; the extra half-power hit deals 4 and is the actual killing blow) -- the natural post-chain faint dispatch (onKO/onFaint/send-out) must fire off the EXTRA hit's HP change, not just the main hit's. Gen1 so ability_config/traits_config are both null -- isolates extra-attack faint timing from hook re-entry (see dragon_first_double_fatal.json / dragon_first_double_merged.json for hook-bearing fatal/merged cases).",
+  "gen": 1,
+  "passives": ["half_twice"],
+  "seed": 3303,
+  "player_team": [
+    {
+      "species_id": 150,
+      "name": "Mewtwo",
+      "level": 5,
+      "types": ["Psychic"],
+      "base_stats": {"hp": 106, "atk": 110, "def": 90, "speed": 130, "special": 154, "spdef": 90},
+      "move_tier": 1,
+      "max_hp": 200,
+      "current_hp": 200
+    }
+  ],
+  "enemy_team": [
+    {
+      "species_id": 213,
+      "name": "Shuckle",
+      "level": 5,
+      "types": ["Bug", "Rock"],
+      "base_stats": {"hp": 20, "atk": 10, "def": 230, "speed": 5, "special": 10, "spdef": 230},
+      "move_tier": 1,
+      "max_hp": 200,
+      "current_hp": 9
+    }
+  ]
+}

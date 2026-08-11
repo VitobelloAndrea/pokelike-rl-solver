@@ -1,0 +1,56 @@
+{
+  "description": "fairy_opening_volley (bundle.deobfuscated.js:61336-61419) loops over EVERY alive player Fairy-type member, re-finding the first alive enemy before each hit, gated by a single battle-wide fairyVolleyFired flag (not per-attacker) -- genuinely multi-attacker, unlike elec_lead's single lead. Clefairy #1 targets Magikarp (current_hp=1): a guaranteed kill, and the source's ternary SKIPS afterAttack entirely on a fainted target (no fairy_hit_two splash from this hit). Clefairy #2 then re-finds the first alive enemy -- now Spearow, since Magikarp is dead -- and its hit is nonfatal (current_hp=300), so afterAttack DOES fire and fairy_hit_two splashes 30% of that hit's damage onto Rattata (the next living opposing member found by skipping the target itself). Rattata must be untouched by Clefairy #1's turn and damaged by Clefairy #2's turn -- proving both the fatal-skip and the nonfatal-fire halves of the same ternary in one fixture, plus the per-attacker target re-lookup. Pre-fix Python already loops over both Fairy attackers but never calls after_attack at all, so Rattata is untouched in both cases.",
+  "gen": 3,
+  "passives": ["fairy_opening_volley", "fairy_hit_two"],
+  "seed": 9101,
+  "player_team": [
+    {
+      "species_id": 35,
+      "name": "Clefairy",
+      "level": 20,
+      "types": ["Fairy"],
+      "base_stats": {"hp": 70, "atk": 45, "def": 48, "speed": 35, "special": 60, "spdef": 65},
+      "move_tier": 1
+    },
+    {
+      "species_id": 35,
+      "name": "Clefairy2",
+      "level": 20,
+      "types": ["Fairy"],
+      "base_stats": {"hp": 70, "atk": 45, "def": 48, "speed": 34, "special": 60, "spdef": 65},
+      "move_tier": 1
+    }
+  ],
+  "enemy_team": [
+    {
+      "species_id": 129,
+      "name": "Magikarp",
+      "level": 5,
+      "types": ["Water"],
+      "base_stats": {"hp": 20, "atk": 10, "def": 55, "speed": 80, "special": 15, "spdef": 20},
+      "move_tier": 1,
+      "max_hp": 100,
+      "current_hp": 1
+    },
+    {
+      "species_id": 21,
+      "name": "Spearow",
+      "level": 20,
+      "types": ["Normal", "Flying"],
+      "base_stats": {"hp": 40, "atk": 60, "def": 30, "speed": 70, "special": 31, "spdef": 31},
+      "move_tier": 1,
+      "max_hp": 300,
+      "current_hp": 300
+    },
+    {
+      "species_id": 19,
+      "name": "Rattata",
+      "level": 20,
+      "types": ["Normal"],
+      "base_stats": {"hp": 30, "atk": 56, "def": 35, "speed": 72, "special": 25, "spdef": 35},
+      "move_tier": 1,
+      "max_hp": 300,
+      "current_hp": 300
+    }
+  ]
+}

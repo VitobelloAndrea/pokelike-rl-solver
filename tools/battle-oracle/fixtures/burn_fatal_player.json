@@ -1,0 +1,31 @@
+{
+  "description": "P0.2: a player burn death logs status_tick then faint, with no direct onKO/onFaint hook.",
+  "gen": 1,
+  "passives": [],
+  "seed": 2102,
+  "player_team": [
+    {
+      "species_id": 150,
+      "name": "Mewtwo",
+      "level": 5,
+      "types": ["Psychic"],
+      "base_stats": {"hp": 106, "atk": 110, "def": 90, "speed": 130, "special": 154, "spdef": 90},
+      "move_tier": 1,
+      "max_hp": 200,
+      "current_hp": 20,
+      "burned": true
+    }
+  ],
+  "enemy_team": [
+    {
+      "species_id": 213,
+      "name": "Shuckle",
+      "level": 5,
+      "types": ["Bug", "Rock"],
+      "base_stats": {"hp": 20, "atk": 10, "def": 230, "speed": 5, "special": 10, "spdef": 230},
+      "move_tier": 1,
+      "max_hp": 200,
+      "current_hp": 200
+    }
+  ]
+}

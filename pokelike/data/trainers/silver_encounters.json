@@ -1,0 +1,302 @@
+[
+  {
+    "team": [
+      {
+        "speciesId": 92,
+        "name": "Gastly",
+        "types": [
+          "Ghost",
+          "Poison"
+        ],
+        "baseStats": {
+          "hp": 30,
+          "atk": 35,
+          "def": 30,
+          "speed": 80,
+          "special": 100
+        },
+        "level": 15
+      },
+      {
+        "speciesId": 41,
+        "name": "Zubat",
+        "types": [
+          "Poison",
+          "Flying"
+        ],
+        "baseStats": {
+          "hp": 40,
+          "atk": 45,
+          "def": 35,
+          "speed": 55,
+          "special": 40
+        },
+        "level": 17
+      },
+      {
+        "speciesId": 155,
+        "name": "Cyndaquil",
+        "types": [
+          "Fire"
+        ],
+        "baseStats": {
+          "hp": 39,
+          "atk": 52,
+          "def": 43,
+          "speed": 65,
+          "special": 60
+        },
+        "level": 17
+      }
+    ]
+  },
+  {
+    "team": [
+      {
+        "speciesId": 93,
+        "name": "Haunter",
+        "types": [
+          "Ghost",
+          "Poison"
+        ],
+        "baseStats": {
+          "hp": 45,
+          "atk": 50,
+          "def": 45,
+          "speed": 95,
+          "special": 115
+        },
+        "level": 35
+      },
+      {
+        "speciesId": 42,
+        "name": "Golbat",
+        "types": [
+          "Poison",
+          "Flying"
+        ],
+        "baseStats": {
+          "hp": 75,
+          "atk": 80,
+          "def": 70,
+          "speed": 90,
+          "special": 75
+        },
+        "level": 35
+      },
+      {
+        "speciesId": 82,
+        "name": "Magneton",
+        "types": [
+          "Electric",
+          "Steel"
+        ],
+        "baseStats": {
+          "hp": 50,
+          "atk": 60,
+          "def": 95,
+          "speed": 70,
+          "special": 120
+        },
+        "level": 33
+      },
+      {
+        "speciesId": 93,
+        "name": "Haunter",
+        "types": [
+          "Ghost",
+          "Poison"
+        ],
+        "baseStats": {
+          "hp": 45,
+          "atk": 50,
+          "def": 45,
+          "speed": 95,
+          "special": 115
+        },
+        "level": 35
+      },
+      {
+        "speciesId": 155,
+        "name": "Cyndaquil",
+        "types": [
+          "Fire"
+        ],
+        "baseStats": {
+          "hp": 39,
+          "atk": 52,
+          "def": 43,
+          "speed": 65,
+          "special": 60
+        },
+        "level": 39
+      }
+    ]
+  },
+  {
+    "team": [
+      {
+        "speciesId": 169,
+        "name": "Crobat",
+        "types": [
+          "Poison",
+          "Flying"
+        ],
+        "baseStats": {
+          "hp": 85,
+          "atk": 90,
+          "def": 80,
+          "speed": 130,
+          "special": 70
+        },
+        "level": 54
+      },
+      {
+        "speciesId": 462,
+        "name": "Magnezone",
+        "types": [
+          "Electric",
+          "Steel"
+        ],
+        "baseStats": {
+          "hp": 70,
+          "atk": 70,
+          "def": 115,
+          "speed": 60,
+          "special": 130
+        },
+        "level": 57
+      },
+      {
+        "speciesId": 94,
+        "name": "Gengar",
+        "types": [
+          "Ghost",
+          "Poison"
+        ],
+        "baseStats": {
+          "hp": 60,
+          "atk": 65,
+          "def": 60,
+          "speed": 110,
+          "special": 130
+        },
+        "level": 54
+      },
+      {
+        "speciesId": 461,
+        "name": "Weavile",
+        "types": [
+          "Dark",
+          "Ice"
+        ],
+        "baseStats": {
+          "hp": 70,
+          "atk": 120,
+          "def": 65,
+          "speed": 125,
+          "special": 45
+        },
+        "level": 57
+      },
+      {
+        "speciesId": 155,
+        "name": "Cyndaquil",
+        "types": [
+          "Fire"
+        ],
+        "baseStats": {
+          "hp": 39,
+          "atk": 52,
+          "def": 43,
+          "speed": 65,
+          "special": 60
+        },
+        "level": 59
+      }
+    ]
+  },
+  {
+    "team": [
+      {
+        "speciesId": 169,
+        "name": "Crobat",
+        "types": [
+          "Poison",
+          "Flying"
+        ],
+        "baseStats": {
+          "hp": 85,
+          "atk": 90,
+          "def": 80,
+          "speed": 130,
+          "special": 70
+        },
+        "level": 75
+      },
+      {
+        "speciesId": 462,
+        "name": "Magnezone",
+        "types": [
+          "Electric",
+          "Steel"
+        ],
+        "baseStats": {
+          "hp": 70,
+          "atk": 70,
+          "def": 115,
+          "speed": 60,
+          "special": 130
+        },
+        "level": 73
+      },
+      {
+        "speciesId": 94,
+        "name": "Gengar",
+        "types": [
+          "Ghost",
+          "Poison"
+        ],
+        "baseStats": {
+          "hp": 60,
+          "atk": 65,
+          "def": 60,
+          "speed": 110,
+          "special": 130
+        },
+        "level": 75
+      },
+      {
+        "speciesId": 461,
+        "name": "Weavile",
+        "types": [
+          "Dark",
+          "Ice"
+        ],
+        "baseStats": {
+          "hp": 70,
+          "atk": 120,
+          "def": 65,
+          "speed": 125,
+          "special": 45
+        },
+        "level": 77
+      },
+      {
+        "speciesId": 155,
+        "name": "Cyndaquil",
+        "types": [
+          "Fire"
+        ],
+        "baseStats": {
+          "hp": 39,
+          "atk": 52,
+          "def": 43,
+          "speed": 65,
+          "special": 60
+        },
+        "level": 79
+      }
+    ]
+  }
+]
