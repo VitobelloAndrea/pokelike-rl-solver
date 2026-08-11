@@ -564,6 +564,187 @@ function appendMoveBlock(card, mp) {
   card.appendChild(block);
 }
 
+// R7/N45. The SUCCESSIVE move -- what this Pokemon would attack with after
+// tutoring. The other half of CODEX gap 10: R6 gave the tutor card the current
+// move, but the decision the screen actually asks is whether tutoring THIS
+// member buys anything, and a current move alone cannot answer it.
+//
+// No engine change was needed. `contract._pending_options` calls the same
+// deterministic `battle.get_best_move` one tier up, using the engine's own
+// ceiling (`min(2, tier + 1)`, engine.py:3558).
+//
+// DECLARED DEVIATION, small and labelled: the source has no such block,
+// because the source's tutor screen never previewed the successor either. The
+// markup deliberately reuses `.poke-move`'s own children (`.move-name`,
+// `.move-power-badge`) so it inherits main.css:1176-1290's styling rather than
+// needing rules of its own, and `.move-next` is the only new class.
+function appendNextMoveBlock(card, opt) {
+  const mp = opt && opt.move_preview_next;
+  if (!mp || !mp.name) return;
+
+  const block = document.createElement('div');
+  block.className = 'poke-move move-next';
+
+  const arrow = document.createElement('div');
+  arrow.className = 'move-next-label';
+  // The honest presentation of the engine's ceiling. Unreachable through the
+  // real producer -- `_visit_move_tutor` offers only `move_tier < 2`
+  // (engine.py:2868), porting the source's "Already mastered!" span -- but
+  // stated rather than assumed away.
+  arrow.textContent = opt.move_tier_capped
+    ? 'Already mastered'
+    : ('After tutoring (tier ' + opt.move_tier_next + ')');
+  block.appendChild(arrow);
+
+  const nameEl = document.createElement('div');
+  nameEl.className = 'move-name';
+  nameEl.setAttribute('title', mp.name);
+  nameEl.textContent = mp.name;
+  block.appendChild(nameEl);
+
+  const meta = document.createElement('div');
+  meta.className = 'move-meta';
+  const typeBadge = document.createElement('span');
+  typeBadge.className = 'type-badge move-type-badge'
+    + (mp.type ? ' type-' + String(mp.type).toLowerCase() : '');
+  typeBadge.textContent = mp.type ? mp.type : '—';
+  meta.appendChild(typeBadge);
+  const power = document.createElement('span');
+  power.className = 'move-power-badge';
+  power.textContent = mp.no_damage ? '—' : (mp.power + ' ' + MOVE_PWR_LABEL);
+  meta.appendChild(power);
+  block.appendChild(meta);
+
+  card.appendChild(block);
+}
+
+// R7/N43. Port of `usesSpecialAttack` (bundle.deobfuscated.js:41988-41995),
+// transcribed from `pokelike/battle.py:289-300` -- a Pokemon's ENTIRE moveset
+// is uniformly physical or special, decided once from its base stats, with two
+// hardcoded species-id exceptions forced physical.
+//
+// Ported into the client rather than projected from Python on purpose: adding
+// it to `mon_view` would grow the pinned `MON_FIELDS` set, which is a contract
+// shape change and a `CONTRACT_VERSION` bump (docs/renderer-contract.md §8) --
+// for a six-line derivation over `species_id` and `base_stats`, both of which
+// every projection already carries. `test_renderer_contract` pins this copy
+// against the Python original so the two cannot drift.
+function usesSpecialAttack(speciesId, baseStats) {
+  if (speciesId === 307 || speciesId === 308) return false;
+  const special = (baseStats && baseStats.special) || 0;
+  const atk = (baseStats && baseStats.atk) || 0;
+  return special >= atk;
+}
+
+// The six rows `renderPokemonCard` builds (64259-64281), in the source's own
+// order, as [label, base-stat key, fill class, effective-stat key].
+//
+// Note the key asymmetry the contract documents: `base_stats` spells the
+// defence stat `defense` and carries `hp`; `effective_stats`, `stages` and
+// `stat_buffs` all spell it `def` and have no `hp` at all.
+const STAT_ROW_SPECS = [
+  ['ATK', 'atk', 'stat-atk', 'atk'],
+  ['SP.A', 'special', 'stat-spa', 'special'],
+  ['SPE', 'speed', 'stat-spe', 'speed'],
+  ['HP', 'hp', 'stat-hp', 'hp'],
+  ['DEF', 'defense', 'stat-def', 'def'],
+  ['SP.D', 'spdef', 'stat-spd', 'spdef'],
+];
+
+function appendStatBars(host, data) {
+  const base = data.base_stats;
+  const eff = data.effective_stats;
+  if (!base || !eff) return;
+
+  const bars = document.createElement('div');
+  bars.className = 'poke-stats-bars';
+
+  // 64245-64247 + the trailing `.filter`: the card shows FIVE rows, dropping
+  // whichever of ATK/SP.A this species does not attack with.
+  const dropped = usesSpecialAttack(data.species_id, base) ? 'atk' : 'special';
+  const stages = data.stages || {};
+  const buffs = data.stat_buffs || {};
+
+  STAT_ROW_SPECS.forEach((spec) => {
+    const label = spec[0];
+    const baseKey = spec[1];
+    const fillClass = spec[2];
+    const key = spec[3];
+    if (key === dropped) return;
+
+    // The source's own fallbacks (64262-64280): SP.A falls back to 0, SP.D
+    // falls back to the special stat and then to 0.
+    let baseVal = base[baseKey];
+    if (baseVal === undefined || baseVal === null) {
+      baseVal = key === 'spdef' ? ((base.special === undefined || base.special === null) ? 0 : base.special) : 0;
+    }
+
+    // The VALUE is the port's `effective_stats` -- what the battle engine
+    // would really read right now, via the same `get_effective_stat` the
+    // damage formula calls. The source recomputes `floor(base*level/50)+5`
+    // inline on the card (64308-64316) and so misses the held-item and stage
+    // multipliers its own damage path applies; this port shows the number the
+    // engine actually uses. Declared as a deviation in R7's record.
+    //
+    // HP has no `effective_stats` entry (it is `current_hp`/`max_hp`), which
+    // matches the source: its HP row reads `maxHp` first too (64311-64313).
+    let value = key === 'hp' ? data.max_hp : eff[key];
+    if (value === undefined || value === null) return;
+
+    // 64288-64303: for ATK/SP.A the buff shown is the greater of the two, so a
+    // special attacker's SP.A row reflects an Attack buff and vice versa.
+    const buff = (key === 'atk' || key === 'special')
+      ? Math.max(buffs.atk || 0, buffs.special || 0)
+      : (buffs[key] || 0);
+    const stage = stages[key] || 0;
+
+    // 64306: the bar length is the BASE stat out of 255 -- the species-power
+    // scale, not the level-scaled number in `.stat-val`.
+    const barPct = Math.round((baseVal / 255) * 100);
+
+    const row = document.createElement('div');
+    row.className = 'stat-row';
+    // 64324-64328's tooltip, plus the stage term. `stages` is the other reason
+    // this port's effective number differs from the raw formula, so a card
+    // that showed only the buff would leave the difference unexplained --
+    // which is exactly the "annotate, never difference against base_stats"
+    // rule M6/N24 established.
+    let tip = label + ': ' + value;
+    if (buff > 0) tip += ' (+' + buff * 5 + '%)';
+    if (stage) tip += ' (' + (stage > 0 ? '+' : '') + stage + ' stage)';
+    row.setAttribute('data-tooltip', tip);
+
+    const lbl = document.createElement('span');
+    lbl.className = 'stat-lbl';
+    lbl.textContent = label;
+    row.appendChild(lbl);
+
+    const bg = document.createElement('div');
+    bg.className = 'stat-bar-bg';
+    const fill = document.createElement('div');
+    fill.className = 'stat-bar-fill ' + fillClass;
+    fill.style.width = Math.max(0, Math.min(100, barPct)) + '%';
+    bg.appendChild(fill);
+    if (buff > 0) {
+      // 64330-64334: the overlay is `round(buff / 10 * barPct)` wide.
+      const overlay = document.createElement('div');
+      overlay.className = 'stat-buff-overlay';
+      overlay.style.width = Math.round((buff / 10) * barPct) + '%';
+      bg.appendChild(overlay);
+    }
+    row.appendChild(bg);
+
+    const val = document.createElement('span');
+    val.className = 'stat-val';
+    val.textContent = String(value);
+    row.appendChild(val);
+
+    bars.appendChild(row);
+  });
+
+  if (bars.children.length) host.appendChild(bars);
+}
+
 function makePokeCard(data, opts) {
   opts = opts || {};
   const card = document.createElement('div');
@@ -617,6 +798,34 @@ function makePokeCard(data, opts) {
     card.appendChild(row);
   }
 
+  // R7/N43. The source's own stat block, on the card, where the source puts it.
+  //
+  // `renderPokemonCard` (bundle.deobfuscated.js:64296-64345) draws
+  //
+  //   .poke-card-col-stats            (main.css:1132, `display: contents`)
+  //     .poke-stats-bars              (1133)
+  //       .stat-row[data-tooltip] x5  (1134)
+  //         .stat-lbl                 (1151)
+  //         .stat-bar-bg              (1153)
+  //           .stat-bar-fill.stat-*   (1154-1155)
+  //           .stat-buff-overlay      (1156, only when buffed)
+  //         .stat-val                 (1152)
+  //     .poke-hp
+  //
+  // on EVERY card it draws -- and the source's hover card is literally
+  // `renderPokemonCard(...) + hoverCritLine + hoverAugmentLine` (64525-64526),
+  // so there is no such thing as a source card without this block.
+  //
+  // This REPLACES M6/N24's `.hover-stats` table, which was this port's own
+  // invention (its rules live in index.html's deviation block, because
+  // main.css -- a verbatim copy -- has no `.hover-stats` rule to copy). The
+  // facts N24 established are all preserved: the number shown is the
+  // EFFECTIVE stat, and stages/buffs are annotated rather than differenced
+  // against `base_stats`. Only the markup changed, from invented to ported.
+  const colStats = document.createElement('div');
+  colStats.className = 'poke-card-col-stats';
+  appendStatBars(colStats, data);
+
   if (data.max_hp !== undefined && data.max_hp !== null) {
     const wrap = document.createElement('div');
     wrap.className = 'poke-hp';
@@ -639,8 +848,12 @@ function makePokeCard(data, opts) {
     text.className = 'hp-text';
     text.textContent = data.current_hp + '/' + data.max_hp;
     wrap.appendChild(text);
-    card.appendChild(wrap);
+    colStats.appendChild(wrap);
   }
+  // `display: contents` (main.css:1132) means this wrapper is a grouping
+  // handle, not a layout box -- the column card looks exactly as it did, and
+  // the horizontal map-screen card (R7/N44) has a zone to address.
+  if (colStats.children.length) card.appendChild(colStats);
 
   if (data.held_item) {
     const held = document.createElement('div');
@@ -682,73 +895,22 @@ function makePokeCard(data, opts) {
   // and move-tutor screens with no move information at all -- and the move is
   // the single most decision-relevant fact on a move-tutor card.
   appendMoveBlock(card, data.move_preview);
+  // R7/N45. Only the move-tutor option carries `move_preview_next`, so this is
+  // a no-op on every other card -- the tutor screen is the only place where
+  // "what you would have instead" is the question being asked.
+  appendNextMoveBlock(card, data);
 
-  // M6/N24. The stat block, drawn only on the hover card. This is the data R1
-  // put on every `mon_view` specifically so this could be built later:
-  // `effective_stats` is what the battle engine would actually read right now
-  // (stages, buffs and the mon's own held item folded in via the same
-  // `get_effective_stat` the damage formula calls), `base_stats` is the
-  // unmodified table, and `stat_buffs`/`stages` are why they differ.
+  // The hover card's EXTRA lines -- the ones the source adds *around* the
+  // card rather than on it. `showTeamHoverCard` is
+  // `renderPokemonCard(...) + hoverCritLine(O) + hoverAugmentLine(O)`
+  // (bundle.deobfuscated.js:64525-64526), so the stat block above is shared
+  // with every other card and only these remain hover-only.
   //
-  // Showing the effective number ALONE would be misleading mid-battle, and
-  // showing the base alone is what the port did everywhere before this, so
-  // both are shown and the delta is called out.
-  if (opts.hover && data.effective_stats) {
-    const table = document.createElement('div');
-    table.className = 'hover-stats';
-    // The number shown is the EFFECTIVE stat -- what the battle engine would
-    // really read right now.
-    //
-    // `base_stats` is deliberately NOT shown beside it as a delta. The two are
-    // different quantities on different scales, not a before/after pair:
-    // `base_stats` is the species table (Bulbasaur Atk 49) and
-    // `effective_stats` is the computed battle stat at this level (Atk 9 at
-    // Lv5). Differencing them yields "-40", which reads as a crippling debuff
-    // and means nothing. What actually moves the effective number is `stages`
-    // and `stat_buffs`, so those are what get annotated.
-    //
-    // Note also the key asymmetry: `base_stats` spells the defence stat
-    // `defense` and carries `hp`; `effective_stats`, `stages` and `stat_buffs`
-    // all spell it `def` and have no `hp` (HP is `current_hp`/`max_hp`).
-    const stages = data.stages || {};
-    const buffs = data.stat_buffs || {};
-    const rows = [
-      { label: 'Atk', key: 'atk' },
-      { label: 'Def', key: 'def' },
-      { label: 'SpA', key: 'special' },
-      { label: 'SpD', key: 'spdef' },
-      { label: 'Spe', key: 'speed' },
-    ];
-    rows.forEach((spec) => {
-      const value = data.effective_stats[spec.key];
-      if (value === undefined) return;
-      const row = document.createElement('div');
-      row.className = 'hover-stat-row';
-      const nameEl = document.createElement('span');
-      nameEl.className = 'hover-stat-name';
-      nameEl.textContent = spec.label;
-      const valEl = document.createElement('span');
-      valEl.className = 'hover-stat-value';
-      valEl.textContent = String(value);
-      row.appendChild(nameEl);
-      row.appendChild(valEl);
-      const stage = stages[spec.key] || 0;
-      const buff = buffs[spec.key] || 0;
-      if (stage || buff) {
-        const note = document.createElement('span');
-        note.className = 'hover-stat-delta';
-        const total = stage + buff;
-        note.style.color = total > 0 ? 'var(--green, #3cc24a)' : 'var(--red, #e22a18)';
-        const bits = [];
-        if (stage) bits.push((stage > 0 ? '+' : '') + stage + ' stg');
-        if (buff) bits.push((buff > 0 ? '+' : '') + buff + ' buf');
-        note.textContent = ' ' + bits.join(' ');
-        row.appendChild(note);
-      }
-      table.appendChild(row);
-    });
-    if (table.children.length) card.appendChild(table);
-
+  // R7/N43 removed M6/N24's `.hover-stats` table from here: it was a port
+  // invention standing in for exactly the block `appendStatBars` now ports
+  // from the source, and keeping both would have shown the same numbers twice
+  // in two different shapes.
+  if (opts.hover) {
     // `status` alone is not the whole story: it only ever holds freeze/sleep,
     // while burn, paralysis and poison live in separate fields. R1 collapsed
     // all of them into `status_flags` for exactly this reason.
@@ -1956,6 +2118,80 @@ const SKIP_SPEED = 3;
 const OVERTIME_SPEED = 5;
 const OVERTIME_MS = 30000;
 
+// ---------------------------------------------------------------------------
+// R7/N46 — persistent battle speed.
+//
+// THE MECHANISM ALREADY EXISTED; this adds no second one. `renderBattle`'s
+// every pause is already `step.delay_ms / speed` -- the source's own per-kind
+// pause (contract._REPLAY_DELAY_MS) over the same multiplier the source moves
+// with SKIP_SPEED and OVERTIME_SPEED. "Fast battle" is therefore a persistent,
+// user-controlled STARTING VALUE for that same divisor, and nothing else.
+//
+// IT NEVER SKIPS. Raising the divisor shortens every wait; it does not remove
+// a step, a log line or an HP tween. `renderBattle` drains `view.replay`
+// element by element regardless of speed, and the `Math.max(16, ...)` floor on
+// each wait keeps consecutive steps from collapsing into one frame. A control
+// that jumped to the end would be a different feature, and is not this.
+// Pinned by a detector: same step count, same step kinds, at every speed.
+//
+// A VALUE, NOT A BOOLEAN -- deliberately, and worth stating because the UI
+// exposes one button. CLAUDE.md's Phase 4 wants a slow-motion / human-speed
+// replay for watching trained agents, which is this same divisor below 1. So
+// the presets bracket 1 on both sides and the plumbing carries a number; a
+// future evaluation harness needs `setBattleSpeed(0.25)`, not a new mechanism.
+const BATTLE_SPEED_PRESETS = [0.5, 1, 2, 4];
+const BATTLE_SPEED_DEFAULT = 1;
+// WHERE THE FLAG LIVES, and why. This client has no settings store (see
+// webui/__init__.py) and one toggle does not justify inventing one -- nor does
+// it belong in the engine: replay pacing is presentation, and `engine.py` is
+// the oracle's compared surface. `localStorage` is the browser's own
+// per-client preference store, needs no server round-trip, and is where the
+// SOURCE keeps its client state too (CLAUDE.md: "game state lives in
+// localStorage"). A read failure (private mode, disabled storage) falls back
+// to the default rather than throwing.
+const BATTLE_SPEED_KEY = 'pokelike.battleSpeed';
+
+function loadBattleSpeed() {
+  try {
+    const raw = window.localStorage.getItem(BATTLE_SPEED_KEY);
+    const value = parseFloat(raw);
+    if (isFinite(value) && value > 0) return value;
+  } catch (e) { /* storage unavailable -- fall through to the default */ }
+  return BATTLE_SPEED_DEFAULT;
+}
+
+let battleSpeed = loadBattleSpeed();
+
+function setBattleSpeed(value) {
+  if (!isFinite(value) || value <= 0) return battleSpeed;
+  battleSpeed = value;
+  try {
+    window.localStorage.setItem(BATTLE_SPEED_KEY, String(value));
+  } catch (e) { /* not persisting is survivable; not applying would not be */ }
+  renderBattleSpeedButton();
+  return battleSpeed;
+}
+
+// One button, cycling the presets. The label always states the CURRENT
+// multiplier, so the control is readable without a tooltip.
+function cycleBattleSpeed() {
+  const i = BATTLE_SPEED_PRESETS.indexOf(battleSpeed);
+  const next = BATTLE_SPEED_PRESETS[(i + 1) % BATTLE_SPEED_PRESETS.length];
+  return setBattleSpeed(next);
+}
+
+function formatBattleSpeed(value) {
+  return '×' + (value === Math.round(value) ? String(value) : String(value));
+}
+
+function renderBattleSpeedButton() {
+  const btn = document.getElementById('btn-battle-speed');
+  if (!btn) return;
+  btn.textContent = formatBattleSpeed(battleSpeed);
+  btn.setAttribute('data-tip', 'Battle Speed ' + formatBattleSpeed(battleSpeed));
+  btn.setAttribute('aria-label', 'Battle Speed ' + formatBattleSpeed(battleSpeed));
+}
+
 // The turn-by-turn battle replay. This is what R4 exists for: contract.py's
 // battle_view has carried this feed since R1 (fully rostered since R2/N2) and
 // until now NOTHING read it -- this screen showed the coarse post-battle log
@@ -2010,10 +2246,21 @@ function renderBattle(logEntry, state, onContinue) {
   // The Skip control, ported in intent from the source's #btn-auto-battle:
   // it sets battleSpeedMultiplier = SKIP_SPEED (3) and every pause is
   // `ms / battleSpeedMultiplier` (bundle.deobfuscated.js:63640, 69109-69111,
-  // 81251-81260). Same divisor, same default of 1.
-  let speed = 1;
+  // 81251-81260). Same divisor.
+  //
+  // R7/N46: the STARTING value is now the player's persisted battle speed
+  // instead of the hard-coded 1. That is the whole of "fast battle" -- same
+  // divisor, same drain loop, same steps.
+  let speed = battleSpeed;
   continueBtn.textContent = 'Skip';
-  continueBtn.onclick = () => { speed = SKIP_SPEED; };
+  // R7/N46 — how this resolves against Skip, decided and justified rather
+  // than left to whichever fires last. Skip means "hurry up", so it may only
+  // ever RAISE the speed: a player running at ×4 who presses Skip must not be
+  // slowed down to SKIP_SPEED's 3. This is the source's OWN rule for the
+  // overtime bump (`battleSpeedMultiplier < OVERTIME_SPEED && ...`, 81267-
+  // 81270) applied to the other control for consistency, rather than a new
+  // rule invented for this port.
+  continueBtn.onclick = () => { speed = Math.max(speed, SKIP_SPEED); };
 
   // R5. The 30-second overtime speed bump (81267-81270), which R4 ported
   // neither half of. The source arms a `setTimeout` for 0x7530 = 30 000 ms as
@@ -2327,6 +2574,11 @@ function wireButtons() {
   // of wiring every button from one place.
   document.getElementById('btn-run-reset').onclick = () => confirmResetRun();
   document.getElementById('btn-run-home').onclick = () => confirmAbandonRun();
+  // R7/N46. The persisted speed is loaded at module scope, so the label has to
+  // be painted once at boot -- otherwise the button reads "×1" from the markup
+  // while the replay actually runs at the stored value.
+  document.getElementById('btn-battle-speed').onclick = () => cycleBattleSpeed();
+  renderBattleSpeedButton();
   document.getElementById('btn-skip-catch').onclick = () => doAction({ type: 'SelectOption', index: null });
   document.getElementById('btn-skip-item').onclick = () => doAction({ type: 'SelectOption', index: null });
   document.getElementById('btn-skip-tutor').onclick = () => doAction({ type: 'SelectOption', index: null });
@@ -2445,6 +2697,15 @@ function handleShortcutKey(ev) {
     if (!document.body.classList.contains('run-menu-in-run')) return;
     const id = ev.code === 'KeyR' ? 'btn-run-reset' : 'btn-run-home';
     if (pressButton(id)) ev.preventDefault();
+    return;
+  }
+
+  // R7/N46. Its `data-shortcut="F"` badge, on the same `pressButton` path as
+  // every other one. Unlike R and H this is NOT gated on `run-menu-in-run`:
+  // the battle speed is a persistent client preference, so it is adjustable
+  // before a run starts as well as during one.
+  if (ev.code === 'KeyF') {
+    if (pressButton('btn-battle-speed')) ev.preventDefault();
     return;
   }
 

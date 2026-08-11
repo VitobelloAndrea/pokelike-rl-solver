@@ -273,18 +273,29 @@ def _status_flags(mon: Combatant) -> dict:
     }
 
 
-def _move_preview(mon: Combatant) -> Optional[dict]:
+def _move_preview(mon: Combatant, move_tier: Optional[int] = None) -> Optional[dict]:
     """The single move this Pokemon would actually attack with, from
     `battle.get_best_move` -- the same call the battle loop makes. This is
     what a move-tutor card needs to show "current move -> move after
     tutoring" (CODEX gap 10), and what a hover card needs to explain damage.
 
+    `move_tier` overrides the mon's own tier. R7/N45 needs exactly that: the
+    tutor card must show what the Pokemon would attack with *after* tutoring,
+    which is this same call one tier up. Nothing else about the mon changes,
+    so the override is a parameter rather than a mutated copy.
+
+    `battle.get_best_move` is a pure data lookup over the ported move table
+    (`battle.py:343-421`): same arguments always yield the same move, with no
+    RNG and no run state. That is what makes a *preview* honest rather than a
+    guess -- see R7's record.
+
     Returns None if the move cannot be built, rather than a placeholder.
     """
+    tier = mon.move_tier if move_tier is None else move_tier
     try:
         move = battle.get_best_move(
             mon.types, mon.base_stats, mon.species_id,
-            mon.move_tier, mon.held_item,
+            tier, mon.held_item,
         )
     except Exception:
         return None
@@ -1619,6 +1630,118 @@ def _pending_context(pending: "engine.PendingChoice",
     return ctx
 
 
+#: R7/N43. Which phases present a Pokemon *as the thing being chosen*, and how
+#: the option at index `i` is addressed back to the real `Combatant`. Every
+#: entry is a producer fact re-read in the current tree, not an inference:
+#:
+#: - `CATCH_CHOICE`  -- `_offer_catch_choice` builds `options` and
+#:   `extra["candidates"]` from the SAME ordered `mons` list, in one
+#:   expression each (`engine.py:2691-2696`); `_visit_shiny` does the same
+#:   with a one-element list (`engine.py:2774-2779`).
+#: - `SWAP_CHOICE`   -- `_try_add_to_team` builds options from `state.team`
+#:   (`engine.py:1037-1042`). `_offer_swap_screen` builds them from
+#:   `state.team` when the team is full, but from the INCOMING mon alone when
+#:   there is room (`engine.py:1064-1071`) -- and records which case it is in
+#:   `extra["has_room"]`, so this is addressed, not guessed.
+#: - `TRADE_CHOICE` (`engine.py:2964-2969`), `ITEM_EQUIP_CHOICE`
+#:   (`engine.py:3590-3595`) and `REWARD_TEAM_PICK` (`engine.py:3384-3399`)
+#:   build options from `state.team` order directly.
+#:
+#: `MOVE_TUTOR_CHOICE` is deliberately absent: its option carries its own
+#: `team_index` and is resolved below by that field instead of by position.
+_TEAM_ORDER_CHOICE_PHASES = frozenset({
+    "swap_choice", "trade_choice", "item_equip_choice", "reward_team_pick",
+})
+
+#: Every phase whose options `_enrich_from_subject` fills out to a full card.
+#: `move_tutor_choice` is enriched too, but by its own `team_index` branch.
+_ENRICHED_MON_CHOICE_PHASES = frozenset(
+    {"catch_choice"} | set(_TEAM_ORDER_CHOICE_PHASES)
+)
+
+#: The move-tier ceiling `_resolve_move_tutor_choice` applies:
+#: `mon.move_tier = min(2, mon.move_tier + 1)` (`engine.py:3558`, carrying
+#: CODEX.md issue 11's "tier 0 -> 1, not -> 2" fix).
+#:
+#: This is a MIRRORED LITERAL, not a read of the engine's own constant --
+#: `engine.py` has no such constant to import and R7 has no authority to add
+#: one (its brief pins `engine.py` byte-identical). The mirror is therefore
+#: pinned by execution instead: `test_renderer_contract` tutors a Pokemon
+#: already at the ceiling through the real engine and asserts the tier does
+#: not move, so this number cannot silently drift away from the engine's.
+_MOVE_TIER_MAX = 2
+
+
+def _option_subject(pending: "engine.PendingChoice",
+                    state: Optional["engine.RunState"],
+                    index: int) -> Optional[Combatant]:
+    """The real `Combatant` the option at `index` describes, or None.
+
+    R7/N43. R6 left catch/trade/item-equip un-enriched because the
+    correspondence "is an assumption rather than a fact". Re-reading the three
+    constructors settles it: it is a fact, established by each producer in a
+    single list comprehension over the list it also stores. See
+    `_TEAM_ORDER_CHOICE_PHASES` for the citations.
+
+    The correspondence is nevertheless *verified* rather than trusted, by
+    `_subject_matches` below. A card carrying another Pokemon's stats would be
+    worse than a card carrying none, so the enrichment is skipped -- silently,
+    and only ever losing detail -- if the resolved Combatant does not agree
+    with the summary the engine itself wrote.
+    """
+    phase = pending.phase.value
+    extra = pending.extra or {}
+
+    if phase == "catch_choice":
+        candidates = extra.get("candidates") or []
+        if 0 <= index < len(candidates):
+            return candidates[index]
+        return None
+
+    if phase == "swap_choice" and extra.get("has_room"):
+        # `_offer_swap_screen`'s room branch: the single option IS the
+        # incoming Pokemon, which is not on the team at all.
+        return extra.get("incoming") if index == 0 else None
+
+    if phase in _TEAM_ORDER_CHOICE_PHASES:
+        if state is not None and 0 <= index < len(state.team):
+            return state.team[index]
+    return None
+
+
+#: The identity fields `_mon_summary` (`engine.py:922-932`) and `mon_view`
+#: spell identically. All five must agree before a subject is accepted.
+_SUBJECT_IDENTITY_KEYS = ("species_id", "level", "current_hp", "max_hp", "is_shiny")
+
+
+def _subject_matches(opt: dict, mon: Combatant) -> bool:
+    for key in _SUBJECT_IDENTITY_KEYS:
+        if key not in opt:
+            continue
+        if opt[key] != getattr(mon, key, None):
+            return False
+    return True
+
+
+def _enrich_from_subject(opt: dict, mon: Combatant, passives: Sequence = ()) -> None:
+    """Fill a choice option out to a drawable card, from the real Combatant.
+
+    Only keys the ENGINE did not already write are added, which keeps R6/N33's
+    rule intact: the producer is the authority on what it is offering, and the
+    renderer may only add detail. Driving the key list off `MON_FIELDS` rather
+    than a second hand-maintained list means a future field lands on the
+    choice cards and the team bar at the same time instead of one of them.
+    """
+    if not _subject_matches(opt, mon):
+        return
+    view = mon_view(mon, passives)
+    # Sorted so option dicts serialize in a stable key order regardless of
+    # frozenset iteration order.
+    for key in sorted(MON_FIELDS):
+        if key not in opt:
+            opt[key] = view[key]
+
+
 def _pending_options(pending: "engine.PendingChoice",
                      state: Optional["engine.RunState"]) -> list:
     """Read-side enrichment of the engine's own option dicts (R1's rule: the
@@ -1654,12 +1777,38 @@ def _pending_options(pending: "engine.PendingChoice",
       `move_preview`, computed by the same `_move_preview` every `mon_view`
       uses, off the real `Combatant` `team_index` names.
 
-      Deliberately NOT extended to `CATCH_CHOICE`, `TRADE_CHOICE` or
-      `ITEM_EQUIP_CHOICE`. Their options describe a Pokemon but carry no index
-      into anything, and `pending.extra` holds either nothing usable or a
-      candidate list whose correspondence to the option order is an assumption
-      rather than a fact. Guessing that correspondence would put a wrong move
-      on a card, which is worse than putting none. Recorded as an open finding.
+      R6 deliberately did NOT extend it to `CATCH_CHOICE`, `TRADE_CHOICE` or
+      `ITEM_EQUIP_CHOICE`, on the grounds that their option-to-Combatant
+      correspondence "is an assumption rather than a fact".
+
+    R7/N43 overturns that, by re-reading the producers instead of reasoning
+    about them. Each one builds its options in a single comprehension over a
+    list it also keeps -- `extra["candidates"]` for catch, `state.team` for
+    trade/item-equip/reward/swap -- so the correspondence is a *producer
+    fact*, cited per phase on `_TEAM_ORDER_CHOICE_PHASES`, and additionally
+    re-checked per option by `_subject_matches`. Those five phases are
+    therefore enriched with the full `MON_FIELDS` card projection (types,
+    `base_stats`, `effective_stats`, `stages`, `stat_buffs`, `move_preview`,
+    `status_flags`, `held_item_info`, `sprite_url`, ...), so a player choosing
+    what to catch, trade away, release or equip can see what they are choosing
+    between. This is read-side only: no engine structure changes, no key is
+    required inside a producer's record, and `CONTRACT_VERSION` stays 5.
+
+    R7/N45 adds the other half of CODEX gap 10 to `MOVE_TUTOR_CHOICE`:
+    `move_preview_next`, the move the Pokemon would attack with AFTER
+    tutoring. It is the same deterministic `_move_preview` one tier up, using
+    the engine's own ceiling (`min(2, tier + 1)`, `engine.py:3558`).
+
+    On the tier ceiling, checked rather than assumed: `move_tier_capped` is
+    carried but is **structurally unreachable** on a real tutor option.
+    `_visit_move_tutor` offers only `m.move_tier < 2` (`engine.py:2868`),
+    porting the source's own behaviour of rendering an "Already mastered!"
+    span instead of a button (`bundle.deobfuscated.js:80474-80492`,
+    `80507-80515`). So the awkward case the R7 brief anticipated -- a
+    "successive move" identical to the current one -- cannot be presented to a
+    player, because the producer never offers that Pokemon. The flag stays as
+    a defensive, honest answer for any future producer that does not filter,
+    and is deliberately NOT covered by a detector claiming to reach it.
     """
     options = [dict(o) if isinstance(o, dict) else o for o in pending.options]
     extra = pending.extra or {}
@@ -1705,13 +1854,38 @@ def _pending_options(pending: "engine.PendingChoice",
     elif pending.phase == engine.Phase.MOVE_TUTOR_CHOICE:
         # R6/N34. `team_index` is the engine's own field on this option, so the
         # Combatant is addressed rather than inferred.
+        passives = state.passives if state is not None else ()
         for opt in options:
             if not isinstance(opt, dict):
                 continue
             idx = opt.get("team_index")
             if state is None or idx is None or not (0 <= idx < len(state.team)):
                 continue
-            opt["move_preview"] = _move_preview(state.team[idx])
+            mon = state.team[idx]
+            opt["move_preview"] = _move_preview(mon)
+            # R7/N45. What tutoring this Pokemon would actually buy.
+            #
+            # `_resolve_move_tutor_choice` sets `mon.move_tier = min(2,
+            # mon.move_tier + 1)` (engine.py:3558) -- +1, ceiling 2. See this
+            # function's docstring for why `move_tier_capped` is carried but
+            # is unreachable through the real producer.
+            next_tier = min(_MOVE_TIER_MAX, (mon.move_tier or 0) + 1)
+            opt["move_tier_next"] = next_tier
+            opt["move_tier_capped"] = next_tier == (mon.move_tier or 0)
+            opt["move_preview_next"] = _move_preview(mon, next_tier)
+            # The tutor screen is also a Pokemon choice, so it gets the same
+            # card projection as every other one (level, HP, types, stats).
+            _enrich_from_subject(opt, mon, passives)
+
+    elif pending.phase.value in _ENRICHED_MON_CHOICE_PHASES:
+        # R7/N43. See this function's docstring and `_option_subject`.
+        passives = state.passives if state is not None else ()
+        for idx, opt in enumerate(options):
+            if not isinstance(opt, dict):
+                continue
+            mon = _option_subject(pending, state, idx)
+            if mon is not None:
+                _enrich_from_subject(opt, mon, passives)
 
     return options
 

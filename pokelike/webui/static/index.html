@@ -52,33 +52,24 @@
     .battle-log .log-faint  { color: #c8a6ff; font-weight: 600; }
     .battle-log .log-item   { color: #e7d67a; }
 
-    /* M6/N24. The hover card's stat block. `.hover-crit` and `.hover-augment`
-       ARE the source's own classes and main.css already styles them
-       (main.css:6799, 6810); the rows below are this port's, because the
-       source fills its card with `renderPokemonCard`'s markup and this client
-       substitutes its own `makePokeCard` -- the same substitution R4 made for
-       the battle field. Labelled as this port's own, not as a port.
+    /* R7/N43 REMOVED the `.hover-stats` / `.hover-stat-row` /
+       `.hover-stat-name` / `.hover-stat-value` / `.hover-stat-delta` rules
+       that stood here.
 
-       R6/N36 — READABILITY. These rows shipped at `font-size: 0.78em` and
-       `0.76em`. Those two numbers were THIS PORT'S, not the source's, and they
-       are the reason the card read as cramped: they are relative multipliers
-       applied on top of `body { font-size: var(--text-base) }` = 0.5rem = 8px,
-       so the rows rendered at roughly 6px -- BELOW the source's own smallest
-       token. The source sizes the equivalent rows on its card with
-       `var(--text-xs)` (`.stat-lbl` / `.stat-val`, main.css:1151-1152), so
-       that is what they use now: the source's token, not a new invented
-       number. */
-    .hover-stats {
-      margin-top: 0.35em;
-      padding-top: 0.3em;
-      border-top: 1px solid rgba(255, 255, 255, 0.18);
-      font-size: var(--text-xs);
-      line-height: 1.5;
-    }
-    .hover-stat-row { display: flex; align-items: baseline; gap: 0.35em; }
-    .hover-stat-name { flex: 0 0 2.4em; opacity: 0.75; }
-    .hover-stat-value { font-weight: 600; }
-    .hover-stat-delta { font-size: var(--text-xs); }
+       M6/N24 wrote them because "the source fills its card with
+       `renderPokemonCard`'s markup and this client substitutes its own
+       `makePokeCard`" -- i.e. they were an admitted invention standing in for
+       a block the source already had. R7 ports that block instead
+       (`appendStatBars`, bundle.deobfuscated.js:64296-64345), so the markup is
+       now `.stat-row` / `.stat-lbl` / `.stat-bar-bg` / `.stat-bar-fill` /
+       `.stat-val` / `.stat-buff-overlay` -- all of which main.css already
+       styles verbatim at 1134-1156. Nothing port-specific is needed here any
+       more, which is the outcome the "check before inventing anything" rule
+       predicts.
+
+       `.hover-status-flags` and `.hover-ability` below are still this port's
+       own, and still needed: they present `status_flags` and `ability`, which
+       the source's card does not carry in this form. */
     .hover-status-flags,
     .hover-ability {
       font-size: var(--text-xs);
@@ -142,12 +133,217 @@
        an actual viewport change.
        Overridden HERE rather than edited in main.css, because main.css is a
        verbatim copy of the source's and this is this port's own layout
-       decision -- the same reason the .battle-log rules above live here. */
+       decision -- the same reason the .battle-log rules above live here.
+
+       R7/N44 — REWRITTEN, NOT REMOVED, and here is why.
+       N25's root cause was the SIBLING dependency: the map was a flex-column
+       sibling BELOW `.map-panels`, so growing panels stole its height and
+       `aspect-ratio` shrank its width to match. The three-column layout below
+       removes that dependency structurally -- the panels are now the map's
+       ROW-mates, not the things stacked above it, and the row's height is the
+       viewport's, so a team growing 1 -> 6 cannot change it.
+       That makes `clamp(320px, 62vh, 780px)` the wrong shape for the fix: it
+       was a viewport-derived STAND-IN for a height the container could not
+       safely inherit. It can inherit one now, so the rule becomes `height:
+       100%` of a viewport-sized grid row -- same principle (size from the
+       viewport, never from the siblings), expressed where the layout actually
+       decides it. Leaving the old clamp would have pinned the map to 62vh
+       inside a cell that is already the right height, wasting the rest.
+       The `max-height` keeps `aspect-ratio` from ever resolving a width wider
+       than the centre column, which would push the two panels out of view. */
     #map-container {
       flex: 0 0 auto;
-      height: clamp(320px, 62vh, 780px);
+      height: 100%;
+      max-height: 100%;
+      min-height: 0;
+      min-width: 0;
+      margin: 0 auto;
+    }
+
+    /* ===================================================================
+       R7/N44 — the owner's requested three-column map screen.
+       DECLARED DEVIATION IN FULL: the source has no equivalent screen, so
+       none of this is a port. What IS reused is the source's own card
+       CONTENT and class names -- `.poke-sprite-wrap`, `.poke-name`,
+       `.poke-level`, `.type-badge`, `.poke-hp`, `.stat-row`, `.poke-move`,
+       `.team-slot-item` -- so the team card here and the choice cards from
+       R7/N43 are the same `makePokeCard` output, re-flowed by CSS rather than
+       forked into a second builder.
+
+       Requested: "On the left, I see my pokemon in a more compact version
+       where all six are visible ... horizontal cards that, starting from the
+       left, show the sprite, with name, level, type and healthbar; then the
+       stats; then the move and power; lastly the item. in the center I want
+       the map; on the right the items bag and the badges."
+       =================================================================== */
+    .map-panels--three-col {
+      display: grid;
+      /* Team | map | bag+badges. The centre is `1fr` so the map takes the
+         slack; the two panels are bounded so they cannot crowd it out. */
+      /* The team column is sized from the CARD it has to hold, not picked:
+         48px sprite + identity + five stat bars + the move block
+         (`min-height: 56px`, main.css:1176-1190) + the item badge. The first
+         attempt used 24vw = 384px at 1600 and every zone collapsed -- names
+         wrapped mid-word, the type badges stacked, and `.stat-bar-bg`'s
+         `flex: 1` resolved to nothing. Measured, then set. */
+      /* The side columns are sized BY THEIR CONTENT (`auto`) and the map takes
+         what is left. Fixed/percentage side tracks were the fourth thing a
+         screenshot caught: a `31vw` team track could not hold a 726px card, the
+         `.hud-box` overflowed its own track, and the map column -- placed at its
+         track origin regardless -- started 110px INSIDE the team panel. Every
+         measurement still passed, because "does the map box change size when the
+         team grows" and "do the columns overlap" are different questions.
+         `auto` cannot produce that: the track is never narrower than the panel,
+         so the three columns cannot intersect however wide the card turns out. */
+      grid-template-columns: auto minmax(0, 1fr) auto;
+      /* ONE row, sized from the viewport. This is the N25 fix, structurally:
+         nothing in this row can change its height by growing. */
+      grid-template-rows: minmax(0, 1fr);
+      height: 100dvh;
+      max-height: 100dvh;
+      align-items: stretch;
+      gap: 10px;
+      padding: 8px;
+      box-sizing: border-box;
+      width: 100%;
+      max-width: none;
+      margin: 0;
+      overflow: hidden;
+    }
+    #map-screen.screen.active {
+      display: block;
+      padding: 0;
+      overflow: hidden;
+    }
+    /* THE ONE THAT ACTUALLY BIT, found by looking at a screenshot and not by
+       reading the CSS. At `@media (min-width: 900px)` -- i.e. every desktop
+       width -- main.css:2516-2551 DISSOLVES this container
+       (`.map-panels { display: contents; }`) and lays the three boxes out as
+       flex children of `#map-screen`, sequenced by explicit `order:`
+       properties: items (1), team (2), map (3), with a `body.map-mode-story`
+       variant moving items to 4.
+       Re-declaring `display: grid` here reinstates the container, but `order`
+       applies to GRID items exactly as it does to flex items -- so the first
+       attempt rendered bag | team | map, a rotation of what was asked for,
+       while every measurement (six slots visible, no scrolling, map box
+       stable) still passed. The probe now asserts left-to-right POSITION too.
+       Neutralised so DOM order governs, which is what the markup states. */
+    .map-panels--three-col > .map-panel-left,
+    .map-panels--three-col > #map-container,
+    .map-panels--three-col > .map-panel-right {
+      order: 0;
+      align-self: stretch;
+    }
+    .map-panels--three-col > .hud-box {
+      min-width: 0;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      /* Last-resort only: the acceptance criterion is that six members fit
+         WITHOUT scrolling at a normal desktop height, and the card sizing
+         below is what delivers that. This exists so a genuinely short window
+         degrades to a scrollbar instead of clipping a Pokemon out of sight. */
+      overflow-y: auto;
+    }
+    /* §4.4's explicit check, and it FAILED the first time the side columns
+       were auto-sized: `.map-menu-icons` (R6/N35) is `position: fixed` at the
+       top-right (main.css:7577-7616), and once the bag column was sized by its
+       content it moved under the nav instead of beside it. Pushing only the
+       third column down clears the nav where the collision actually is, and
+       leaves the team and map columns their full viewport height -- which the
+       map wants, since its width derives from its height via `aspect-ratio`.
+       The offset is the nav's own measured extent (bottom 108px) plus a gap. */
+    .map-panels--three-col > .map-panel-right {
+      margin-top: 116px;
+      align-self: start;
+      max-height: calc(100dvh - 132px);
+    }
+    .map-panels--three-col #team-bar {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
       min-height: 0;
     }
+
+    /* ---- the horizontal team card: four zones, left to right ----
+       `.poke-card-col-stats` is `display: contents` (main.css:1132), so
+       `.poke-stats-bars` and `.poke-hp` are grid items of the CARD even
+       though they are nested one level down in the DOM. That is exactly what
+       lets one builder serve both the column card and this row card -- but it
+       also means these must be DESCENDANT selectors, not child (`>`) ones:
+       `display: contents` changes the box tree, never the DOM tree. */
+    .map-panel-left .team-slot {
+      display: grid;
+      /* Each zone gets a REAL minimum. The previous `minmax(0, Nfr)` tracks
+         were the second thing a screenshot caught: `minmax(0, ...)` licenses
+         a track to be narrower than its own content, and grid does not clip
+         overflow -- so the stat column spilled its values underneath the move
+         block and the two rendered on top of each other while every
+         measurement still passed. The minima are the content widths:
+         48px sprite, a two-badge type row, a labelled stat bar, and the move
+         block's own badges. */
+      grid-template-columns:
+        auto minmax(124px, 1fr) minmax(128px, 1.1fr) minmax(140px, 1.15fr) auto;
+      grid-template-rows: auto auto auto auto;
+      align-items: center;
+      column-gap: 7px;
+      row-gap: 0;
+      width: 100%;
+      height: auto;
+      min-height: 0;
+      padding: 4px 6px;
+      box-sizing: border-box;
+      text-align: left;
+      /* Rebased on this card only, for the same measured reason R6/N36 gives
+         for the hover card: every `--text-*` token is DERIVED from
+         `--text-base` at `:root`, so overriding the base alone leaves the
+         derived tokens frozen at the root's value. The ratios are
+         main.css:151-155's own, unchanged. */
+      --text-base: 0.62rem;
+      --text-xs: calc(var(--text-base) * 0.75);
+      --text-sm: calc(var(--text-base) * 0.875);
+      --text-lg: calc(var(--text-base) * 1.125);
+      --text-xl: calc(var(--text-base) * 1.25);
+    }
+    /* Zone 1 -- sprite, then name / level / types / HP stacked beside it. */
+    .map-panel-left .team-slot .poke-sprite-wrap {
+      grid-column: 1; grid-row: 1 / span 4;
+      width: 48px; height: 48px;
+    }
+    .map-panel-left .team-slot .poke-sprite { width: 48px; height: 48px; }
+    .map-panel-left .team-slot .poke-name  { grid-column: 2; grid-row: 1; }
+    .map-panel-left .team-slot .poke-level { grid-column: 2; grid-row: 2; }
+    .map-panel-left .team-slot .poke-types { grid-column: 2; grid-row: 3; justify-content: flex-start; }
+    .map-panel-left .team-slot .poke-hp    { grid-column: 2; grid-row: 4; margin-top: 0; }
+    /* Zone 2 -- the stats. Zone 3 -- the move and its power. Zone 4 -- item. */
+    .map-panel-left .team-slot .poke-stats-bars { grid-column: 3; grid-row: 1 / span 4; }
+    .map-panel-left .team-slot .poke-move       { grid-column: 4; grid-row: 1 / span 4; margin: 0; }
+    .map-panel-left .team-slot .team-slot-item  { grid-column: 5; grid-row: 1 / span 4; }
+    /* Anything else the card can carry (the status line) drops underneath
+       rather than silently landing in a zone it does not belong to. */
+    .map-panel-left .team-slot > *:not(.poke-sprite-wrap):not(.poke-name):not(.poke-level):not(.poke-types):not(.poke-card-col-stats):not(.poke-move):not(.team-slot-item) {
+      grid-column: 1 / -1;
+    }
+    /* Zone-level fixes, each one for a specific collapse seen in a
+       screenshot rather than anticipated:
+       - the name wrapped mid-word ("Bulbasaur / 1");
+       - `.poke-types`' `flex-wrap: wrap` (main.css:1131) stacked the two
+         badges vertically and doubled the card height;
+       - `.stat-bar-bg`'s `flex: 1` (main.css:1153) resolved to ~0 once the
+         22px label and 20px value had taken the row, so the bars -- the whole
+         point of the block -- were invisible. */
+    .map-panel-left .team-slot .poke-name {
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      text-align: left; width: 100%;
+    }
+    .map-panel-left .team-slot .poke-types { flex-wrap: nowrap; }
+    .map-panel-left .team-slot .stat-row { gap: 4px; }
+    .map-panel-left .team-slot .stat-bar-bg { min-width: 54px; }
+    .map-panel-left .team-slot .poke-hp .hp-bar-bg { min-width: 54px; }
+    .map-panel-left .team-slot .poke-move {
+      min-height: 0; padding: 4px; gap: 3px; min-width: 96px;
+    }
+    .map-panel-left .team-slot .poke-move .move-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
     /* M6/N26. The source's `.history-region-btn` is a 3-column grid --
        image | run stats | achievements (main.css:5323-5344). This port models
@@ -277,15 +473,36 @@
           data-shortcut="H" data-tip="Abandon Run" aria-label="Abandon Run">
     <img src="/img/menu/exit.png" alt="">
   </button>
+  <!-- R7/N46 — battle speed. NOT `nav-in-run`: it is a persistent client
+       preference, so it stays reachable outside a run too (the source gates
+       only its own in-run buttons with that class, main.css:7597).
+
+       NO ICON, DELIBERATELY. R6 copied eight `img/menu/*.png` and only
+       `reset.png` and `exit.png` are in use; of the remaining six
+       (achievements, map, mega, pokedex, pokemart, settings) not one means
+       "replay speed", and shipping a misleading sprite -- or a broken `src`
+       -- would be worse than shipping none. The source's own answer for a
+       button with no sprite is the `.btn-icon-glyph` variant
+       (main.css:3364-3370), which is what this uses. The label is written by
+       app.js so it always states the CURRENT multiplier. -->
+  <button type="button" id="btn-battle-speed" class="btn-icon-sm btn-icon-glyph"
+          data-shortcut="F" data-tip="Battle Speed" aria-label="Battle Speed">×1</button>
 </div>
 
 <!-- ===== MAP SCREEN ===== -->
+<!-- R7/N44 — DECLARED DEVIATION, three-column map screen.
+     The source has no such layout and main.css (a verbatim copy) has no rule
+     for it; every rule this needs is in the <head> style block above, labelled.
+     Only the ORDER and NESTING change here: the same three boxes, with
+     #map-container moved BETWEEN the two panels instead of below them, which
+     is what makes a three-column grid expressible at all. -->
 <div id="map-screen" class="screen">
-  <div class="map-panels">
+  <div class="map-panels map-panels--three-col">
     <div class="hud-box map-panel-left">
       <div class="hud-label">TEAM</div>
       <div id="team-bar"></div>
     </div>
+    <div id="map-container"></div>
     <div class="hud-box map-panel-right">
       <div class="hud-label">ITEMS</div>
       <div id="item-bar"></div>
@@ -293,7 +510,6 @@
       <div id="badge-count-panel"></div>
     </div>
   </div>
-  <div id="map-container"></div>
 </div>
 <!-- R2: the source's own hover tooltip element (`_mapTooltip`,
      bundle.deobfuscated.js:54026-54051). The stylesheet already carried

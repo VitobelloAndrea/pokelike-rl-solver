@@ -508,6 +508,52 @@ R6 adds two more, by the same rule and with no engine change and no
   correspondence to option order is an assumption rather than a fact. Guessing
   it would put a wrong move on a card, which is worse than putting none.
 
+R7 **overturns that last paragraph**, by re-reading the producers instead of
+reasoning about them — again with no engine change and no `CONTRACT_VERSION`
+bump. Each one builds its options in a *single comprehension over a list it also
+keeps*, so the correspondence is a **producer fact**, not an assumption:
+
+| Phase | Producer | Line | Corresponds to |
+|---|---|---|---|
+| `catch_choice` | `_offer_catch_choice` | `engine.py:2691-2696` | `extra["candidates"]` — the same ordered `mons` list |
+| `catch_choice` | `_visit_shiny` | `engine.py:2774-2779` | same, one element |
+| `swap_choice` | `_try_add_to_team` | `engine.py:1037-1042` | `state.team` |
+| `swap_choice` | `_offer_swap_screen` | `engine.py:1064-1071` | **`extra["incoming"]` when `extra["has_room"]`, else `state.team`** |
+| `trade_choice` | `_visit_trade` | `engine.py:2964-2969` | `state.team` |
+| `item_equip_choice` | `_resolve_item_choice` | `engine.py:3590-3595` | `state.team` |
+| `reward_team_pick` | `_visit_reward` | `engine.py:3384-3399` | `state.team` |
+
+So those phases now gain the full `MON_FIELDS` card projection — `types`,
+`base_stats`, `effective_stats`, `stages`, `stat_buffs`, `move_preview`,
+`status_flags`, `held_item_info`, `sprite_url` and the rest — because before
+this the player chose blind: the engine's option stops at `_mon_summary`
+(`engine.py:922-932`), which is sprite, name, level, HP and nothing else.
+
+Three rules keep this honest:
+
+- **The producer stays the authority.** Only keys the engine did *not* write are
+  added, the same rule R6 applied to item `name`. Driving the key list off
+  `MON_FIELDS` means a future field reaches the choice cards and the team bar
+  together rather than one of them.
+- **Correspondence is verified, not trusted.** `_subject_matches` compares
+  `species_id`/`level`/`current_hp`/`max_hp`/`is_shiny` before enriching. If a
+  future producer ever broke the ordering, the card loses detail instead of
+  gaining another Pokemon's stats — which on a release or trade screen would be
+  destructive.
+- **The swap screen's two shapes are addressed, not guessed.**
+  `_offer_swap_screen` presents the *incoming* Pokemon when the team has room,
+  and records which case it is in `extra["has_room"]`.
+
+`move_tutor_choice` additionally gains `move_preview_next`, `move_tier_next` and
+`move_tier_capped` — the other half of CODEX gap 10. The successor is the same
+deterministic `battle.get_best_move` one tier up (`battle.py:343-421`, a pure
+table lookup — checked, because a preview computed from anything non-
+deterministic would be a lie), using the engine's own ceiling `min(2, tier + 1)`
+(`engine.py:3558`). `move_tier_capped` is carried but is **structurally
+unreachable**: `_visit_move_tutor` offers only `move_tier < 2`
+(`engine.py:2868`), porting the source's "Already mastered!" span
+(`80474-80492`).
+
 **Both renderers must read the projection, not the producer.** R6 found
 `console.render_pending` taking `context` from `pending_view` while iterating
 `state.pending.options` — the engine's raw dicts — so every enrichment above

@@ -91,8 +91,12 @@ def render_team(state: engine.RunState) -> str:
     return "\n".join(lines)
 
 
-def _stat_line(view: dict) -> str:
+def _stat_line(view: dict, include_move: bool = True) -> str:
     """M6/N24, the console side.
+
+    `include_move=False` is R7/N43's caller: `_format_option` already prints
+    the move (and, on the tutor screen, its successor) ahead of the stats, so
+    repeating it on the stat line would say the same thing twice.
 
     **Decision, and why.** The web client got the source's real hover card
     (`showTeamHoverCard`, bundle.deobfuscated.js:64506-64564). A terminal has
@@ -143,9 +147,10 @@ def _stat_line(view: dict) -> str:
         extra += f"  augment +{view['augment_pct']}%"
     # R6/N34. The move the web client now draws on every card. On the team
     # line it is the same fact the browser shows, in the form this medium has.
-    move = _move_text(view.get("move_preview"))
-    if move:
-        extra += f"  move {move}"
+    if include_move:
+        move = _move_text(view.get("move_preview"))
+        if move:
+            extra += f"  move {move}"
     return "       " + "  ".join(parts) + extra
 
 
@@ -285,6 +290,18 @@ def _format_option(opt: dict) -> str:
             label += " (shiny)"
         if "level" in opt:
             label += f" Lv{opt['level']}"
+        # R7/N43, the console side. The types and the HP the web card draws in
+        # its first zone. Both are plain values, so this medium carries them
+        # unchanged; only the sprite and the coloured bar are inexpressible,
+        # and `hp_bar` already answers the bar.
+        types = opt.get("types") or []
+        if types:
+            label += f" [{'/'.join(types)}]"
+        if opt.get("max_hp"):
+            frac = (opt.get("current_hp") or 0) / opt["max_hp"]
+            label += f"  {hp_bar(frac)} {opt['current_hp']}/{opt['max_hp']}"
+        if opt.get("held_item"):
+            label += f"  @{opt['held_item']}"
         if "move_tier" in opt:
             label += f" (tier {opt['move_tier']})"
         # R6/N34, the console side. The move block the web client now draws on
@@ -294,6 +311,27 @@ def _format_option(opt: dict) -> str:
         move = _move_text(opt.get("move_preview"))
         if move:
             label += f" [{move}]"
+        # R7/N45, the console side. The OTHER half of CODEX gap 10: what the
+        # Pokemon would attack with AFTER tutoring. This is the whole decision
+        # on that screen -- a current move alone cannot say whether tutoring
+        # this member buys anything -- and it is text, so it is built here.
+        # `move_tier_capped` is stated rather than hidden: a fully-tutored
+        # Pokemon previews its own current move, and saying so is the honest
+        # presentation of the engine's `min(2, tier + 1)` ceiling.
+        if "move_preview_next" in opt:
+            nxt = _move_text(opt.get("move_preview_next"))
+            if opt.get("move_tier_capped"):
+                label += "  -> (already at max tier)"
+            elif nxt:
+                label += f"  -> tier {opt.get('move_tier_next')} [{nxt}]"
+        # R7/N43. The stat block, on the same "port what the medium can carry"
+        # rule `_stat_line` itself was built on -- the numbers are what make a
+        # catch/swap/trade/release choice decidable, and they are numbers.
+        # Indented onto its own continuation line because `render_pending`
+        # prefixes the first one with the option index.
+        stats = _stat_line(opt, include_move=False) if "effective_stats" in opt else ""
+        if stats.strip():
+            label += "\n    " + stats.strip()
         return label
     return str(opt)
 

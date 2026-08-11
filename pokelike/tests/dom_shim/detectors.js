@@ -32,8 +32,15 @@ function indexHtmlIds() {
   return ids;
 }
 
-/** Boots app.js in a fresh sandbox. Returns the live context. */
-function boot() {
+/** Boots app.js in a fresh sandbox. Returns the live context.
+ *
+ * R7/N46: `opts.storage` shares one backing object across two boots, which is
+ * how "the speed persists across battles" is checked -- a reload has to see
+ * what the previous session wrote. Omitted, each boot gets its own empty
+ * store, so every other detector stays isolated.
+ */
+function boot(opts) {
+  opts = opts || {};
   const clock = new Clock();
   const document = createDocument(indexHtmlIds());
   const toasts = [];
@@ -62,6 +69,19 @@ function boot() {
     innerWidth: 1280,
     innerHeight: 900,
     matchMedia: (query) => ({ media: String(query), matches: false }),
+    // R7/N46. A minimal Storage. app.js keeps the battle-speed preference
+    // here, and the whole requirement is "all battles", i.e. that it survives
+    // a reload -- which is untestable without a store that outlives one boot.
+    // The real Storage contract is string-in/string-out with `null` for a
+    // missing key, and app.js parses accordingly, so that is what this does.
+    localStorage: (() => {
+      const store = opts.storage || {};
+      return {
+        getItem: (k) => (Object.prototype.hasOwnProperty.call(store, k) ? store[k] : null),
+        setItem: (k, v) => { store[k] = String(v); },
+        removeItem: (k) => { delete store[k]; },
+      };
+    })(),
     // M6/N25. A driveable ResizeObserver. The shim does no layout, so it can
     // never fire one on its own -- but it CAN hand the test the callback and
     // let it fire deliberately, which is what turns "the map redraws from
@@ -729,17 +749,45 @@ detector('N24: the hover card shows the stat data R1 built for it', () => {
   ctx.renderTeamBar(state);
   document.querySelector('#team-bar .team-slot').dispatch('mouseenter', {});
   const card = document.getElementById('team-hover-card');
-  assert(card.querySelector('.hover-stats'),
+  // R7/N43: the block is now the source's own `.stat-row` markup
+  // (bundle.deobfuscated.js:64296-64345), not M6's invented `.hover-stats`
+  // table. The FACT being pinned is unchanged -- the number on the card is the
+  // EFFECTIVE stat, not the base one -- and it is now pinned per row rather
+  // than by searching the whole card's text.
+  const rows = card.querySelectorAll('.stat-row');
+  assert(rows.length,
     `fixture ${name}: the hover card drew no stat block -- this is the whole point of N24`);
   const mon = state.team[0];
-  const text = card.textContent;
-  // The EFFECTIVE attack is the number the battle engine would really read.
-  // Asserting on it (not on base) is what makes a regression to "base only"
-  // visible, which is what every other surface in this client used to show.
-  assert(text.includes(String(mon.effective_stats.atk)),
-    `the hover card does not show effective atk ${mon.effective_stats.atk}`);
-  assert(text.includes(String(mon.effective_stats.speed)),
-    `the hover card does not show effective speed ${mon.effective_stats.speed}`);
+
+  const valueOf = (label) => {
+    for (const row of rows) {
+      const lbl = row.querySelector('.stat-lbl');
+      if (lbl && lbl.textContent === label) return row.querySelector('.stat-val').textContent;
+    }
+    return null;
+  };
+
+  // 64245-64247: the card shows five of six rows, dropping whichever of
+  // ATK/SP.A the species does not attack with. So the detector must ask for
+  // the row that is actually meant to be there -- asserting on both would be
+  // asserting against the source.
+  const special = mon.base_stats.special || 0;
+  const usesSpecial = !(mon.species_id === 307 || mon.species_id === 308)
+    && special >= (mon.base_stats.atk || 0);
+  const attackLabel = usesSpecial ? 'SP.A' : 'ATK';
+  const attackKey = usesSpecial ? 'special' : 'atk';
+
+  assertEqual(valueOf(attackLabel), String(mon.effective_stats[attackKey]),
+    `the ${attackLabel} row does not show the EFFECTIVE stat`);
+  assertEqual(valueOf(usesSpecial ? 'ATK' : 'SP.A'), null,
+    'the card drew the attack row the source filters out');
+  assertEqual(valueOf('SPE'), String(mon.effective_stats.speed),
+    'the SPE row does not show the effective speed');
+  assertEqual(valueOf('DEF'), String(mon.effective_stats.def),
+    'the DEF row does not show the effective defence');
+  // HP is the one row with no `effective_stats` entry -- the source reads
+  // `maxHp` for it too (64311-64313).
+  assertEqual(valueOf('HP'), String(mon.max_hp), 'the HP row does not show max HP');
 });
 
 detector('N24: the card annotates stages/buffs rather than differencing base stats', () => {
@@ -750,18 +798,39 @@ detector('N24: the card annotates stages/buffs rather than differencing base sta
   // different scale entirely (Bulbasaur Atk 49 vs Atk 9 at Lv5), so a card
   // that differenced the two would report a huge phantom debuff on every
   // Pokemon. Asserting the annotation tracks `stages` pins the right source.
+  //
+  // R7/N43: the annotation moved from M6's invented `.hover-stat-delta` span
+  // into the source's own `.stat-row[data-tooltip]` (64324-64328) and, for
+  // buffs, its `.stat-buff-overlay` bar (64330-64334). SPE is used rather than
+  // ATK because the attack row is the one the source filters out for a special
+  // attacker, and this detector must not depend on which kind the fixture is.
   const mon = JSON.parse(JSON.stringify(state.team[0]));
-  mon.stages = Object.assign({}, mon.stages, { atk: 2 });
+  mon.stages = Object.assign({}, mon.stages, { speed: 2 });
   const patched = Object.assign({}, state, { team: [mon].concat(state.team.slice(1)) });
   ctx.renderTeamBar(patched);
   document.querySelector('#team-bar .team-slot').dispatch('mouseenter', {});
   const card = document.getElementById('team-hover-card');
-  const note = card.querySelector('.hover-stat-delta');
-  assert(note, 'a raised stage produced no annotation on the hover card');
-  assert(note.textContent.includes('+2'),
-    `the annotation does not report the +2 stage (got ${JSON.stringify(note.textContent)})`);
+
+  let speedRow = null;
+  for (const row of card.querySelectorAll('.stat-row')) {
+    const lbl = row.querySelector('.stat-lbl');
+    if (lbl && lbl.textContent === 'SPE') speedRow = row;
+  }
+  assert(speedRow, 'the hover card drew no SPE row');
+  const tip = speedRow.getAttribute('data-tooltip') || '';
+  assert(tip.includes('+2 stage'),
+    `a raised stage produced no annotation (tooltip was ${JSON.stringify(tip)})`);
   assert(!card.textContent.includes('-40'),
     'the card differenced base against effective stats -- see the app.js comment');
+
+  // The other half: a stat BUFF draws the source's overlay bar.
+  const buffed = JSON.parse(JSON.stringify(state.team[0]));
+  buffed.stat_buffs = Object.assign({}, buffed.stat_buffs, { speed: 4 });
+  ctx.renderTeamBar(Object.assign({}, state, { team: [buffed].concat(state.team.slice(1)) }));
+  document.querySelector('#team-bar .team-slot').dispatch('mouseenter', {});
+  const card2 = document.getElementById('team-hover-card');
+  assert(card2.querySelector('.stat-buff-overlay'),
+    'a stat buff drew no .stat-buff-overlay -- the source draws one at 64330-64334');
 });
 
 detector('N24: mouseleave hides the hover card again', () => {
@@ -1186,6 +1255,269 @@ detector('N34: the move-tutor card can say what the move actually is', () => {
   const mp = opts[idx].move_preview;
   assertEqual(badge.textContent, mp.no_damage ? '—' : (mp.power + ' PWR'),
     'the move-tutor card\'s power does not come from its own move_preview');
+});
+
+// ---------------------------------------------------------------------------
+// R7/N43 -- choice cards are decidable
+// ---------------------------------------------------------------------------
+
+/** Every phase whose cards R7 enriched, paired with the container it draws into. */
+const R7_CHOICE_SCREENS = [
+  ['catch_choice', '#catch-choices'],
+  ['trade_choice', '#trade-choices'],
+  ['swap_choice', '#swap-choices'],
+  ['item_equip_choice', '#item-equip-choices'],
+  ['move_tutor_choice', '#move-tutor-choices'],
+];
+
+detector('N43: every enriched choice phase actually reaches a fixture', () => {
+  // Non-vacuity FIRST. The two detectors below iterate the phases they find;
+  // if the sweep stopped producing them they would pass by checking nothing,
+  // which is exactly the failure mode R6 hit twice.
+  const reached = R7_CHOICE_SCREENS.filter(([phase]) => fixtures[phase]);
+  assert(reached.length >= 3,
+    `only ${reached.length} of R7's choice phases reached a fixture -- the N43 detectors would be near-vacuous`);
+  for (const [phase] of reached) {
+    const opts = fixtures[phase].pending.options;
+    assert(opts.length > 0 || phase === 'move_tutor_choice',
+      `fixture ${phase} carried no options at all`);
+  }
+});
+
+detector('N43: a choice card draws a stat block sourced from effective_stats', () => {
+  // The owner's report: "when choosing a pokemon I want to be able to see
+  // their stats, move and power". Before R7 these cards carried sprite, name,
+  // level, types and an HP bar and nothing else, because the engine's option
+  // dicts stop at `_mon_summary` (engine.py:922-932) -- so the player chose
+  // blind. `contract._pending_options` now enriches them from the real
+  // Combatant, and `appendStatBars` draws the source's own `.stat-row` block.
+  let checked = 0;
+  for (const [phase, container] of R7_CHOICE_SCREENS) {
+    const state = fixtures[phase];
+    if (!state) continue;
+    const opts = state.pending.options;
+    const idx = opts.findIndex((o) => o.effective_stats && o.base_stats);
+    if (idx < 0) continue;
+
+    const { ctx, document } = boot();
+    ctx.render(state);
+    const card = document.querySelectorAll(container + ' .poke-card')[idx];
+    assert(card, `${phase}: no card was drawn for option ${idx}`);
+
+    const rows = card.querySelectorAll('.stat-row');
+    assert(rows.length >= 4,
+      `${phase}: the card drew ${rows.length} stat rows -- the whole point of N43 is that it draws a stat block`);
+
+    const opt = opts[idx];
+    // The VALUE has to come from `effective_stats`, not from `base_stats`.
+    // Those are different quantities on different scales (Bulbasaur base Atk
+    // 49 vs effective Atk 9 at Lv5), so this assertion is what distinguishes
+    // "the card shows the right number" from "the card shows a number".
+    let matchedSpeed = false;
+    for (const row of rows) {
+      const lbl = row.querySelector('.stat-lbl');
+      if (lbl && lbl.textContent === 'SPE') {
+        assertEqual(row.querySelector('.stat-val').textContent,
+          String(opt.effective_stats.speed),
+          `${phase}: the SPE row is not the effective speed`);
+        matchedSpeed = true;
+      }
+    }
+    assert(matchedSpeed, `${phase}: the card drew no SPE row to check`);
+    checked += 1;
+  }
+  assert(checked >= 3, `only ${checked} choice screens were actually checked`);
+});
+
+detector('N43: a choice card shows the move power from its own move_preview', () => {
+  let checked = 0;
+  for (const [phase, container] of R7_CHOICE_SCREENS) {
+    const state = fixtures[phase];
+    if (!state) continue;
+    const opts = state.pending.options;
+    const idx = opts.findIndex((o) => o.move_preview && o.move_preview.name);
+    if (idx < 0) continue;
+
+    const { ctx, document } = boot();
+    ctx.render(state);
+    const card = document.querySelectorAll(container + ' .poke-card')[idx];
+    assert(card, `${phase}: no card was drawn for option ${idx}`);
+    const badge = card.querySelector('.move-power-badge');
+    assert(badge, `${phase}: the card shows no move power`);
+    const mp = opts[idx].move_preview;
+    // Against the OPTION's own projected move, so mutating the enrichment out
+    // (or crossing two options' moves) fails rather than passes.
+    assertEqual(badge.textContent, mp.no_damage ? '—' : (mp.power + ' PWR'),
+      `${phase}: the card's power does not come from its own move_preview`);
+    checked += 1;
+  }
+  assert(checked >= 3, `only ${checked} choice screens carried a move to check`);
+});
+
+// ---------------------------------------------------------------------------
+// R7/N45 -- the Move Tutor can support its own decision
+// ---------------------------------------------------------------------------
+
+detector('N45: the tutor card shows the CURRENT and the SUCCESSIVE move', () => {
+  // The other half of CODEX gap 10. R6 gave the tutor card the current move;
+  // the decision needs what tutoring would BUY, which is the same
+  // deterministic `get_best_move` one tier up.
+  const [name, state] = phaseFixture('move_tutor_choice');
+  const opts = state.pending.options;
+  const idx = opts.findIndex((o) => o.move_preview && o.move_preview_next);
+  assert(idx >= 0, `fixture ${name}: no tutor option carried both moves`);
+  const opt = opts[idx];
+
+  // The engine offers only `move_tier < 2` (engine.py:2868), so every real
+  // option has a strictly higher successor tier. A card that showed the same
+  // move twice would be the failure mode this pins.
+  assert(opt.move_tier_next > opt.move_tier,
+    `the successor tier ${opt.move_tier_next} does not exceed the current tier ${opt.move_tier}`);
+  assert(opt.move_preview.name !== opt.move_preview_next.name
+      || opt.move_preview.power !== opt.move_preview_next.power,
+    `the tutor previews the SAME move for tiers ${opt.move_tier} and ${opt.move_tier_next} `
+    + `(${opt.move_preview.name} ${opt.move_preview.power})`);
+
+  const { ctx, document } = boot();
+  ctx.render(state);
+  const card = document.querySelectorAll('#move-tutor-choices .poke-card')[idx];
+  assert(card, 'the tutor screen drew no card');
+  const next = card.querySelector('.move-next');
+  assert(next, 'the tutor card shows no successive move -- N45 is exactly that');
+  const text = next.textContent;
+  assert(text.includes(opt.move_preview_next.name),
+    `the successive move block does not name ${opt.move_preview_next.name} (got ${JSON.stringify(text)})`);
+  assert(text.includes(String(opt.move_preview_next.power)),
+    `the successive move block does not show its power ${opt.move_preview_next.power}`);
+  // And the two must be distinguishable on the card, not just in the payload.
+  const current = card.querySelector('.poke-move .move-name');
+  assert(current && current.textContent !== opt.move_preview_next.name,
+    'the card shows the successive move where the current one belongs');
+});
+
+// ---------------------------------------------------------------------------
+// R7/N46 -- fast battle never skips
+// ---------------------------------------------------------------------------
+
+/** The one fixture that carries a drained-able battle replay. */
+function battleReplayFixture() {
+  const entry = Object.entries(fixtures).find(
+    ([, st]) => st.battle && st.battle.replay && st.battle.replay.length,
+  );
+  if (!entry) throw new Error('no fixture carries a battle replay -- the N46 detectors would be vacuous');
+  return entry;
+}
+
+/** Drives a whole battle replay at `speed` and records what was rendered. */
+function drainReplayAt(speed) {
+  const [name, state] = battleReplayFixture();
+  const { ctx, document, clock } = boot();
+  ctx.setBattleSpeed(speed);
+  const battleEntry = state.log.filter((e) => e.type === 'battle').pop();
+  if (!battleEntry) throw new Error(`fixture ${name} has a battle view but no battle log entry`);
+  ctx.renderBattle(battleEntry, state, () => {});
+  // The replay drains on chained timers; `clock.drain()` runs them to
+  // quiescence, so this is the whole replay, not a prefix of it.
+  clock.drain();
+  const log = document.getElementById('battle-log');
+  return {
+    steps: state.battle.replay.length,
+    lines: log.children.map((c) => c.textContent),
+    classes: log.children.map((c) => c.className),
+  };
+}
+
+detector('N46: fast battle changes the TIMING and nothing else', () => {
+  // "implement a fast battle button so that, if selected, all battles are
+  // executed very fast (albeit never skipped)". `never skipped` is the whole
+  // requirement and it is mechanically checkable: the replay is a fixed list
+  // of steps and raising the divisor must not consume any of them.
+  const slow = drainReplayAt(0.5);
+  const normal = drainReplayAt(1);
+  const fast = drainReplayAt(4);
+
+  assert(normal.lines.length > 0, 'the battle fixture drained no replay steps at all -- vacuous');
+  assertEqual(fast.lines.length, normal.lines.length,
+    'fast battle rendered a DIFFERENT number of steps -- it is skipping, not hurrying');
+  assertEqual(slow.lines.length, normal.lines.length,
+    'slow motion rendered a different number of steps');
+  // Same steps, in the same order, with the same kinds -- the log class is the
+  // step KIND (log-player / log-enemy / log-faint / log-item).
+  assertEqual(fast.lines.join('|'), normal.lines.join('|'),
+    'fast battle rendered different step TEXT');
+  assertEqual(fast.classes.join('|'), normal.classes.join('|'),
+    'fast battle rendered different step KINDS');
+});
+
+detector('N46: Skip and overtime may only ever RAISE the speed', () => {
+  // The interaction rule, stated in R7 §6: "it must not fight the existing
+  // controls". A player already running at ×4 who presses Skip must not be
+  // SLOWED to SKIP_SPEED's 3, and the overtime bump is raise-only by the
+  // source's own guard (81267-81270). Both are asserted against the shipped
+  // bytes, because the resolved `speed` is a closure local inside
+  // `renderBattle` that nothing exposes.
+  const js = fs.readFileSync(APP_JS, 'utf8');
+  assert(/continueBtn\.onclick = \(\) => \{ speed = Math\.max\(speed, SKIP_SPEED\); \};/.test(js),
+    'Skip ASSIGNS the speed instead of raising it -- a player at ×4 would be slowed to 3');
+  assert(/let speed = battleSpeed;/.test(js),
+    'the replay does not start from the persisted battle speed');
+  assert(/if \(speed < OVERTIME_SPEED\) speed = OVERTIME_SPEED;/.test(js),
+    'the overtime bump is no longer raise-only');
+
+  // And behaviourally: a speed above OVERTIME_SPEED must survive the bump, so
+  // the raise-only guard is not merely present but effective.
+  const above = drainReplayAt(8);
+  const normal = drainReplayAt(1);
+  assertEqual(above.lines.length, normal.lines.length,
+    'a speed above OVERTIME_SPEED changed how many steps rendered');
+});
+
+detector('N46: the speed is a persisted, validated VALUE', () => {
+  const { ctx, document } = boot();
+  // A value, not a boolean: CLAUDE.md Phase 4 wants slow motion, which is the
+  // same divisor below 1.
+  assertEqual(ctx.setBattleSpeed(0.5), 0.5, 'a sub-1 speed was rejected');
+  assertEqual(ctx.setBattleSpeed(4), 4, 'a fast speed was rejected');
+  // Rubbish is refused rather than breaking every subsequent replay.
+  assertEqual(ctx.setBattleSpeed(0), 4, 'a zero speed was accepted');
+  assertEqual(ctx.setBattleSpeed(-2), 4, 'a negative speed was accepted');
+
+  // Persisted where it was said to be persisted.
+  assertEqual(ctx.window.localStorage.getItem('pokelike.battleSpeed'), '4',
+    'the chosen speed was not written to localStorage');
+
+  // The button states the current multiplier rather than a fixed label.
+  const btn = document.getElementById('btn-battle-speed');
+  assert(btn, 'index.html declares no #btn-battle-speed');
+  assertEqual(btn.textContent, '×4', 'the button does not report the current speed');
+  ctx.cycleBattleSpeed();
+  assert(btn.textContent !== '×4', 'cycling did not change the button label');
+});
+
+detector('N46: a reboot restores the persisted speed', () => {
+  const store = {};
+  const first = boot({ storage: store });
+  first.ctx.setBattleSpeed(4);
+  assertEqual(store['pokelike.battleSpeed'], '4', 'nothing was persisted to check');
+
+  // A SECOND boot sharing the same storage is the "persist across battles"
+  // requirement -- "all battles", not "the rest of this one".
+  //
+  // The observable is the BUTTON LABEL, not the `battleSpeed` binding: `let`
+  // declarations never become properties of a `vm` context's global object, so
+  // the variable is genuinely unreadable from here. The label is the better
+  // assertion anyway -- it is what a player sees, it is painted by
+  // `wireButtons()` at load, and it can only read '×4' if `loadBattleSpeed()`
+  // actually consulted the store.
+  const second = boot({ storage: store });
+  assertEqual(second.document.getElementById('btn-battle-speed').textContent, '×4',
+    'the persisted speed was not restored and painted at boot');
+
+  // And a fresh store must NOT inherit it, or the detector above would pass on
+  // a hard-coded '×4'.
+  const clean = boot();
+  assertEqual(clean.document.getElementById('btn-battle-speed').textContent, '×1',
+    'a client with no stored preference did not start at the default speed');
 });
 
 detector('N38: a screen change tears down the hover card it left behind', () => {

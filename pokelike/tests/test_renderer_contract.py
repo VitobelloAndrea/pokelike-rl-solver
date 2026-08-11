@@ -2112,5 +2112,284 @@ class LogBurstWindowTests(unittest.TestCase):
         self.assertIn("log_total", js)
 
 
+class ChoiceOptionEnrichmentTests(unittest.TestCase):
+    """R7/N43 and N45 -- the read-side enrichment that makes a Pokemon choice
+    decidable, pinned on the PYTHON side.
+
+    The DOM-shim detectors prove the browser draws this. These prove the
+    projection carries it, which is the half that survives without Node.
+    """
+
+    def _started(self, seed=7, **cfg):
+        eng = engine.Engine()
+        eng.reset(seed=seed, **cfg)
+        eng.step(engine.ChooseStarter(species_id=eng.state.pending.options[0]["species_id"]))
+        return eng, eng.state
+
+    def _node(self, node_type):
+        from pokelike import map_gen
+        return map_gen.MapNode(id="n", type=node_type, layer=1, col=0)
+
+    def _raise_each_phase(self, state):
+        """Every R7-enriched choice, raised through the ENGINE'S OWN producer.
+
+        Constructing a `PendingChoice` by hand here would test this module's
+        assumption about the option order instead of the engine's actual
+        behaviour, which is the entire question §3.3 asks.
+        """
+        from pokelike import map_gen
+        out = {}
+
+        engine._visit_trade(state, self._node(map_gen.TRADE))
+        out["trade_choice"] = state.pending
+
+        engine._offer_catch_choice(state, self._node(map_gen.CATCH), list(state.team))
+        out["catch_choice"] = state.pending
+
+        engine._visit_move_tutor(state, self._node(map_gen.MOVE_TUTOR))
+        out["move_tutor_choice"] = state.pending
+
+        engine._try_add_to_team  # noqa: B018 -- documents where swap comes from
+        state.pending = engine.PendingChoice(
+            phase=engine.Phase.ITEM_EQUIP_CHOICE,
+            options=[engine._mon_summary(m) for m in state.team],
+            optional=True,
+            extra={"item_id": "leftovers", "node_id": "n"},
+        )
+        out["item_equip_choice"] = state.pending
+        return out
+
+    def test_every_mon_choice_option_carries_the_full_card_projection(self):
+        _, state = self._started()
+        for phase, pending in self._raise_each_phase(state).items():
+            options = contract.pending_view(pending, state)["options"]
+            self.assertTrue(options, f"{phase} produced no options")
+            for i, opt in enumerate(options):
+                for key in ("types", "base_stats", "effective_stats",
+                            "stages", "stat_buffs", "move_preview",
+                            "status_flags", "sprite_url"):
+                    self.assertIn(key, opt, f"{phase}[{i}] is missing {key}")
+
+    def test_the_enriched_values_are_the_real_combatants(self):
+        """Positional correspondence is a producer fact (§3.3). This asserts
+        the fact rather than trusting it: option i must describe team member i
+        (or candidate i), by a value only that Combatant has."""
+        eng, state = self._started()
+        # A team of two with DIFFERENT effective stats, so a crossed
+        # correspondence produces a wrong number rather than a coincidence.
+        from pokelike import map_gen
+        state.team.append(engine._make_wild_combatant(
+            0x19, 12, is_shiny=False, move_tier=1, gen2_mode=False, gen4_mode=False))
+        self.assertNotEqual(
+            state.team[0].species_id, state.team[1].species_id,
+            "the fixture needs two distinguishable members",
+        )
+        engine._visit_trade(state, self._node(map_gen.TRADE))
+        options = contract.pending_view(state.pending, state)["options"]
+        self.assertEqual(len(options), len(state.team))
+        for i, (opt, mon) in enumerate(zip(options, state.team)):
+            self.assertEqual(opt["species_id"], mon.species_id, f"option {i} names another mon")
+            self.assertEqual(opt["effective_stats"], contract._effective_stats(mon),
+                             f"option {i} carries another mon's stats")
+
+    def test_a_mismatched_subject_is_not_enriched(self):
+        """The `_subject_matches` guard. If a future producer ever broke the
+        correspondence, the card must lose detail rather than gain a LIE --
+        the wrong Pokemon's stats on a release screen is destructive."""
+        opt = {"species_id": 1, "level": 5, "current_hp": 19, "max_hp": 19, "is_shiny": False}
+        _, state = self._started()
+        mon = state.team[0]
+        contract._enrich_from_subject(opt, mon)
+        enriched_when_matching = "effective_stats" in opt
+
+        wrong = dict(opt)
+        for key in ("effective_stats", "base_stats", "types"):
+            wrong.pop(key, None)
+        wrong["species_id"] = mon.species_id + 1
+        contract._enrich_from_subject(wrong, mon)
+        self.assertTrue(enriched_when_matching, "the guard rejected a MATCHING subject")
+        self.assertNotIn("effective_stats", wrong,
+                         "a mismatched subject was enriched anyway")
+
+    def test_the_swap_screens_two_shapes_are_addressed_not_guessed(self):
+        """`_offer_swap_screen` presents the INCOMING mon when the team has
+        room and the TEAM when it is full (engine.py:1064-1071). Enriching
+        both from `state.team` would put the wrong Pokemon on the card in the
+        first case."""
+        _, state = self._started()
+        incoming = engine._make_wild_combatant(
+            0x19, 30, is_shiny=False, move_tier=2, gen2_mode=False, gen4_mode=False)
+        engine._offer_swap_screen(state, incoming, "n")
+        self.assertTrue(state.pending.extra["has_room"], "fixture precondition: room")
+        opt = contract.pending_view(state.pending, state)["options"][0]
+        self.assertEqual(opt["species_id"], incoming.species_id)
+        self.assertEqual(opt["effective_stats"], contract._effective_stats(incoming),
+                         "the room branch was enriched from the TEAM, not the incoming mon")
+
+    def test_move_preview_at_an_explicit_tier_is_deterministic(self):
+        """N45 previews a move the player does not have yet. That is only
+        honest if `get_best_move` is a pure function of its inputs -- checked,
+        not assumed (R7 §5.2)."""
+        _, state = self._started()
+        mon = state.team[0]
+        first = contract._move_preview(mon, 1)
+        for _ in range(5):
+            self.assertEqual(contract._move_preview(mon, 1), first,
+                             "get_best_move is not deterministic -- a preview would be a lie")
+        self.assertIsNotNone(first)
+
+    def test_the_tutor_ceiling_mirrors_the_engines_actual_behaviour(self):
+        """`contract._MOVE_TIER_MAX` is a mirrored literal (engine.py:3558),
+        because R7 may not add a constant to `engine.py`. This pins it by
+        EXECUTION: tutoring a mon already at the ceiling must not move it."""
+        _, state = self._started()
+        mon = state.team[0]
+        mon.move_tier = contract._MOVE_TIER_MAX
+        # A REAL node id: `_resolve_move_tutor_choice` advances the map, so a
+        # synthetic id would fail on the advance rather than on the ceiling.
+        node_id = next(iter(state.map.nodes))
+        state.pending = engine.PendingChoice(
+            phase=engine.Phase.MOVE_TUTOR_CHOICE,
+            options=[{"team_index": 0, "species_id": mon.species_id,
+                      "name": mon.name, "move_tier": mon.move_tier}],
+            optional=True, extra={"node_id": node_id},
+        )
+        state.phase = engine.Phase.MOVE_TUTOR_CHOICE
+        engine._resolve_move_tutor_choice(state, engine.SelectOption(index=0))
+        self.assertEqual(
+            mon.move_tier, contract._MOVE_TIER_MAX,
+            "the engine tutored PAST contract._MOVE_TIER_MAX -- the mirror has drifted",
+        )
+
+    def test_the_tutor_producer_never_offers_a_maxed_member(self):
+        """Why `move_tier_capped` is unreachable, asserted rather than
+        asserted-about: `_visit_move_tutor` filters to `move_tier < 2`
+        (engine.py:2868), porting the source's 'Already mastered!' span."""
+        from pokelike import map_gen
+        _, state = self._started()
+        state.team[0].move_tier = contract._MOVE_TIER_MAX
+        engine._visit_move_tutor(state, self._node(map_gen.MOVE_TUTOR))
+        options = contract.pending_view(state.pending, state)["options"]
+        self.assertEqual(options, [], "a fully-mastered member was offered to the tutor")
+
+    def test_the_tutor_option_previews_a_genuinely_different_move(self):
+        from pokelike import map_gen
+        _, state = self._started()
+        engine._visit_move_tutor(state, self._node(map_gen.MOVE_TUTOR))
+        options = contract.pending_view(state.pending, state)["options"]
+        self.assertTrue(options, "no tutor options to check")
+        opt = options[0]
+        self.assertGreater(opt["move_tier_next"], opt["move_tier"])
+        self.assertFalse(opt["move_tier_capped"])
+        self.assertIsNotNone(opt["move_preview_next"])
+        self.assertNotEqual(
+            (opt["move_preview"]["name"], opt["move_preview"]["power"]),
+            (opt["move_preview_next"]["name"], opt["move_preview_next"]["power"]),
+            "the tutor previews the same move for two different tiers",
+        )
+
+    def test_enrichment_never_overwrites_what_the_engine_wrote(self):
+        """R6/N33's rule: the producer is the authority on what it is
+        offering; the renderer may only ADD detail."""
+        _, state = self._started()
+        from pokelike import map_gen
+        engine._visit_trade(state, self._node(map_gen.TRADE))
+        raw = [dict(o) for o in state.pending.options]
+        options = contract.pending_view(state.pending, state)["options"]
+        for produced, projected in zip(raw, options):
+            for key, value in produced.items():
+                self.assertEqual(projected[key], value,
+                                 f"the enrichment overwrote the engine's own {key}")
+
+    def test_the_enrichment_did_not_bump_the_contract_version(self):
+        """R7 §8.3. A read-side enrichment in `_pending_options` is explicitly
+        not a version change; a shape change to `observation()` would be."""
+        self.assertEqual(contract.CONTRACT_VERSION, 5)
+        self.assertNotIn("move_preview_next", contract.MON_FIELDS)
+        self.assertNotIn("uses_special_attack", contract.MON_FIELDS)
+
+
+class UsesSpecialAttackParityTests(unittest.TestCase):
+    """R7/N43 ported `usesSpecialAttack` into `app.js` rather than growing the
+    pinned `MON_FIELDS` set. That is only safe if the two copies agree, so the
+    JS copy is pinned against the Python original here."""
+
+    def _js(self):
+        import pathlib
+        root = pathlib.Path(__file__).resolve().parents[2]
+        return (root / "pokelike" / "webui" / "static" / "js" / "app.js").read_text(encoding="utf-8")
+
+    def test_the_js_copy_states_the_same_rule_as_battle_py(self):
+        js = self._js()
+        self.assertIn("function usesSpecialAttack(speciesId, baseStats)", js)
+        # The two hardcoded species-id exceptions (battle.py:296-297).
+        self.assertIn("if (speciesId === 307 || speciesId === 308) return false;", js)
+        # And the comparison itself: special >= atk, not >.
+        self.assertIn("return special >= atk;", js)
+
+    def test_the_python_original_still_says_what_the_js_copy_mirrors(self):
+        """If `battle.uses_special_attack` changes, this fails and the JS copy
+        has to be revisited -- which is the whole point of pinning it."""
+        from pokelike import battle, data
+        stats = data.BaseStats(hp=45, atk=49, defense=49, speed=45, special=65)
+        self.assertTrue(battle.uses_special_attack(1, stats),
+                        "special >= atk should be a special attacker")
+        self.assertFalse(battle.uses_special_attack(307, stats),
+                         "307 is a hardcoded physical exception")
+        self.assertFalse(battle.uses_special_attack(308, stats),
+                         "308 is a hardcoded physical exception")
+        physical = data.BaseStats(hp=45, atk=90, defense=49, speed=45, special=20)
+        self.assertFalse(battle.uses_special_attack(1, physical))
+
+
+class ConsoleChoiceReadabilityTests(unittest.TestCase):
+    """R7 constraint 5: both renderers stay in step. §3's stats and §5's two
+    moves are all text, so the console builds them too."""
+
+    def _started(self, seed=7):
+        eng = engine.Engine()
+        eng.reset(seed=seed)
+        eng.step(engine.ChooseStarter(species_id=eng.state.pending.options[0]["species_id"]))
+        return eng, eng.state
+
+    def test_a_trade_option_prints_types_hp_move_and_stats(self):
+        from pokelike import map_gen
+        _, state = self._started()
+        engine._visit_trade(state, map_gen.MapNode(id="n", type=map_gen.TRADE, layer=1, col=0))
+        text = console.render_pending(state)
+        mon = state.team[0]
+        self.assertIn("/".join(mon.types), text, "the console option shows no types")
+        self.assertIn(f"{mon.current_hp}/{mon.max_hp}", text, "no HP")
+        eff = contract._effective_stats(mon)
+        self.assertIn(f"Spe {eff['speed']}", text, "no effective speed on the console option")
+        self.assertIn(f"Atk {eff['atk']}", text, "no effective attack on the console option")
+
+    def test_a_tutor_option_prints_both_moves(self):
+        from pokelike import map_gen
+        _, state = self._started()
+        engine._visit_move_tutor(
+            state, map_gen.MapNode(id="n", type=map_gen.MOVE_TUTOR, layer=1, col=0))
+        options = contract.pending_view(state.pending, state)["options"]
+        self.assertTrue(options)
+        text = console.render_pending(state)
+        self.assertIn(options[0]["move_preview"]["name"], text, "no current move")
+        self.assertIn(options[0]["move_preview_next"]["name"], text, "no successive move")
+        self.assertIn(f"-> tier {options[0]['move_tier_next']}", text,
+                      "the console does not say which tier the successor belongs to")
+
+    def test_the_move_is_not_printed_twice_on_one_option(self):
+        """`_stat_line` also appends the move; `_format_option` passes
+        `include_move=False` so the option does not say it twice."""
+        from pokelike import map_gen
+        _, state = self._started()
+        engine._visit_trade(state, map_gen.MapNode(id="n", type=map_gen.TRADE, layer=1, col=0))
+        options = contract.pending_view(state.pending, state)["options"]
+        name = options[0]["move_preview"]["name"]
+        self.assertEqual(
+            console._format_option(options[0]).count(name), 1,
+            "the console printed the move twice on one option",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
