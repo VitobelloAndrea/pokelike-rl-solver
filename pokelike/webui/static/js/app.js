@@ -855,7 +855,7 @@ function makePokeCard(data, opts) {
   // the horizontal map-screen card (R7/N44) has a zone to address.
   if (colStats.children.length) card.appendChild(colStats);
 
-  if (data.held_item) {
+  if (data.held_item && opts.showHeldItem !== false) {
     const held = document.createElement('div');
     held.className = 'team-slot-item';
     held.textContent = '@' + data.held_item;
@@ -1679,7 +1679,8 @@ function attachDragGesture(el, { onDropSlot, onTap }) {
         ghost.classList.add('team-drag-ghost');
         ghost.style.cssText =
           'position:fixed;pointer-events:none;z-index:9999;width:'
-          + box.width + 'px;opacity:0.85;transition:none;';
+          + box.width + 'px;height:' + box.height
+          + 'px;opacity:0.85;transition:none;';
         document.body.appendChild(ghost);
         el.style.opacity = '0.3';
       }
@@ -1728,7 +1729,11 @@ function renderTeamBar(state) {
   el.innerHTML = '';
   const reorder = legalReorder(state);
   state.team.forEach((mon, idx) => {
-    const card = makePokeCard(mon);
+    // `makePokeCard` is shared by every card surface. The map team bar owns
+    // a dedicated item column, so suppress its optional text treatment and
+    // add that column below for EVERY member (including an intentionally blank
+    // one). A held item can therefore never alter a card's width or height.
+    const card = makePokeCard(mon, { showHeldItem: false });
     // M6/N24. 64671-64677 attaches the hover card to every team slot.
     attachHoverCard(card, mon);
     // The source's own class pair (64625-64627): `team-slot` always,
@@ -1746,11 +1751,20 @@ function renderTeamBar(state) {
       if (idx >= 1 && idx <= 5) card.setAttribute('data-shortcut', '⇧' + (idx + 1));
     }
 
-    // 64695-64712: the held-item badge opens the equip modal for that item.
-    const heldBadge = card.querySelector('.team-slot-item');
-    if (heldBadge && mon.held_item) {
+    // A fixed map-team item column. It remains visually empty when there is
+    // no held item, while a real item is represented by the same local sprite
+    // the bag uses. The title/accessible label and click retain the existing
+    // held-item detail flow instead of cramming a long item name into the row.
+    const heldBadge = document.createElement(mon.held_item ? 'button' : 'span');
+    heldBadge.className = 'team-slot-item'
+      + (mon.held_item ? ' team-slot-item--assigned' : ' team-slot-item--empty');
+    if (mon.held_item) {
+      heldBadge.type = 'button';
+      const info = mon.held_item_info || { id: mon.held_item, name: mon.held_item };
+      appendItemIcon(heldBadge, info, 20);
+      heldBadge.setAttribute('aria-label', 'Held item: ' + (info.name || mon.held_item));
       heldBadge.style.cursor = 'pointer';
-      heldBadge.title = 'Held: ' + mon.held_item + ' -- click for options';
+      heldBadge.title = 'Held: ' + (info.name || mon.held_item) + ' -- click for details';
       heldBadge.addEventListener('pointerdown', (e) => e.stopPropagation());
       heldBadge.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -1759,7 +1773,11 @@ function renderTeamBar(state) {
         hideTeamHoverCard();
         openHeldItemModal(state, idx);
       });
+    } else {
+      heldBadge.setAttribute('aria-label', 'No held item');
+      heldBadge.setAttribute('title', 'No held item');
     }
+    card.appendChild(heldBadge);
 
     if (reorder) {
       attachDragGesture(card, {
@@ -1793,7 +1811,11 @@ function renderItemBar(state) {
     span.style.marginRight = '6px';
     span.style.display = 'inline-block';
     span.style.marginBottom = '4px';
-    span.textContent = info.name || id;
+    // `main.css` deliberately makes these icon-only badges (`font-size: 0`).
+    // Rendering the name here therefore produced a blank, apparent
+    // placeholder; append the local item sprite that the contract already
+    // supplies instead.
+    appendItemIcon(span, info, 20);
 
     const useEntry = legalUseItem(state, bagIdx);
     const equipEntry = legalEquip(state, bagIdx);
@@ -2035,21 +2057,49 @@ function openHeldItemModal(state, teamIdx) {
   modalCancelButton(box, 'Cancel');
 }
 
+const BADGE_NAMES = {
+  gen1: ['Boulder Badge', 'Cascade Badge', 'Thunder Badge', 'Rainbow Badge',
+    'Soul Badge', 'Marsh Badge', 'Volcano Badge', 'Earth Badge'],
+  gen2: ['Zephyr Badge', 'Hive Badge', 'Plain Badge', 'Fog Badge',
+    'Storm Badge', 'Mineral Badge', 'Glacier Badge', 'Rising Badge'],
+  gen3: ['Stone Badge', 'Knuckle Badge', 'Dynamo Badge', 'Heat Badge',
+    'Balance Badge', 'Feather Badge', 'Mind Badge', 'Rain Badge'],
+  gen4: ['Coal Badge', 'Forest Badge', 'Cobble Badge', 'Fen Badge',
+    'Relic Badge', 'Mine Badge', 'Icicle Badge', 'Beacon Badge'],
+};
+
+function badgeRegion(state) {
+  if (state.gen4_mode) return 'gen4';
+  if (state.gen3_mode) return 'gen3';
+  if (state.gen2_mode) return 'gen2';
+  return 'gen1';
+}
+
+function badgeSpriteNumber(state, badgeIndex) {
+  const offsets = { gen1: 1, gen2: 9, gen3: 17, gen4: 25 };
+  return offsets[badgeRegion(state)] + badgeIndex;
+}
+
 function renderBadgeCount(state) {
   const el = document.getElementById('badge-count-panel');
   el.innerHTML = '';
+  const region = badgeRegion(state);
   for (let i = 0; i < 8; i++) {
-    const span = document.createElement('span');
     const earned = i < state.badges;
-    span.className = earned ? 'badge-icon-img' : 'badge-icon-empty';
-    span.style.display = 'inline-block';
-    span.style.width = '16px';
-    span.style.height = '16px';
-    span.style.borderRadius = '50%';
-    span.style.margin = '2px';
-    span.style.background = earned ? 'var(--gold)' : 'transparent';
-    span.style.border = earned ? '1px solid #000' : '1px dashed #666';
-    el.appendChild(span);
+    const name = BADGE_NAMES[region][i];
+    if (earned) {
+      const img = document.createElement('img');
+      img.className = 'badge-icon-img';
+      img.src = '/img/sprites/badges/' + badgeSpriteNumber(state, i) + '.png';
+      img.alt = name;
+      img.title = name;
+      el.appendChild(img);
+    } else {
+      const empty = document.createElement('span');
+      empty.className = 'badge-icon-empty';
+      empty.title = name;
+      el.appendChild(empty);
+    }
   }
 }
 

@@ -120,6 +120,23 @@ class Element {
     return child;
   }
   remove() { if (this.parentNode) this.parentNode.removeChild(this); }
+  // Team reordering clones the rendered row into a body-level drag portal.
+  // Preserve the DOM shape and presentation attributes a browser clone keeps;
+  // listeners intentionally do not transfer, matching cloneNode(true).
+  cloneNode(deep) {
+    const clone = new Element(this.tagName.toLowerCase(), this.namespaceURI);
+    clone.attributes = Object.assign({}, this.attributes);
+    clone.className = this.className;
+    Object.assign(clone.style._store, this.style._store);
+    clone._text = this._text;
+    clone._innerHTML = this._innerHTML;
+    clone.disabled = this.disabled;
+    for (const key of ['src', 'alt', 'title', 'type']) {
+      if (Object.prototype.hasOwnProperty.call(this, key)) clone[key] = this[key];
+    }
+    if (deep) this.childNodes.forEach((child) => clone.appendChild(child.cloneNode(true)));
+    return clone;
+  }
   // R6. `app.js`'s two asset-fallback paths (`appendItemIcon`'s missing item
   // sprite -> emoji span, `appendMoveBlock`'s missing physical/special PNG ->
   // the source's own coloured text badge) both swap the failed <img> for a
@@ -178,6 +195,7 @@ class Element {
     return handlers.length;
   }
   click() { return this.dispatch('click', {}); }
+  setPointerCapture() {}
   /** How many handlers are bound for `type` -- the double-dispatch detector. */
   listenerCount(type) {
     let n = (this.listeners[type] || []).length;

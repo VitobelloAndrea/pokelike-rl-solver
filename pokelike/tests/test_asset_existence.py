@@ -83,7 +83,7 @@ _DOCUMENTED_ABSENT = {
 #: the guard that keeps a future one-line allowlist edit from silently hiding a
 #: missing Pokemon sprite, item icon or map background.
 _NEVER_EXCUSED_PREFIXES = (
-    "img/sprites/pokemon/", "img/sprites/items/", "img/sprites/showdown/",
+    "img/sprites/pokemon/", "img/sprites/items/", "img/sprites/badges/", "img/sprites/showdown/",
     "img/maps/", "img/regions/", "img/items/",
 )
 
@@ -236,6 +236,17 @@ def collect_item_icon_url_references() -> set[str]:
         if rel:
             out.add(rel)
     return out
+
+
+def collect_badge_sprite_references() -> set[str]:
+    """The map HUD can select all eight badges in each of four regions.
+
+    `renderBadgeCount` maps Gen1..Gen4 to the source's contiguous local
+    sprite families 1..8, 9..16, 17..24 and 25..32 respectively. Enumerate
+    every path here rather than sampling a one-badge run: an untouched early
+    run never exercises the seven later sprites, much less the other regions.
+    """
+    return {f"img/sprites/badges/{number}.png" for number in range(1, 33)}
 
 
 def _all_items():
@@ -461,6 +472,14 @@ class EmittedAssetExistenceTests(unittest.TestCase):
             "would silently stop covering N48",
         )
         self._check(refs, "contract item icon_url")
+
+    def test_every_badge_sprite_the_map_hud_can_emit_exists_and_is_tracked(self):
+        """The earned-badge image branch is the normal visual, never a gold
+        circle placeholder. All 32 source sprites must therefore ship locally
+        and remain under the same tracked-asset guard as item sprites."""
+        refs = collect_badge_sprite_references()
+        self.assertEqual(32, len(refs), "the four-region badge family collapsed")
+        self._check(refs, "map HUD badge sprite")
 
     def test_every_reachable_node_sprite_exists_and_is_tracked(self):
         """R7.1. The whole reachable node-sprite family, across all nine maps

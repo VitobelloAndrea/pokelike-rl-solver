@@ -717,6 +717,94 @@ function teamFixture() {
   return entry;
 }
 
+/** A real multi-member team, required for the reorder and empty-item cells. */
+function multiMemberTeamFixture() {
+  const entry = Object.entries(fixtures).find(([, st]) => st.team && st.team.length >= 2);
+  if (!entry) throw new Error('no fixture carries two team members -- team-bar detectors would be vacuous');
+  return entry;
+}
+
+detector('team items: every row reserves one cell and assigned items use a local sprite', () => {
+  const [name, state] = multiMemberTeamFixture();
+  const patched = JSON.parse(JSON.stringify(state));
+  patched.team.forEach((mon, idx) => {
+    if (idx !== 0) {
+      mon.held_item = null;
+      mon.held_item_info = null;
+    }
+  });
+  patched.team[0].held_item = 'leftovers';
+  patched.team[0].held_item_info = {
+    id: 'leftovers', name: 'Leftovers', desc: 'Restores a little HP each turn.', icon: '🍽️',
+  };
+
+  const { ctx, document } = boot();
+  ctx.renderTeamBar(patched);
+  const cards = document.querySelectorAll('#team-bar .team-slot');
+  assertEqual(cards.length, patched.team.length, `${name}: team bar lost a member`);
+  const cells = cards.map((card) => card.querySelector('.team-slot-item'));
+  assert(cells.every(Boolean), 'an unequipped Pokemon has no reserved item cell');
+
+  const icon = cells[0].querySelector('img.item-sprite-icon');
+  assert(icon, 'an equipped Pokemon did not render an item image');
+  assertEqual(icon.src, '/img/sprites/items/leftovers.png', 'the held item does not use the local sprite');
+  assert(cells.slice(1).every((cell) => cell.classList.contains('team-slot-item--empty')),
+    'an unequipped Pokemon did not receive the intentionally blank item cell');
+  assert(cells.slice(1).every((cell) => !cell.querySelector('img')),
+    'the blank item cell renders a placeholder image');
+
+  cells[0].dispatch('click', {});
+  const modal = document.getElementById('pokelike-modal');
+  assert(modal, 'clicking the held-item icon did not open its detail overlay');
+  assert(modal.textContent.includes('Leftovers') && modal.textContent.includes('Restores a little HP'),
+    'the held-item detail overlay lost the item name or description');
+});
+
+detector('bag and badges: real local images replace the text and gold-circle placeholders', () => {
+  const [, state] = teamFixture();
+  const patched = Object.assign({}, state, {
+    items: ['leftovers'],
+    items_info: [{ id: 'leftovers', name: 'Leftovers', desc: 'Restores HP.', icon: '🍽️' }],
+    badges: 1,
+    gen2_mode: false,
+    gen3_mode: true,
+    gen4_mode: false,
+  });
+  const { ctx, document } = boot();
+  ctx.renderItemBar(patched);
+  const itemIcon = document.querySelector('#item-bar .item-badge img.item-sprite-icon');
+  assert(itemIcon, 'the bag item badge has no image');
+  assertEqual(itemIcon.src, '/img/sprites/items/leftovers.png', 'the bag item image is not local');
+
+  ctx.renderBadgeCount(patched);
+  const badge = document.querySelector('#badge-count-panel img.badge-icon-img');
+  assert(badge, 'an earned badge still rendered as a non-image placeholder');
+  assertEqual(badge.src, '/img/sprites/badges/17.png', 'Gen3 badge sprite mapping is wrong');
+  assertEqual(document.querySelectorAll('#badge-count-panel .badge-icon-empty').length, 7,
+    'unearned badges no longer reserve their seven empty slots');
+});
+
+detector('team reorder: the drag portal locks to the source row dimensions', () => {
+  const [name, state] = multiMemberTeamFixture();
+  const patched = JSON.parse(JSON.stringify(state));
+  patched.legal_actions = Object.assign({}, patched.legal_actions, {
+    reorder_team: { team_size: patched.team.length },
+  });
+  const { ctx, document } = boot();
+  ctx.renderTeamBar(patched);
+  const slot = document.querySelector('#team-bar .team-slot');
+  slot.clientWidth = 711;
+  slot.clientHeight = 68;
+  slot.dispatch('pointerdown', { button: 0, pointerId: 1, clientX: 30, clientY: 20 });
+  slot.dispatch('pointermove', { pointerId: 1, clientX: 50, clientY: 20 });
+  const ghost = document.body.querySelector('.team-drag-ghost');
+  assert(ghost, `${name}: moving a team row did not create its drag portal`);
+  assert(ghost.style.cssText.includes('width:711px') && ghost.style.cssText.includes('height:68px'),
+    `the drag portal does not retain the source row size (${ghost.style.cssText})`);
+  slot.dispatch('pointerup', { pointerId: 1, clientX: 50, clientY: 20 });
+  assert(!document.body.querySelector('.team-drag-ghost'), 'the drag portal survived pointerup');
+});
+
 detector('N24: index.html declares the #team-hover-card element', () => {
   const { document } = boot();
   assert(document.getElementById('team-hover-card') !== null,
