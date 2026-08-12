@@ -1,6 +1,6 @@
 .claude*
-internal_docs*
-docs/archive*
+internal_docs
+docs/archive
 docs/audits
 docs/prompts
 docs/reference
@@ -21,6 +21,17 @@ tools/
 #     `npm --prefix route-oracle ci`. Only `scan-toplevel-danger.js` needs it.
 route-oracle/out/
 route-oracle/findings/streams/
+
+# Derived output under `tools/`. Redundant while `tools/` is ignored wholesale
+# above, but kept explicit so these two stay ignored on their own merits: both
+# are regenerated from tracked inputs.
+#   * `battle-oracle/out/` -- a 3.2 MB executable slice of the tracked bundle.
+#     `battle-oracle/prefix.sha256` pins its hash and `compare.py` regenerates
+#     it when absent (R7.1/N50).
+#   * `extract-data/out/` -- intermediate extraction tables, rebuilt from the
+#     tracked bundle by the scripts beside them.
+tools/battle-oracle/out/
+tools/extract-data/out/
 
 
 # Python caches, test output, and local environments

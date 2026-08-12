@@ -158,6 +158,36 @@
       min-height: 0;
       min-width: 0;
       margin: 0 auto;
+
+      /* R7.1 — DELIBERATE FALLBACK, not a port. `app.js:mapBackgroundUrl`
+         assigns the source's per-map artwork to `background-image`
+         (bundle.deobfuscated.js:77232-77246). `background-color` sits BEHIND
+         that image in the paint order, so if the PNG ever 404s the panel stays
+         a legible dark surface rather than going transparent and letting the
+         page background show through the node graph. The source has no such
+         guard because its assets are always present; ours must survive a
+         partial asset tree.
+
+         The gradient lives in `--map-fallback` and is declared ONCE here
+         rather than duplicated in JS. `app.js` sets
+         `background-image: url(...), var(--map-fallback)` -- two layers, image
+         first -- because an inline `background-image` REPLACES the CSS one
+         wholesale. Setting only the URL would have deleted the very fallback
+         this block exists to provide, leaving `background-color` as the only
+         guard. Layering keeps the gradient genuinely behind the artwork.
+
+         `contain` + `center` keep the 208x347 source images from being cropped
+         or stretched by the three-column centre cell, whose aspect ratio is
+         driven by the viewport rather than by the artwork. `no-repeat` stops a
+         short image from tiling into a visually noisy backdrop that would
+         destroy node contrast. A gradient layer has no intrinsic size, so it
+         fills the box under both keywords. */
+      --map-fallback: linear-gradient(180deg, #1b2130 0%, #10131b 100%);
+      background-color: #12161f;
+      background-image: var(--map-fallback);
+      background-size: contain;
+      background-position: center;
+      background-repeat: no-repeat;
     }
 
     /* ===================================================================
@@ -344,6 +374,65 @@
       min-height: 0; padding: 4px; gap: 3px; min-width: 96px;
     }
     .map-panel-left .team-slot .poke-move .move-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+    /* R7.1-B — bounded responsive repair. The three-column presentation above
+       is deliberately a desktop layout: its team card has real content minima
+       (sprite + identity + stat bars + move) and the centre map is portrait.
+       Keeping all three tracks at 720px therefore did not merely make the
+       panels compact; it reduced the map to a thin unusable strip.
+
+       Below 900px, put the map in its own first grid row and stack the existing
+       team and bag panels afterwards. This keeps the same DOM, node hit areas,
+       rendering code and source stylesheet; it changes only this port-specific
+       R7 layout decision. The map still derives its width from its displayed
+       height and remains centred, but now has an entire row in which to do it.
+       The screen may scroll vertically to reach the HUD after the map instead
+       of clipping one of the three columns.
+
+       Phone-width evidence is owner-deferred for R7.1-B. This rule happens to
+       provide a sensible fallback there too, but the closure gate is the
+       requested 720px-wide viewport, not a claimed mobile redesign. */
+    @media (max-width: 899px) {
+      #map-screen.screen.active {
+        height: auto;
+        min-height: 100dvh;
+        max-height: none;
+        overflow-y: auto;
+      }
+      .map-panels--three-col {
+        grid-template-columns: minmax(0, 1fr);
+        grid-template-rows: minmax(360px, 70dvh) auto auto;
+        height: auto;
+        max-height: none;
+        min-height: 100dvh;
+        overflow: visible;
+        padding: 8px;
+      }
+      .map-panels--three-col > #map-container {
+        grid-column: 1;
+        grid-row: 1;
+        justify-self: center;
+        align-self: stretch;
+        width: auto;
+        height: 100%;
+        min-height: 360px;
+        max-height: none;
+      }
+      .map-panels--three-col > .map-panel-left {
+        grid-column: 1;
+        grid-row: 2;
+        max-height: none;
+        overflow: visible;
+      }
+      .map-panels--three-col > .map-panel-right {
+        grid-column: 1;
+        grid-row: 3;
+        margin-top: 0;
+        align-self: stretch;
+        max-height: none;
+        overflow: visible;
+      }
+    }
 
     /* M6/N26. The source's `.history-region-btn` is a 3-column grid --
        image | run stats | achievements (main.css:5323-5344). This port models

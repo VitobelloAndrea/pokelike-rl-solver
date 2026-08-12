@@ -872,3 +872,75 @@ before applying enemy recoil, and the port did not. It is HP-neutral — the onl
 way to arrive there at 0 HP is the `rocky_helmet` block immediately above, and
 `max(0, 0 - recoil)` is 0 either way — which is why it was invisible for as
 long as it was. It decides whether the new record exists, so it is now ported.
+
+## 14. Version 5 (unchanged) — R7.1's supplied assets
+
+R7.1 changed contract **values**, not the contract **shape**. `CONTRACT_VERSION`
+stays at 5: no pinned field was added, removed, renamed or retyped. What
+changed is which URL a `sprite_url` or `icon_url` carries, and that is exactly
+the kind of change §2 says belongs on the read side.
+
+### 14.1 Hot-linked node art is now served from a local cache
+
+The source fetches two families of node art from third-party hosts at render
+time: PokeAPI item icons (`_POKEAPI_ITEM`, `46499-46502`) and Showdown trainer
+sprites (the submap-boss `sprite` fields and the gym-leader tables). Emitting
+those URLs verbatim made ordinary rendering depend on two remote hosts being
+up — wrong for an offline port, and wrong for a training loop that renders
+thousands of episodes.
+
+`contract._local_cache_url` maps a remote URL onto its cached path:
+
+| Remote prefix | Local cache |
+|---|---|
+| `raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/` | `img/sprites/items/` |
+| `play.pokemonshowdown.com/sprites/trainers/` | `img/sprites/showdown/` |
+
+It rewrites **only when the cache file exists**. That is deliberate and it is
+not defensive padding: an unconditional rewrite would turn a missing cache
+entry into a guaranteed 404, and it would break the Kanto gym Showdown URLs,
+which have no cache file because Story mode's nine maps (indices 0-8) cannot
+reach the Gen2 `9 <= idx < 18` branch that selects them. Those stay remote and
+are proved unreachable rather than silently rewritten into a broken local path.
+
+The reachable set is not left to trust. `test_asset_existence` enumerates every
+node sprite the Story/Nuzlocke Gen1-4 surface can emit — **123 distinct paths**
+across all nine maps and all four generations — and fails if any of them still
+names either remote host. `_boss_sprite_raw` keeps the source's branch
+structure verbatim so the pre-cache value stays directly comparable to
+`53988-54015`.
+
+The image-error fallback is unchanged: `appendNodeSprite` still falls back to
+the source's circle branch, and a detector still covers it. R7.1 made the image
+branch the *ordinary* branch; it did not remove the other one.
+
+### 14.2 Per-map background selection
+
+`app.js:mapBackgroundUrl` ports the assignment the source makes to
+`#map-container` immediately before it calls `renderMap`
+(`bundle.deobfuscated.js:77232-77246`). It is a pure function of five fields
+`observation()` already carried, so this required no engine change and no shape
+bump:
+
+1. `in_sub_map == "distortion"` → `/img/maps/g4/distortion_world.png`
+2. `in_sub_map == "underground"` → `/img/maps/g4/underground.png`
+3. otherwise `/img/maps/g<N>/<current_map + 1>.png`, with `N` from the mutually
+   exclusive `gen2_mode`/`gen3_mode`/`gen4_mode` flags, defaulting to `g1`
+
+The submap tests come first and are unconditional in the source: a submap
+background overrides **both** the active generation and the map index. The
+`+ 1` is the source's own — `current_map` is 0-based on both sides, the
+filenames are 1-based.
+
+That is 38 files: nine per generation plus the two Gen4 submap overrides.
+
+**One declared deviation, and it is a port-specific fallback rather than a
+port.** The value is emitted as two background layers,
+`url('...'), var(--map-fallback)`, where `--map-fallback` is a gradient
+declared on `#map-container` in `index.html`. An inline `background-image`
+replaces the CSS declaration outright, so emitting only the URL would have
+deleted the fallback. Layering keeps a failed image degrading to a legible
+panel instead of a transparent one. The source has no equivalent because its
+assets are always present. `main.css` stays byte-identical to
+`pokelike_forked/style/main.css`; this rule lives in `index.html`, per the
+standing split.

@@ -1,0 +1,39 @@
+# R7.1 / N49 -- line-ending stability for the hash-pinned source bundle.
+#
+# THE FAILURE THIS PREVENTS
+#
+# `route-oracle/` and `tools/battle-oracle/` both work by slicing an executable
+# prefix out of `pokelike_forked/js/bundle.deobfuscated.js` and running it in
+# Node, then comparing the real JS against the Python port. Each slice's
+# SHA-256 is checked in (`route-oracle/prefix.sha256`,
+# `tools/battle-oracle/prefix.sha256`) and re-verified on every oracle run, so
+# that a silently changed bundle cannot quietly invalidate the comparison.
+#
+# On Windows, `core.autocrlf=true` is a common global default. Without a
+# `.gitattributes`, Git treats the bundle as text and rewrites every LF to CRLF
+# on checkout. Measured on this repository: the bundle's SHA-256 goes from
+#
+#   dc29e7444b2883becbc336fc4cdc4dc4e823058b6cdd9b3a3dadbda400f99d82   (tracked)
+#   5ac9d2e1ce56eba0b9209f70866c866d6db475116383f9fab0ad11f0c513c98d   (checkout)
+#
+# Both derived prefixes change with it, so both pinned hashes fail and NEITHER
+# oracle can run on a fresh clone.
+#
+# The corruption is invisible to the usual check: `git status` reports a clean
+# tree, because Git converts back to LF when it compares against the index. The
+# working file on disk is what the extractor reads, and that file is wrong.
+#
+# THE RULE
+#
+# `-text` means "never do end-of-line conversion on this path", in either
+# direction, regardless of the user's `core.autocrlf`. It is deliberately
+# scoped to the one file whose exact bytes are pinned: the two prefixes are
+# derived from it, so protecting the bundle protects them, and nothing else in
+# the repository has byte-level expectations. Broadening this to `* -text`
+# would also be correct for the hashes but would silently opt every future
+# contributor out of line-ending normalisation for reasons unrelated to N49.
+#
+# Do not "fix" a hash failure here by updating `prefix.sha256`. That blesses
+# the drift instead of the bytes, and the oracles stop comparing what the
+# source actually is.
+pokelike_forked/js/bundle.deobfuscated.js -text

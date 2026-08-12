@@ -1662,6 +1662,134 @@ detector('N35: R and H are inert outside a run', () => {
 });
 
 // ---------------------------------------------------------------------------
+// 6. R7.1 — the source's per-map background (bundle.deobfuscated.js:77232-77246)
+// ---------------------------------------------------------------------------
+//
+// `mapBackgroundUrl` is deliberately a PURE function of the five observation
+// fields the source reads, so its precedence is testable without a DOM. The
+// last two detectors then check the DOM effect: that the value is actually
+// applied to `#map-container`, and that it is REPLACED rather than retained
+// when a later state renders.
+
+/** The repo-relative file behind one of the emitted `/img/...` URLs. */
+function backgroundFile(url) {
+  return path.join(__dirname, '..', '..', 'webui', 'static', url.replace(/^\//, ''));
+}
+
+/** A minimal on_map state carrying only the background-relevant fields. */
+function bgState(over) {
+  const [, base] = mapFixtures()[0];
+  return Object.assign({}, base, {
+    current_map: 0, gen2_mode: false, gen3_mode: false, gen4_mode: false,
+    in_sub_map: null,
+  }, over || {});
+}
+
+detector('R7.1: the map index selects a different numbered background file', () => {
+  const { ctx } = boot();
+  const first = ctx.mapBackgroundUrl(bgState({ current_map: 0 }));
+  const last = ctx.mapBackgroundUrl(bgState({ current_map: 8 }));
+  assertEqual(first, '/img/maps/g1/1.png', 'map 0 did not resolve to the first background');
+  assertEqual(last, '/img/maps/g1/9.png', 'map 8 did not resolve to the ninth background');
+  assert(first !== last,
+    'every map index resolved to the SAME file -- the background is not per-map');
+});
+
+detector('R7.1: each generation resolves to its own directory', () => {
+  const { ctx } = boot();
+  const cases = [
+    [{}, '/img/maps/g1/3.png'],
+    [{ gen2_mode: true }, '/img/maps/g2/3.png'],
+    [{ gen3_mode: true }, '/img/maps/g3/3.png'],
+    [{ gen4_mode: true }, '/img/maps/g4/3.png'],
+  ];
+  const seen = new Set();
+  for (const [flags, expected] of cases) {
+    const got = ctx.mapBackgroundUrl(bgState(Object.assign({ current_map: 2 }, flags)));
+    assertEqual(got, expected, `generation flags ${JSON.stringify(flags)} resolved wrongly`);
+    seen.add(got);
+  }
+  assertEqual(seen.size, 4, 'the four generations did not resolve to four distinct files');
+});
+
+detector('R7.1: a submap overrides both the generation and the map index', () => {
+  const { ctx } = boot();
+  // Deliberately hostile inputs: a NON-Gen4 generation and a non-zero map
+  // index. The source tests `inSubMap` FIRST and unconditionally (77234-77237),
+  // so neither may leak into the result.
+  for (const gen of [{}, { gen2_mode: true }, { gen3_mode: true }, { gen4_mode: true }]) {
+    for (const mapIndex of [0, 4, 8]) {
+      const base = Object.assign({ current_map: mapIndex }, gen);
+      assertEqual(
+        ctx.mapBackgroundUrl(bgState(Object.assign({ in_sub_map: 'distortion' }, base))),
+        '/img/maps/g4/distortion_world.png',
+        `distortion leaked generation/map state (${JSON.stringify(base)})`,
+      );
+      assertEqual(
+        ctx.mapBackgroundUrl(bgState(Object.assign({ in_sub_map: 'underground' }, base))),
+        '/img/maps/g4/underground.png',
+        `underground leaked generation/map state (${JSON.stringify(base)})`,
+      );
+    }
+  }
+});
+
+detector('R7.1: every resolvable background path exists on disk', () => {
+  const { ctx } = boot();
+  const urls = new Set([
+    ctx.mapBackgroundUrl(bgState({ in_sub_map: 'distortion' })),
+    ctx.mapBackgroundUrl(bgState({ in_sub_map: 'underground' })),
+  ]);
+  const gens = [{}, { gen2_mode: true }, { gen3_mode: true }, { gen4_mode: true }];
+  for (const gen of gens) {
+    for (let i = 0; i < 9; i += 1) {
+      urls.add(ctx.mapBackgroundUrl(bgState(Object.assign({ current_map: i }, gen))));
+    }
+  }
+  assertEqual(urls.size, 38, 'the background family is not the expected 38 files');
+  for (const url of urls) {
+    assert(fs.existsSync(backgroundFile(url)), `background ${url} does not exist on disk`);
+  }
+});
+
+detector('R7.1: the background is applied to #map-container beneath the SVG', () => {
+  const { ctx, document } = boot();
+  ctx.render(bgState({ current_map: 2, gen3_mode: true }));
+  const container = document.getElementById('map-container');
+  const bg = container.style.backgroundImage || '';
+  assert(bg.includes('/img/maps/g3/3.png'),
+    `#map-container has no map background (got ${JSON.stringify(bg)})`);
+  // The deliberate fallback must survive: setting only the URL would have
+  // replaced the CSS gradient outright.
+  assert(bg.includes('var(--map-fallback)'),
+    'the gradient fallback layer was dropped, so a 404 would leave the panel bare');
+  // The SVG still renders on top -- a background that replaced the map would
+  // be worse than none.
+  assert(document.getElementById('map-svg'), 'the map SVG is missing under the background');
+});
+
+detector('R7.1: a later state REPLACES the previous map image', () => {
+  const { ctx, document } = boot();
+  const container = () => document.getElementById('map-container');
+
+  ctx.render(bgState({ current_map: 0 }));
+  const before = container().style.backgroundImage;
+  assert(before.includes('/img/maps/g1/1.png'), 'the first render set the wrong background');
+
+  ctx.render(bgState({ current_map: 5, gen4_mode: true }));
+  const after = container().style.backgroundImage;
+  assert(after.includes('/img/maps/g4/6.png'), 'the second render set the wrong background');
+  assert(!after.includes('/img/maps/g1/1.png'),
+    'the previous map image was RETAINED -- the player would see the old route');
+
+  // And entering a submap from there overrides it again.
+  ctx.render(bgState({ current_map: 5, gen4_mode: true, in_sub_map: 'underground' }));
+  const sub = container().style.backgroundImage;
+  assert(sub.includes('/img/maps/g4/underground.png'), 'the submap background was not applied');
+  assert(!sub.includes('/img/maps/g4/6.png'), 'the parent map image survived entering a submap');
+});
+
+// ---------------------------------------------------------------------------
 // Report
 // ---------------------------------------------------------------------------
 

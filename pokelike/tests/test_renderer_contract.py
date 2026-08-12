@@ -1757,6 +1757,20 @@ class WebRendererWiringTests(unittest.TestCase):
                            "escape-rope-screen", "escape-rope-title", "btn-decline-rope"):
             self.assertIn(f'id="{element_id}"', html, f"index.html lacks #{element_id}")
 
+    def test_r71_narrow_layout_gives_the_map_its_own_row(self):
+        """R7.1-B. The desktop three-column grid is intentionally unsuitable
+        below 900px: its real team-card minima used to squeeze the portrait map
+        into a thin strip at 720px. The port-specific responsive rule must keep
+        the map's first row independent of both HUD panels. Browser evidence
+        proves the paint result; this pins the structural repair against a
+        future CSS tidy-up removing it."""
+        html = self._index_html()
+        self.assertIn("@media (max-width: 899px)", html)
+        self.assertIn("grid-template-rows: minmax(360px, 70dvh) auto auto;", html)
+        self.assertIn(".map-panels--three-col > #map-container", html)
+        self.assertIn("grid-row: 1;", html)
+        self.assertIn("overflow-y: auto;", html)
+
     def test_the_transport_decodes_all_three_actions_and_cancel(self):
         """The wiring is only real if the server accepts it. `cancel` was
         silently dropped by `decode_action` before R3, so a browser sending it

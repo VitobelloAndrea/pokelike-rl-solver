@@ -1347,12 +1347,48 @@ function observeMapContainer(container) {
   _mapResizeObserver.observe(container);
 }
 
+// R7.1. The source assigns `#map-container`'s background image immediately
+// before it calls `renderMap` (bundle.deobfuscated.js:77232-77246). Ported as a
+// PURE function of the five observation fields it reads, so the precedence can
+// be tested without a DOM:
+//
+//   state.inSubMap === 'distortion' -> img/maps/g4/distortion_world.png
+//   state.inSubMap === 'underground' -> img/maps/g4/underground.png
+//   else gen2Mode/gen3Mode/gen4Mode/(default gen1) -> img/maps/gN/<currentMap+1>.png
+//
+// The submap tests come FIRST and are unconditional in the source: a submap
+// background overrides both the active generation and the map index. That is
+// why this is a chain and not a lookup keyed on generation.
+//
+// `current_map` is 0-based on both sides and the filenames are 1-based, hence
+// the `+ 1` -- the source's own `state.currentMap + 1`.
+function mapBackgroundUrl(state) {
+  if (!state) return null;
+  if (state.in_sub_map === 'distortion') return '/img/maps/g4/distortion_world.png';
+  if (state.in_sub_map === 'underground') return '/img/maps/g4/underground.png';
+  const gen = state.gen4_mode ? 'g4' : state.gen3_mode ? 'g3' : state.gen2_mode ? 'g2' : 'g1';
+  return `/img/maps/${gen}/${(state.current_map | 0) + 1}.png`;
+}
+
 function renderMap(state) {
   const container = document.getElementById('map-container');
   container.innerHTML = '';
   const mapData = state.map;
   if (!mapData) return;
   observeMapContainer(container);
+
+  // Set BEFORE the SVG is built, matching the source's order (77245-77246).
+  // Always reassigned rather than only-when-absent: the container is reused
+  // across the whole run, so leaving a stale value would keep the previous
+  // map's artwork after moving on.
+  //
+  // TWO layers, image first. An inline `background-image` replaces the CSS
+  // declaration outright, so emitting only the URL would silently delete the
+  // deliberate gradient fallback declared on `#map-container`. Referencing it
+  // through `var(--map-fallback)` keeps the fallback defined once, in CSS, and
+  // genuinely painted behind the artwork -- a 404 leaves a legible panel.
+  container.style.backgroundImage =
+    `url('${mapBackgroundUrl(state)}'), var(--map-fallback)`;
 
   // The source sizes its SVG from the live container, with the same fallbacks
   // (bundle.deobfuscated.js:54113-54125).

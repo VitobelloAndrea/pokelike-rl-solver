@@ -93,5 +93,11 @@ for (const risky of ['document.', 'localStorage.', 'fetch(', 'navigator.', 'Audi
 // rather than at oracle-run time.
 new vm.Script(prefix, { filename: 'battle-prefix-syntax-check.js' });
 
+// R7.1/N50, same bootstrap repair as `route-oracle/extract-prefix.js`. `out/`
+// is gitignored as a derived slice of the tracked bundle, so a clean clone had
+// no directory to write into and this failed with ENOENT. Only the parent
+// directory is created; the cut point, prefix bytes and pinned hash are
+// unchanged.
+fs.mkdirSync(path.dirname(path.resolve(outPath)), { recursive: true });
 fs.writeFileSync(outPath, prefix);
 console.log(`wrote ${outPath} (${prefix.split('\n').length} lines)`);

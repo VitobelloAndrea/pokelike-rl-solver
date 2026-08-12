@@ -66,6 +66,7 @@
 'use strict';
 
 const fs = require('fs');
+const path = require('path');
 const vm = require('vm');
 
 const CUT_NEEDLE = '\nfunction checkMaxStatAchievements(';
@@ -96,5 +97,11 @@ const lineCount = prefix.split('\n').length - 1;
 // at oracle-run time.
 new vm.Script(prefix, { filename: 'route-prefix-syntax-check.js' });
 
+// R7.1/N50. `out/` is gitignored (it is a derived slice of the tracked
+// bundle), so on a CLEAN CLONE the directory does not exist and this write
+// failed with ENOENT -- the regeneration path that `compare.py` depends on
+// could not bootstrap itself. Creating the parent is the whole fix; the cut
+// point, the prefix bytes and the pinned hash are deliberately untouched.
+fs.mkdirSync(path.dirname(path.resolve(outPath)), { recursive: true });
 fs.writeFileSync(outPath, prefix);
 console.log(`wrote ${outPath} (${lineCount} lines, ${prefix.length} bytes)`);

@@ -38,6 +38,7 @@ not as a real value.
 
 from __future__ import annotations
 
+import pathlib
 from typing import Optional
 
 from pokelike import battle, data, engine, map_gen
@@ -576,10 +577,62 @@ _POKEAPI_ITEM_BASE = (
     "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/"
 )
 
+_SHOWDOWN_TRAINER_BASE = "https://play.pokemonshowdown.com/sprites/trainers/"
+
+# ---------------------------------------------------------------------------
+# R7.1 -- local cache for the node art the source HOT-LINKS.
+#
+# The source fetches two families of node art from third-party hosts at render
+# time: PokeAPI item icons (`_POKEAPI_ITEM`, 46499-46502) and Showdown trainer
+# sprites (the submap-boss `sprite` fields and the gym-leader tables). Emitting
+# those URLs verbatim made ordinary rendering depend on two remote hosts being
+# reachable, which is wrong for an offline port and wrong for a training loop.
+#
+# R7.1 shipped a verified local cache of every such URL reachable on the
+# Story/Nuzlocke Gen1-4 surface (16 of them: 14 item icons plus the two submap
+# bosses). This maps a remote URL onto its cached path.
+#
+# **Only when the cache file actually exists.** An unconditional rewrite would
+# turn a missing cache entry into a guaranteed 404, and it would also break the
+# gym-leader Showdown URLs that this surface cannot reach (Gen2 map indices
+# 9-17, which Story mode's nine maps never produce) and which therefore have no
+# cache file. Falling back to the original URL keeps those honest instead of
+# inventing a local path that was never fetched. The reachable set is not left
+# to chance: `test_asset_existence` enumerates it and fails if any reachable
+# projection still points at either remote host.
+#
+# This changes contract VALUES, not the contract SHAPE -- `sprite_url` is still
+# one optional string. CONTRACT_VERSION stays at 5.
+# ---------------------------------------------------------------------------
+_REMOTE_TO_LOCAL_CACHE = {
+    _POKEAPI_ITEM_BASE: "img/sprites/items/",
+    _SHOWDOWN_TRAINER_BASE: "img/sprites/showdown/",
+}
+
+_STATIC_ROOT = pathlib.Path(__file__).resolve().parents[1] / "webui" / "static"
+
+
+def _local_cache_url(url: Optional[str]) -> Optional[str]:
+    """Remote node-art URL -> its R7.1 local cache path, when one was fetched.
+
+    Returns `url` unchanged for anything that is already local, is on a host
+    with no cache, or has no cache file on disk.
+    """
+    if not url:
+        return url
+    for remote_base, local_dir in _REMOTE_TO_LOCAL_CACHE.items():
+        if url.startswith(remote_base):
+            candidate = local_dir + url[len(remote_base):]
+            if (_STATIC_ROOT / candidate).is_file():
+                return candidate
+            return url
+    return url
+
 
 def _pokeapi_item(slug: str) -> str:
-    """`_POKEAPI_ITEM` (bundle.deobfuscated.js:46499-46502)."""
-    return f"{_POKEAPI_ITEM_BASE}{slug}.png"
+    """`_POKEAPI_ITEM` (bundle.deobfuscated.js:46499-46502), projected onto the
+    R7.1 local cache when the icon was fetched."""
+    return _local_cache_url(f"{_POKEAPI_ITEM_BASE}{slug}.png")
 
 
 class NodeContext:
@@ -659,6 +712,20 @@ def _boss_sprite(node: map_gen.MapNode, ctx: NodeContext) -> Optional[str]:
     tables = data.get_node_presentation()
     map_index = (node.extra or {}).get("mapIndex")
     idx = -1 if map_index is None else int(map_index)
+    # Every table below may carry a hot-linked Showdown URL, so the whole
+    # branch result is projected through the R7.1 local cache on the way out.
+    # The reachable Story/Nuzlocke values (map indices 0-8) are already local
+    # paths in the ported tables; the remote ones are the Kanto gym/`red`
+    # entries that only Gen2 indices 9-17 select, which this surface cannot
+    # generate -- those stay remote and are proved unreachable by the detector.
+    return _local_cache_url(_boss_sprite_raw(tables, idx, ctx))
+
+
+def _boss_sprite_raw(tables, idx: int, ctx: NodeContext) -> Optional[str]:
+    """The branch logic exactly as the source writes it, before R7.1's local
+    cache projection. Split out so the ported branch structure stays readable
+    and directly comparable to 53988-54015, and so a test can assert the
+    pre-cache value independently of what happens to be on disk."""
     if ctx.gen2_mode:
         if idx == 17:
             return "https://play.pokemonshowdown.com/sprites/trainers/red.png"
@@ -723,7 +790,10 @@ def _node_sprite(node: map_gen.MapNode, ctx: NodeContext) -> Optional[str]:
         key = extra.get("trainerKey")
         if key:
             return _trainer_sprite_path(key, False, ctx)
-        return extra.get("bossSprite") or "img/sprites/mistery-trainer.png"
+        # `bossSprite` comes straight from `submap_bosses.json`, whose `sprite`
+        # fields are the source's own hot-linked Showdown URLs. R7.1 projects
+        # the two reachable ones (`ruinmaniac`, `cyrus`) onto their local cache.
+        return _local_cache_url(extra.get("bossSprite")) or "img/sprites/mistery-trainer.png"
     if node.type in per_type:
         return per_type[node.type]
     if node.type == map_gen.TRAINER:
