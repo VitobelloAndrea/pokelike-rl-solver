@@ -1,6 +1,7 @@
 .claude*
 internal_docs
 docs/archive
+docs/archive
 docs/audits
 docs/prompts
 docs/reference

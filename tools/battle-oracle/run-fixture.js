@@ -127,11 +127,26 @@ const DRIVER = `
   // just returns O unchanged (line 80994), so this one call faithfully
   // covers both the "merged" and "ability-only" cases without a separate
   // branch here.
+  //
+  // M6.2: \`buildTraitsConfig\`'s FIRST TWO parameters are the player/enemy
+  // trait-tier maps (bundle.deobfuscated.js:60733). The ordinary
+  // Story/Nuzlocke branch above genuinely passes \`{}, {}\`, so every
+  // tier-gated trait (Ground/Fairy onStartFight, the Water afterAttack
+  // block, water_retaliate) is structurally unreachable there. Other REAL
+  // source call sites do pass computed maps -- 76812 (elite prep), 81069
+  // (Endless), 86059 (Endless trainer), 90734 -- so a fixture may declare
+  // \`player_tiers\`/\`enemy_tiers\` explicitly to exercise those already-ported
+  // traits against the real source. Absent both keys this is byte-equivalent
+  // to the previous \`{}, {}\` call, so every pre-M6.2 fixture is unaffected.
   var battleConfig = null;
   if (fixture.gen === 3 || fixture.gen === 4) {
     battleConfig = mergeBattleConfigs(
       buildGen3AbilityConfig(),
-      buildTraitsConfig({}, {}, state.passives),
+      buildTraitsConfig(
+        fixture.player_tiers || {},
+        fixture.enemy_tiers || {},
+        state.passives,
+      ),
     );
   }
 

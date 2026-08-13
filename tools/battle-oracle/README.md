@@ -171,8 +171,47 @@ Six M6.1 fixtures prove the known Shell Bell and `rand_nerf` repairs:
 | `rand_nerf_mirror.json` | same selected debuff stat is mirrored to the active player member | DIVERGE | AGREE |
 | `rand_nerf_no_mirror.json` | target debuff remains, but player gains nothing without `debuff_mirror_buff` | AGREE | AGREE |
 
-Current result: **35/35 fixtures agree**. Full Python discovery passes
-**1042/1042 tests**; the focused battle-loop module passes **80/80**.
+Six M6.2 fixtures cover the shared `mirrorEnemyActiveDebuff` helper (`BIq`,
+bundle.deobfuscated.js:60879-60890) and its call sites. The first four
+diverged against the pre-M6.2 port; the last two are coverage/control
+fixtures that agreed before and after the repair, and earn their place by
+killing the two over-/mis-application mutants instead:
+
+| Fixture | Behavior isolated | Pre-fix | Current |
+|---|---|---:|---:|
+| `mirror_water_only.json` | `water_mirror_stage` fires WITHOUT `debuff_mirror_buff` (N51 gating), at `amount * 2` | DIVERGE | AGREE |
+| `mirror_water_both_traits.json` | both traits on a Water active total `3 * amount`, not `2 * amount` (N51 magnitude) | DIVERGE | AGREE |
+| `water_def_debuff_mirror.json` | the Water after-attack block's conditional DEF/Sp.DEF mirrors (N53) | DIVERGE | AGREE |
+| `mirror_start_of_fight.json` | Ground and Fairy `onStartFight` mirrors route through the shared helper | DIVERGE | AGREE |
+| `mirror_ground_onhit_stickyweb.json` | `ground_slow_onhit` and enemy Sticky Web mirrors; fainted lead proves first-living selection | AGREE | AGREE |
+| `water_retaliate_no_mirror.json` | negative control: `whenAttacked` debuffs but deliberately does NOT mirror | AGREE | AGREE |
+
+### Fixture-declared trait tiers (M6.2 input-surface change)
+
+`buildTraitsConfig`'s first two parameters are the player/enemy trait-tier
+maps (bundle.deobfuscated.js:60733). `runBattleScreen`'s ordinary
+Story/Nuzlocke branch passes `{}, {}` (line 81084), and Python's
+`engine._battle_configs` faithfully mirrors that (`engine.py:1235-1236`) --
+so every tier-gated trait is structurally unreachable in the mode this
+oracle models, on both sides. Real source call sites at 76812 (elite prep),
+81069 and 86059 (Endless) and 90734 do pass computed maps.
+
+Two optional fixture keys therefore feed those two parameters directly:
+
+| Key | Type | JS use | Python use | Default |
+|---|---|---|---|---|
+| `player_tiers` | object, type name -> tier int | 1st argument of `buildTraitsConfig` | `TraitsConfig(player_tiers=...)` | `{}` |
+| `enemy_tiers` | object, type name -> tier int | 2nd argument of `buildTraitsConfig` | `TraitsConfig(enemy_tiers=...)` | `{}` |
+
+Absent both keys the call is byte-equivalent to the previous `{}, {}` form,
+so all 35 pre-M6.2 fixtures are unaffected. Nothing else about the runner,
+the projection, or the comparison changed: no new compared field was added.
+Fixtures using these keys prove already-ported trait code against the real
+source; they are **not** a claim that Story/Nuzlocke can reach those traits.
+
+Current result: **41/41 fixtures agree**. Full Python discovery passes
+**1070/1070 tests**; the focused battle-traits module passes **62/62** and
+the focused battle-loop module **80/80**.
 
 ## P0.3 source behavior established
 
@@ -308,6 +347,23 @@ Python now reproduces those mechanics. `BattleResult.status_events` and
 ## Known divergent / not yet covered
 
 No current fixture diverges.
+
+**N54, found while building the M6.2 Water fixtures and deliberately NOT
+repaired there (out of that milestone's scope).** Source line 61791 gates the
+whole Water after-attack block on three conditions -- `B2e("Water", BIY) &&
+BIH !== BIY && BIz["currentHp"] > 0x0` -- but Python's `_after_attack_once`
+checks only the first two (`battle_traits.py:650`, `if water_tier >= 1 and
+opposing:`). On a killing blow the source skips the block entirely while
+Python runs it: one extra `rng()` draw for the proc roll, plus stage
+debuffs applied to an already-fainted target. Observed directly, on an
+earlier draft of `water_def_debuff_mirror.json` in which the player landed
+the last hit: `rng_draws` JS=17 Python=18 and a fourth Water proc that the
+source never performed. This is the same class of defect the
+`poison_onhit`/`ground_slow_onhit`/`elec_chain`/`elec_paralyze` cluster and
+the Ghost-execute splash already had fixed (see the section above); the
+Water block was missed. The shipped M6.2 fixtures are designed so the player
+never lands a killing blow, which keeps N54 out of their evidence. Owner:
+a separate M-track repair, tracked in `PLAN.md`.
 
 Still not covered:
 

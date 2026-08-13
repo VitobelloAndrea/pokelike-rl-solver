@@ -476,5 +476,315 @@ class SecondaryAttackHookReentryTests(unittest.TestCase):
         self.assertEqual(attacker.current_hp, 10)
 
 
+class MirrorEnemyActiveDebuffTests(unittest.TestCase):
+    """M6.2 / N51 -- direct tests of `BIq`
+    (bundle.deobfuscated.js:60879-60890), the shared mirror helper.
+
+    Source contract: `if (amount <= 0) return;` then the first living player
+    member is found; then a **comma expression** whose two branches are
+    gated independently -- `BcU` (`debuff_mirror_buff`) applies `amount`,
+    and `BcA` (`water_mirror_stage`) applies `amount * 2` for `atk`/
+    `special` on a Water-type active. No RNG draw is consumed.
+    """
+
+    def _call(self, traits, team, stat, amount, **kw):
+        cfg = bt.TraitsConfig(traits=[battle.Trait(t) for t in traits], **kw)
+        cfg.mirror_enemy_active_debuff(team, stat, amount)
+        return cfg
+
+    # -- branch gating -------------------------------------------------
+
+    def test_no_mirror_traits_changes_nothing(self):
+        lead = _mon(1, types=("Water",))
+        self._call([], [lead], "atk", 1)
+        self.assertEqual(lead.stages["atk"], 0)
+
+    def test_debuff_mirror_buff_alone_grants_amount_for_every_stat(self):
+        for stat in ("atk", "def", "speed", "special", "spdef"):
+            with self.subTest(stat=stat):
+                lead = _mon(1)  # Normal-type: no Water branch anywhere
+                self._call(["debuff_mirror_buff"], [lead], stat, 2)
+                self.assertEqual(lead.stages[stat], 2)
+
+    def test_water_mirror_stage_alone_grants_double_on_water_active(self):
+        # The N51 gating defect: the old port early-returned without
+        # `debuff_mirror_buff`, so this branch could never fire alone.
+        for stat in ("atk", "special"):
+            with self.subTest(stat=stat):
+                lead = _mon(1, types=("Water",))
+                self._call(["water_mirror_stage"], [lead], stat, 2)
+                self.assertEqual(lead.stages[stat], 4)
+
+    def test_both_traits_on_water_active_total_three_times_amount(self):
+        # Source performs two sequential applyStageChange calls: +amount
+        # then +2*amount. The old port totalled 2*amount.
+        for stat in ("atk", "special"):
+            with self.subTest(stat=stat):
+                lead = _mon(1, types=("Water",))
+                self._call(["debuff_mirror_buff", "water_mirror_stage"], [lead], stat, 2)
+                self.assertEqual(lead.stages[stat], 6)
+
+    def test_water_branch_needs_a_water_type_active(self):
+        lead = _mon(1, types=("Fire",))
+        self._call(["debuff_mirror_buff", "water_mirror_stage"], [lead], "atk", 2)
+        self.assertEqual(lead.stages["atk"], 2)  # base only
+
+    def test_water_branch_never_applies_to_speed_def_or_spdef(self):
+        for stat in ("speed", "def", "spdef"):
+            with self.subTest(stat=stat):
+                lead = _mon(1, types=("Water",))
+                self._call(["debuff_mirror_buff", "water_mirror_stage"], [lead], stat, 2)
+                self.assertEqual(lead.stages[stat], 2)  # base only
+
+    def test_dual_typed_active_still_counts_as_water(self):
+        lead = _mon(1, types=("Ground", "Water"))
+        self._call(["water_mirror_stage"], [lead], "special", 1)
+        self.assertEqual(lead.stages["special"], 2)
+
+    # -- active selection ----------------------------------------------
+
+    def test_selects_first_living_member_when_slot_zero_is_fainted(self):
+        fainted = _mon(1, types=("Water",))
+        fainted.current_hp = 0
+        second = _mon(2, types=("Water",))
+        third = _mon(3, types=("Water",))
+        self._call(["debuff_mirror_buff", "water_mirror_stage"], [fainted, second, third], "atk", 1)
+        self.assertEqual(fainted.stages["atk"], 0)
+        self.assertEqual(second.stages["atk"], 3)
+        self.assertEqual(third.stages["atk"], 0)
+
+    def test_water_eligibility_reads_the_living_active_not_slot_zero(self):
+        # A fainted Water lead must NOT lend its type to a non-Water active.
+        fainted = _mon(1, types=("Water",))
+        fainted.current_hp = 0
+        second = _mon(2, types=("Normal",))
+        self._call(["debuff_mirror_buff", "water_mirror_stage"], [fainted, second], "atk", 1)
+        self.assertEqual(second.stages["atk"], 1)
+
+    # -- no-ops --------------------------------------------------------
+
+    def test_non_positive_amount_is_a_no_op(self):
+        for amount in (0, -3):
+            with self.subTest(amount=amount):
+                lead = _mon(1, types=("Water",))
+                self._call(["debuff_mirror_buff", "water_mirror_stage"], [lead], "atk", amount)
+                self.assertEqual(lead.stages["atk"], 0)
+
+    def test_all_fainted_team_is_a_no_op(self):
+        dead = [_mon(1, types=("Water",)), _mon(2, types=("Water",))]
+        for member in dead:
+            member.current_hp = 0
+        self._call(["debuff_mirror_buff", "water_mirror_stage"], dead, "atk", 2)
+        self.assertTrue(all(m.stages["atk"] == 0 for m in dead))
+
+    def test_empty_team_is_a_no_op(self):
+        self._call(["debuff_mirror_buff"], [], "atk", 1)  # must not raise
+
+    # -- caps and RNG --------------------------------------------------
+
+    def test_sequential_base_and_water_calls_meet_the_shared_stage_cap(self):
+        # apply_stage_change caps at +10; 8 + 1 + 2 would be 11 uncapped.
+        lead = _mon(1, types=("Water",))
+        lead.stages["atk"] = 8
+        self._call(["debuff_mirror_buff", "water_mirror_stage"], [lead], "atk", 1)
+        self.assertEqual(lead.stages["atk"], 10)
+
+    def test_uncapped_stages_flag_is_honoured_through_the_helper(self):
+        lead = _mon(1, types=("Water",))
+        lead.stages["atk"] = 8
+        lead.uncap_stages = True
+        self._call(["debuff_mirror_buff", "water_mirror_stage"], [lead], "atk", 1)
+        self.assertEqual(lead.stages["atk"], 11)
+
+    def test_helper_consumes_no_rng_draw(self):
+        rng.seed_rng(0xC0FFEE)
+        before = rng.get_rng_seed()
+        lead = _mon(1, types=("Water",))
+        self._call(["debuff_mirror_buff", "water_mirror_stage"], [lead], "atk", 3)
+        self.assertEqual(rng.get_rng_seed(), before)
+        self.assertEqual(lead.stages["atk"], 9)
+
+
+class MirrorProducerCallSiteTests(unittest.TestCase):
+    """M6.2 -- the eleven logical source invocations of `BIq`, proved to run
+    through the shared helper rather than a local approximation, plus the
+    deliberately unmirrored `whenAttacked` path.
+
+    The routing proof uses a **lone** `water_mirror_stage` on a Water active
+    wherever the stat is eligible: that combination yields `2 * amount` only
+    if the producer reaches the repaired shared helper, and `0` under the
+    old early-returning one.
+    """
+
+    def setUp(self):
+        self.bc = battle.BattleConfig()
+
+    def _cfg(self, traits=(), **kw):
+        return bt.TraitsConfig(traits=[battle.Trait(t) for t in traits], **kw)
+
+    def _record_mirror_calls(self, cfg):
+        calls = []
+        original = cfg.mirror_enemy_active_debuff
+
+        def spy(team, stat, amount):
+            calls.append((stat, amount))
+            return original(team, stat, amount)
+
+        cfg.mirror_enemy_active_debuff = spy
+        return calls
+
+    # -- invocations 2 and 3-4: onStartFight (61049-61053, 61075-61082) --
+
+    def test_ground_start_of_fight_routes_speed_through_the_helper(self):
+        lead = _mon(1, types=("Ground",))
+        enemy = _mon(2)
+        cfg = self._cfg(["debuff_mirror_buff"], player_tiers={"Ground": 2})
+        cfg.on_start_fight([lead], [enemy], self.bc)
+        self.assertEqual(enemy.stages["speed"], -2)
+        self.assertEqual(lead.stages["speed"], 2)
+
+    def test_fairy_start_of_fight_routes_atk_and_special_through_the_helper(self):
+        lead = _mon(1, types=("Water",))
+        enemy = _mon(2)
+        cfg = self._cfg(["water_mirror_stage"], player_tiers={"Fairy": 2})
+        cfg.on_start_fight([lead], [enemy], self.bc)
+        self.assertEqual(enemy.stages["atk"], -2)
+        # Lone water_mirror_stage: 2 * tier, and 0 under the pre-M6.2 helper.
+        self.assertEqual(lead.stages["atk"], 4)
+        self.assertEqual(lead.stages["special"], 4)
+
+    def test_enemy_side_start_of_fight_never_mirrors(self):
+        # Source gates every start-of-fight mirror on `BIo === "player"`.
+        player = _mon(1, types=("Water",))
+        enemy = _mon(2, types=("Water",))
+        cfg = self._cfg(["debuff_mirror_buff", "water_mirror_stage"], enemy_tiers={"Fairy": 2})
+        calls = self._record_mirror_calls(cfg)
+        cfg.on_start_fight([player], [enemy], self.bc)
+        # The enemy-side tier still debuffs the player team ...
+        self.assertEqual(player.stages["atk"], -2)
+        # ... but no mirror runs, so the enemy active gains nothing.
+        self.assertEqual(calls, [])
+        self.assertEqual(enemy.stages["atk"], 0)
+
+    # -- invocation 5: ground_slow_onhit (61441-61466) ------------------
+
+    def test_ground_slow_onhit_routes_speed_through_the_helper(self):
+        attacker = _mon(1, types=("Ground",))
+        target = _mon(2)
+        cfg = self._cfg(["ground_slow_onhit", "debuff_mirror_buff"])
+        cfg.after_attack(attacker, "player", target, "enemy", 10, [attacker], [target])
+        self.assertEqual(target.stages["speed"], -1)
+        self.assertEqual(attacker.stages["speed"], 1)
+
+    # -- invocations 6-10: Water afterAttack (61791-61820) --------------
+
+    def test_water_after_attack_without_def_debuff_mirrors_three_stats(self):
+        attacker = _mon(1, types=("Water",))
+        target = _mon(2)
+        cfg = self._cfg(["debuff_mirror_buff"], player_tiers={"Water": 3})
+        calls = self._record_mirror_calls(cfg)
+        cfg.after_attack(attacker, "player", target, "enemy", 10, [attacker], [target])
+        self.assertEqual(calls, [("speed", 3), ("atk", 3), ("special", 3)])
+        self.assertEqual(target.stages["def"], 0)
+
+    def test_water_after_attack_with_def_debuff_mirrors_five_stats_in_source_order(self):
+        # N53: source 61815-61820 mirrors speed/atk/special, then def/spdef
+        # under the same `BcY` flag. Python previously stopped at three.
+        attacker = _mon(1, types=("Water",))
+        target = _mon(2)
+        cfg = self._cfg(["water_def_debuff", "debuff_mirror_buff"], player_tiers={"Water": 3})
+        calls = self._record_mirror_calls(cfg)
+        cfg.after_attack(attacker, "player", target, "enemy", 10, [attacker], [target])
+        self.assertEqual(
+            calls,
+            [("speed", 3), ("atk", 3), ("special", 3), ("def", 3), ("spdef", 3)],
+        )
+
+    def test_water_after_attack_def_and_spdef_mirrors_reach_the_player_active(self):
+        # Same repair, asserted on real stage state rather than call records.
+        attacker = _mon(1, types=("Water",))
+        target = _mon(2)
+        cfg = self._cfg(["water_def_debuff", "debuff_mirror_buff"], player_tiers={"Water": 3})
+        cfg.after_attack(attacker, "player", target, "enemy", 10, [attacker], [target])
+        self.assertEqual(target.stages["def"], -3)
+        self.assertEqual(target.stages["spdef"], -3)
+        self.assertEqual(attacker.stages["def"], 3)
+        self.assertEqual(attacker.stages["spdef"], 3)
+
+    def test_water_after_attack_def_spdef_mirrors_never_take_the_water_bonus(self):
+        attacker = _mon(1, types=("Water",))
+        target = _mon(2)
+        cfg = self._cfg(
+            ["water_def_debuff", "debuff_mirror_buff", "water_mirror_stage"],
+            player_tiers={"Water": 3},
+        )
+        cfg.after_attack(attacker, "player", target, "enemy", 10, [attacker], [target])
+        self.assertEqual(attacker.stages["def"], 3)      # base only
+        self.assertEqual(attacker.stages["spdef"], 3)    # base only
+        self.assertEqual(attacker.stages["atk"], 9)      # 3 + 2*3
+        self.assertEqual(attacker.stages["special"], 9)
+        self.assertEqual(attacker.stages["speed"], 3)    # base only
+
+    def test_water_after_attack_without_def_debuff_omits_the_two_extra_mirrors(self):
+        attacker = _mon(1, types=("Water",))
+        target = _mon(2)
+        cfg = self._cfg(["debuff_mirror_buff"], player_tiers={"Water": 3})
+        cfg.after_attack(attacker, "player", target, "enemy", 10, [attacker], [target])
+        self.assertEqual(attacker.stages["def"], 0)
+        self.assertEqual(attacker.stages["spdef"], 0)
+
+    def test_enemy_side_water_after_attack_never_mirrors(self):
+        attacker = _mon(1, types=("Water",))
+        target = _mon(2, types=("Water",))
+        cfg = self._cfg(
+            ["water_def_debuff", "debuff_mirror_buff", "water_mirror_stage"],
+            enemy_tiers={"Water": 3},
+        )
+        cfg.after_attack(attacker, "enemy", target, "player", 10, [attacker], [target])
+        self.assertEqual(attacker.stages["atk"], 0)
+
+    # -- invocation 11: enemy Sticky Web (63527-63539) ------------------
+
+    def test_enemy_sticky_web_routes_speed_through_the_helper(self):
+        lead = _mon(1, types=("Water",))
+        switching_in = _mon(2)
+        self.bc.enemy_sticky_web = True
+        cfg = self._cfg(["debuff_mirror_buff"])
+        cfg.apply_enemy_switch_in_hazards(switching_in, [lead], self.bc)
+        self.assertEqual(switching_in.stages["speed"], -2)
+        self.assertEqual(lead.stages["speed"], 2)
+
+    def test_enemy_sticky_web_mirror_amount_is_two(self):
+        lead = _mon(1, types=("Water",))
+        switching_in = _mon(2)
+        self.bc.enemy_sticky_web = True
+        cfg = self._cfg(["debuff_mirror_buff", "water_mirror_stage"])
+        calls = self._record_mirror_calls(cfg)
+        cfg.apply_enemy_switch_in_hazards(switching_in, [lead], self.bc)
+        self.assertEqual(calls, [("speed", 2)])
+        self.assertEqual(lead.stages["speed"], 2)  # speed: no Water bonus
+
+    # -- the deliberately absent path: whenAttacked (63542-63580) -------
+
+    def test_water_retaliation_debuffs_the_attacker_but_never_mirrors(self):
+        defender = _mon(1, types=("Water",))
+        attacker = _mon(2)
+        cfg = self._cfg(
+            ["water_retaliate", "water_def_debuff", "debuff_mirror_buff", "water_mirror_stage"],
+            player_tiers={"Water": 3},
+        )
+        calls = self._record_mirror_calls(cfg)
+        cfg.when_attacked(defender, "player", attacker, 10)
+        # Source applies all five debuffs at 63574-63579 ...
+        self.assertEqual(attacker.stages["speed"], -3)
+        self.assertEqual(attacker.stages["atk"], -3)
+        self.assertEqual(attacker.stages["special"], -3)
+        self.assertEqual(attacker.stages["def"], -3)
+        self.assertEqual(attacker.stages["spdef"], -3)
+        # ... and deliberately calls no `BIq`.
+        self.assertEqual(calls, [])
+        self.assertTrue(all(v == 0 for v in defender.stages.values()))
+
+
 if __name__ == "__main__":
     unittest.main()

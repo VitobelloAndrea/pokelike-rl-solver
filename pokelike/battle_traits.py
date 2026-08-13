@@ -183,16 +183,27 @@ class TraitsConfig:
 
     def mirror_enemy_active_debuff(self, player_team: Sequence[Combatant], stat: str, amount: int) -> None:
         """`BIq`, bundle.deobfuscated.js:60879-60890
-        (`debuff_mirror_buff`/`water_mirror_stage`)."""
-        if not self._has_trait("debuff_mirror_buff"):
+        (`debuff_mirror_buff`/`water_mirror_stage`).
+
+        The source's two branches are a comma expression, so they are gated
+        **independently**: `BcU` (`debuff_mirror_buff`) grants `amount` for
+        every stat, while `BcA` (`water_mirror_stage`) grants `amount * 2`
+        on its own -- but only for `atk`/`special` and only when the first
+        living player member is Water-type. With both traits on a Water
+        active and an eligible stat the source therefore performs two
+        sequential `applyStageChange` calls totalling `3 * amount` before
+        caps. The helper consumes no RNG draw.
+        """
+        if amount <= 0:
             return
         active = first_alive(player_team)
         if active is None:
             return
         lead = active[0]
-        apply_stage_change(lead, stat, amount)
-        if self._has_trait("water_mirror_stage") and stat in ("atk", "special") and "Water" in _types_of(lead):
+        if self._has_trait("debuff_mirror_buff"):
             apply_stage_change(lead, stat, amount)
+        if self._has_trait("water_mirror_stage") and stat in ("atk", "special") and "Water" in _types_of(lead):
+            apply_stage_change(lead, stat, amount * 2)
 
     def trigger_fighting_rally(self, side: str, player_team: Sequence[Combatant], enemy_team: Sequence[Combatant]) -> None:
         """`BIh`, bundle.deobfuscated.js:60891-60916."""
@@ -656,9 +667,16 @@ class TraitsConfig:
                     apply_stage_change(target, "def", -water_tier)
                     apply_stage_change(target, "spdef", -water_tier)
                 if side == "player":
+                    # bundle.deobfuscated.js:61815-61820 -- the source mirrors
+                    # speed/atk/special unconditionally, then def/spdef under
+                    # the same `BcY` (`water_def_debuff`) flag that added the
+                    # two extra enemy debuffs above.
                     self.mirror_enemy_active_debuff(own_team, "speed", water_tier)
                     self.mirror_enemy_active_debuff(own_team, "atk", water_tier)
                     self.mirror_enemy_active_debuff(own_team, "special", water_tier)
+                    if self._has_trait("water_def_debuff"):
+                        self.mirror_enemy_active_debuff(own_team, "def", water_tier)
+                        self.mirror_enemy_active_debuff(own_team, "spdef", water_tier)
 
         if side == "player" and "Fairy" in _types_of(attacker) and opposing:
             if self._has_trait("fairy_attract") and rng.rng() < 0.3:

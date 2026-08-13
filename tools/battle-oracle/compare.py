@@ -84,6 +84,26 @@ def _battle_configs_for_fixture(fixture: dict):
         passives=passives,
     )
     ability_config, traits_config = engine._battle_configs(state, [])
+
+    # M6.2: `buildTraitsConfig`'s first two arguments are the player/enemy
+    # trait-tier maps. `runBattleScreen`'s ordinary Story/Nuzlocke branch
+    # passes `{}, {}` (bundle.deobfuscated.js:81084), which `_battle_configs`
+    # faithfully mirrors (engine.py:1235-1236) -- so tier-gated traits are
+    # unreachable in this mode on BOTH sides. Real source call sites at 76812,
+    # 81069, 86059 and 90734 do pass computed maps, so a fixture may declare
+    # them to exercise those already-ported traits cross-runtime. This mirrors
+    # `_battle_configs`'s own non-null rule (tiers OR passives) rather than
+    # inventing a second branch rule, and is a no-op when both keys are absent.
+    player_tiers = fixture.get("player_tiers") or {}
+    enemy_tiers = fixture.get("enemy_tiers") or {}
+    if (player_tiers or enemy_tiers) and (state.gen3_mode or state.gen4_mode):
+        from pokelike import battle_traits
+
+        traits_config = battle_traits.TraitsConfig(
+            player_tiers=dict(player_tiers),
+            enemy_tiers=dict(enemy_tiers),
+            traits=passives,
+        )
     return ability_config, traits_config, passives
 
 
