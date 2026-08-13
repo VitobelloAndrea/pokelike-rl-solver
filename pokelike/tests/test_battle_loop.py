@@ -3,9 +3,10 @@
 **Validation depth, stated plainly**: `run_battle` orchestrates validated
 primitives and the `battle_abilities`/`battle_traits` hook providers. In
 addition to these unit and structural tests, `tools/battle-oracle/` executes
-the real JavaScript `runBattle` from an AST-audited bundle prefix. Its 17
-fixed-seed fixtures currently prove the no-config baseline, selected merged
-ability/trait behavior, and burn/poison status-tick dispatch end-to-end.
+    the real JavaScript `runBattle` from an AST-audited bundle prefix. Its 35
+    fixed-seed fixtures currently prove the no-config baseline, selected merged
+    ability/trait behavior, burn/poison status-tick dispatch, extra attacks,
+    Shell Bell, and `rand_nerf` mirror dispatch end-to-end.
 That is meaningful cross-language coverage, but it is not proof for every
 trait, ability, secondary attack, or complete game run.
 
@@ -14,6 +15,7 @@ Run with: python -m unittest pokelike.tests.test_battle_loop -v
 
 from __future__ import annotations
 
+import math
 import unittest
 from unittest.mock import MagicMock
 
@@ -836,6 +838,335 @@ class OrdinaryKoFaintRecordTests(unittest.TestCase):
         kinds = [e.get("type") for e in result.battle_events]
         self.assertIn("faint", kinds)
         self.assertLess(kinds.index("attack"), kinds.index("faint"))
+
+
+class ShellBellSourceFidelityTests(unittest.TestCase):
+    """M6.1 / N28. Shell Bell (bundle.deobfuscated.js:56420-56431).
+
+    The source block is::
+
+        if (!BIB && BEx === "player" && heldItem?.id === "shell_bell") {
+          const BXT = hasPassive(BcV, "heal_boost") ? 2 : 1,
+                BXF = Math.max(1, Math.floor(BEF * 0.15 * BXT)),
+                BXq = Math.min(BXF, BEX.maxHp - BEX.currentHp);
+          BXq > 0 && (BEX.currentHp += BXq,
+                      aspearOnHeal(BEX, "player", BEm, BcM, BcV, BXq), ...);
+        }
+
+    Three things the pre-M6.1 port got wrong: it gated on `damage > 0` (the
+    source has no damage gate -- its guard is `!BIB`, i.e. the run lacks the
+    `no_heal_revive` passive, :55299), it truncated without the `max(1, ...)`
+    floor, and it never called `aspearOnHeal`.
+
+    `BEF` is the raw post-modifier damage (:55901), NOT the missing-HP-clamped
+    `BEs` that the neighbouring Life Orb branch uses.
+    """
+
+    #: Deliberately lopsided: a durable but near-harmless attacker against a
+    #: wall, so every player hit lands in the 1..6 damage band where the old
+    #: `int(damage * 0.15)` truncated to zero and the source still heals 1.
+    _FEEBLE = BaseStats(hp=255, atk=1, defense=255, special=1, spdef=255, speed=200)
+    _WALL = BaseStats(hp=255, atk=1, defense=255, special=1, spdef=255, speed=1)
+
+    def _low_damage_battle(self, *, seed=1, traits=(), start_hp=50, heal_boost=False):
+        rng.seed_rng(seed)
+        player = [_mon(10, level=5, base_stats=self._FEEBLE)]
+        player[0].held_item = _passive_item("shell_bell")
+        player[0].current_hp = start_hp
+        enemy = [_mon(95, level=5, base_stats=self._WALL)]
+        return battle_loop.run_battle(player, enemy, traits=list(traits))
+
+    def _heals(self, result):
+        return [
+            e["hp_change"] for e in result.battle_events
+            if e.get("type") == "effect" and e.get("reason") == "shell_bell"
+        ]
+
+    def _player_damages(self, result):
+        return [
+            e["damage"] for e in result.battle_events
+            if e.get("type") == "attack" and e.get("side") == "player"
+        ]
+
+    def test_floor_heals_one_where_truncation_returned_zero(self):
+        """THE N28 boundary. Every player hit here deals 3 damage:
+        `int(3 * 0.15) == 0` (old port -> no heal, no record at all) but
+        `max(1, floor(3 * 0.15 * 1)) == 1` (source -> heals 1)."""
+        result = self._low_damage_battle(seed=1)
+        damages = self._player_damages(result)
+        self.assertTrue(damages, "setup produced no player attack to heal from")
+        self.assertTrue(
+            all(0 < d <= 6 for d in damages),
+            f"setup drifted out of the sub-floor damage band: {damages}")
+        heals = self._heals(result)
+        self.assertTrue(heals, "sub-floor damage produced no Shell Bell heal at all")
+        self.assertTrue(
+            all(h == 1 for h in heals), f"expected every heal to be exactly 1, got {heals}")
+
+    def test_zero_raw_damage_still_heals_one(self):
+        """The source has no positive-damage guard on Shell Bell. Stacking
+        `all_half` and `half_twice` makes this setup's raw post-modifier
+        damage exactly zero, yet `max(1, floor(0 * 0.15))` still heals 1.
+        This proves the zero boundary is reachable through the block rather
+        than merely possible in isolated arithmetic."""
+        result = self._low_damage_battle(
+            seed=1,
+            traits=[battle.Trait("all_half"), battle.Trait("half_twice")],
+        )
+        damages = self._player_damages(result)
+        self.assertTrue(damages, "setup produced no player attack")
+        self.assertTrue(all(d == 0 for d in damages), damages)
+        heals = self._heals(result)
+        self.assertTrue(heals, "zero raw damage never reached Shell Bell")
+        self.assertTrue(all(h == 1 for h in heals), heals)
+
+    def test_heal_matches_the_sources_own_arithmetic_per_hit(self):
+        """Ordinary healing, checked hit-by-hit against
+        `max(1, floor(damage * 0.15))` rather than a single hand-picked value."""
+        rng.seed_rng(4)
+        player = [_mon(6, level=60)]
+        player[0].held_item = _passive_item("shell_bell")
+        player[0].current_hp = max(1, player[0].max_hp // 4)
+        result = battle_loop.run_battle(player, [_mon(3, level=55)])
+        damages = self._player_damages(result)
+        heals = self._heals(result)
+        self.assertTrue(heals, "no Shell Bell heal recorded")
+        self.assertTrue(any(d > 6 for d in damages), "no above-floor hit in this battle")
+        # The first player hit is uncapped here (the holder starts at 1/4 HP).
+        self.assertEqual(heals[0], max(1, math.floor(damages[0] * 0.15)))
+
+    def _big_hit_battle(self, *, seed=4, traits=()):
+        """Damage well above the floor, so the 2x multiplier actually moves the
+        result (at damage 3 both multipliers floor to the same 1 HP and the
+        comparison would be vacuous)."""
+        rng.seed_rng(seed)
+        player = [_mon(6, level=60)]
+        player[0].held_item = _passive_item("shell_bell")
+        player[0].current_hp = max(1, player[0].max_hp // 4)
+        return battle_loop.run_battle(player, [_mon(3, level=55)], traits=list(traits))
+
+    def test_heal_boost_applies_a_two_times_multiplier(self):
+        """`BXT` is the source's explicit third-factor multiplier. Pinned as
+        exact source arithmetic on the first uncapped, multiplier-sensitive
+        hit; the old folded `0.3` spelling was equivalent for integer damage."""
+        plain = self._big_hit_battle()
+        boosted = self._big_hit_battle(traits=[battle.Trait("heal_boost")])
+        plain_dmg = self._player_damages(plain)[0]
+        boosted_dmg = self._player_damages(boosted)[0]
+        plain_heal = self._heals(plain)[0]
+        boosted_heal = self._heals(boosted)[0]
+        self.assertEqual(plain_heal, max(1, math.floor(plain_dmg * 0.15 * 1)))
+        self.assertEqual(boosted_heal, max(1, math.floor(boosted_dmg * 0.15 * 2)))
+        # Non-vacuity: the multiplier has to actually change the number here.
+        self.assertGreater(boosted_heal, plain_heal)
+
+    def test_full_hp_holder_is_a_no_op(self):
+        """`BXq = min(BXF, maxHp - currentHp)` is 0 at full HP, and the source
+        only acts when `BXq > 0`.
+
+        The holder outspeeds here (speed 200 vs 1), so its FIRST hit lands
+        while it is still untouched at full HP: that hit must produce no heal
+        record. Later hits do heal, because by then the enemy has damaged it --
+        which is why this asserts on ordering rather than on the whole battle.
+        """
+        rng.seed_rng(1)
+        player = [_mon(10, level=5, base_stats=self._FEEBLE)]
+        player[0].held_item = _passive_item("shell_bell")
+        player[0].current_hp = player[0].max_hp
+        result = battle_loop.run_battle(
+            player, [_mon(95, level=5, base_stats=self._WALL)])
+        kinds = [
+            (e.get("type"), e.get("side"), e.get("reason"))
+            for e in result.battle_events
+        ]
+        first_enemy_hit = next(
+            i for i, k in enumerate(kinds) if k[0] == "attack" and k[1] == "enemy")
+        first_player_hit = next(
+            i for i, k in enumerate(kinds) if k[0] == "attack" and k[1] == "player")
+        self.assertLess(first_player_hit, first_enemy_hit, "holder did not strike first")
+        before_any_damage = [
+            k for k in kinds[:first_enemy_hit] if k[2] == "shell_bell"]
+        self.assertEqual(
+            before_any_damage, [], "healed while the holder was still at full HP")
+        # Non-vacuity: once damaged, it does heal.
+        self.assertTrue(self._heals(result))
+
+    def test_heal_is_capped_by_missing_hp(self):
+        """One missing HP can only ever be healed by exactly 1."""
+        rng.seed_rng(4)
+        player = [_mon(6, level=60)]
+        player[0].held_item = _passive_item("shell_bell")
+        player[0].current_hp = player[0].max_hp - 1
+        result = battle_loop.run_battle(player, [_mon(3, level=55)])
+        heals = self._heals(result)
+        self.assertTrue(heals, "no Shell Bell heal recorded")
+        self.assertEqual(heals[0], 1)
+
+    def test_no_heal_revive_suppresses_the_heal_entirely(self):
+        """The source's real guard, `!BIB`. The old port had no equivalent."""
+        result = self._low_damage_battle(seed=1, traits=[battle.Trait("no_heal_revive")])
+        self.assertEqual(self._heals(result), [])
+
+    def test_heal_feeds_the_aspear_accumulator_and_grants_a_stage(self):
+        """`aspearOnHeal` was never called. With `heal_boost_stat`, healing
+        accumulates into `_aspearAcc` and grants a random stat stage on every
+        50 HP crossed -- which also consumes an RNG draw."""
+        result = self._low_damage_battle(
+            seed=1, traits=[battle.Trait("heal_boost_stat")])
+        healed = sum(self._heals(result))
+        self.assertTrue(healed, "no heal, so nothing could reach the accumulator")
+        lead = result.player_team[0]
+        acc = lead.flags.get("_aspearAcc")
+        self.assertIsNotNone(acc, "aspearOnHeal was never called")
+        granted = sum(v for v in lead.stages.values() if v > 0)
+        # Total accumulated == stages granted * 50 + leftover.
+        self.assertEqual(healed, granted * 50 + acc)
+
+    def test_accumulator_threshold_grants_exactly_one_stage(self):
+        """Directly pins the 50-HP threshold and its stat-choice RNG draw."""
+        lead = _mon(6, level=60)
+        lead.flags["_aspearAcc"] = 49
+        rng.seed_rng(1)
+        battle_loop._aspear_on_heal(lead, "player", [battle.Trait("heal_boost_stat")], 1)
+        self.assertEqual(lead.flags["_aspearAcc"], 0)
+        self.assertEqual(sum(lead.stages.values()), 1)
+
+    def test_no_shell_bell_no_heal(self):
+        """Non-vacuity: the records exist because of the item."""
+        rng.seed_rng(1)
+        player = [_mon(10, level=5, base_stats=self._FEEBLE)]
+        player[0].current_hp = 50
+        result = battle_loop.run_battle(
+            player, [_mon(95, level=5, base_stats=self._WALL)])
+        self.assertEqual(self._heals(result), [])
+
+
+class RandNerfMirrorHookTests(unittest.TestCase):
+    """M6.1 / P0.9. `rand_nerf` (bundle.deobfuscated.js:56083-56095).
+
+    After debuffing the target the source calls
+    `B71.mirrorEnemyActiveDebuff(Bct, BEg, 1, BcM)` -- `B71` is `runBattle`'s
+    merged battle config, `Bct` the player team, and `BEg` the SAME stat the
+    single RNG draw already chose. The port stopped after `apply_stage_change`.
+    """
+
+    def _fire(self, *, traits_config=None, player_team=None, seed=1, traits=None):
+        mover = _mon(4, level=50)
+        target = _mon(7, level=50)
+        team = player_team if player_team is not None else [mover]
+        rng.seed_rng(seed)
+        battle_loop._apply_post_hit_traits(
+            mover, target, "player", "enemy", False, 10,
+            traits if traits is not None else [battle.Trait("rand_nerf")],
+            False, traits_config, team,
+        )
+        return mover, target
+
+    def _chosen_stat(self, target):
+        return next(k for k, v in target.stages.items() if v < 0)
+
+    def test_target_debuff_still_consumes_exactly_one_draw(self):
+        """The mirror must reuse the stat, not roll a second time."""
+        rng.seed_rng(1)
+        expected_stat = battle_loop._STAGE_STATS[
+            int(rng.rng() * len(battle_loop._STAGE_STATS))]
+        cfg = battle_traits.TraitsConfig(traits=[battle.Trait("debuff_mirror_buff")])
+        mover, target = self._fire(traits_config=cfg)
+        self.assertEqual(target.stages[expected_stat], -1)
+        self.assertEqual(sum(target.stages.values()), -1)
+
+    def test_without_the_mirror_trait_the_lead_gains_nothing(self):
+        cfg = battle_traits.TraitsConfig(traits=[])
+        mover, target = self._fire(traits_config=cfg)
+        self.assertEqual(sum(target.stages.values()), -1)
+        self.assertEqual(sum(mover.stages.values()), 0)
+
+    def test_with_the_mirror_trait_the_lead_gains_the_same_stat(self):
+        cfg = battle_traits.TraitsConfig(traits=[battle.Trait("debuff_mirror_buff")])
+        mover, target = self._fire(traits_config=cfg)
+        stat = self._chosen_stat(target)
+        self.assertEqual(target.stages[stat], -1)
+        self.assertEqual(mover.stages[stat], 1)
+        self.assertEqual(sum(mover.stages.values()), 1)
+
+    def test_absent_config_skips_the_hook(self):
+        """`B71 != null && B71["mirrorEnemyActiveDebuff"]` -- no config, no
+        mirror, and no crash."""
+        mover, target = self._fire(traits_config=None)
+        self.assertEqual(sum(target.stages.values()), -1)
+        self.assertEqual(sum(mover.stages.values()), 0)
+
+    def test_mirror_targets_the_first_alive_member_not_the_mover(self):
+        """Active-member selection comes from the ported hook's own
+        `first_alive`, so a fainted lead is skipped."""
+        fainted = _mon(1, level=50)
+        fainted.current_hp = 0
+        mover = _mon(4, level=50)
+        target = _mon(7, level=50)
+        cfg = battle_traits.TraitsConfig(traits=[battle.Trait("debuff_mirror_buff")])
+        rng.seed_rng(1)
+        battle_loop._apply_post_hit_traits(
+            mover, target, "player", "enemy", False, 10,
+            [battle.Trait("rand_nerf")], False, cfg, [fainted, mover],
+        )
+        stat = self._chosen_stat(target)
+        self.assertEqual(sum(fainted.stages.values()), 0)
+        self.assertEqual(mover.stages[stat], 1)
+
+    def test_mirror_uses_the_existing_stage_cap(self):
+        """The call must delegate to `mirror_enemy_active_debuff`, whose
+        `apply_stage_change` path clamps ordinary stages at +10."""
+        mover = _mon(4, level=50)
+        for stat in battle_loop._STAGE_STATS:
+            mover.stages[stat] = 9
+        cfg = battle_traits.TraitsConfig(traits=[battle.Trait("debuff_mirror_buff")])
+        _, target = self._fire(traits_config=cfg, player_team=[mover])
+        self.assertEqual(sum(target.stages.values()), -1)
+        self.assertEqual(sorted(mover.stages.values()), [9, 9, 9, 9, 10])
+        self._fire(traits_config=cfg, player_team=[mover])
+        self.assertEqual(sorted(mover.stages.values()), [9, 9, 9, 9, 10])
+
+    def test_target_blocker_does_not_suppress_the_mirror_hook(self):
+        """Hyper Cutter blocks the target's negative stage mutation, but the
+        source calls the mirror hook as the next independent expression with
+        the already-drawn stat. The player still receives that stat."""
+        mover = _mon(4, level=50)
+        target = _mon(7, level=50)
+        target.gen3_ability = "hyper_cutter"
+        cfg = battle_traits.TraitsConfig(traits=[battle.Trait("debuff_mirror_buff")])
+        rng.seed_rng(1)
+        battle_loop._apply_post_hit_traits(
+            mover, target, "player", "enemy", False, 10,
+            [battle.Trait("rand_nerf")], False, cfg, [mover],
+        )
+        self.assertTrue(all(v == 0 for v in target.stages.values()), target.stages)
+        self.assertEqual(sum(mover.stages.values()), 1)
+
+    def test_enemy_side_hit_does_not_mirror(self):
+        """The source's guard is `BEx === "player"`."""
+        mover = _mon(4, level=50)
+        target = _mon(7, level=50)
+        cfg = battle_traits.TraitsConfig(traits=[battle.Trait("debuff_mirror_buff")])
+        rng.seed_rng(1)
+        battle_loop._apply_post_hit_traits(
+            mover, target, "enemy", "player", False, 10,
+            [battle.Trait("rand_nerf")], False, cfg, [target],
+        )
+        self.assertEqual(sum(target.stages.values()), 0)
+        self.assertEqual(sum(mover.stages.values()), 0)
+
+    def test_bio_extra_attack_path_never_replays_the_mirror(self):
+        """`BIO` (:55300-55404) deliberately excludes `rand_nerf`, so
+        `half_twice`/`dragon_first_double` extra hits must not re-fire it."""
+        mover = _mon(4, level=50)
+        target = _mon(7, level=50)
+        rng.seed_rng(1)
+        battle_loop._bio_post_hit(
+            mover, target, "player", "enemy", False, 10,
+            [battle.Trait("rand_nerf"), battle.Trait("debuff_mirror_buff")], False,
+        )
+        self.assertEqual(sum(target.stages.values()), 0)
+        self.assertEqual(sum(mover.stages.values()), 0)
 
 
 if __name__ == "__main__":

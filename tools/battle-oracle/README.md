@@ -160,8 +160,19 @@ enemy instead of a fresh per-target roll) and now agree:
 | `fairy_opening_volley_multi.json` | genuinely multi-attacker (every alive player Fairy-type, not just the lead) with per-attacker target re-lookup; a fatal hit's ternary SKIPS `after_attack` entirely, a nonfatal hit fires it | DIVERGE | AGREE | yes | yes |
 | `rock_explode_fanout.json` | `rock_explode`'s splash recomputes a fresh `calc_damage` PER alive enemy target, not one shared roll applied flat to everyone | DIVERGE | AGREE | yes | yes |
 
-Current result: **29/29 fixtures agree**. The Python test suite passes
-**336/336 tests**.
+Six M6.1 fixtures prove the known Shell Bell and `rand_nerf` repairs:
+
+| Fixture | Behavior isolated | Pre-fix | Current |
+|---|---|---:|---:|
+| `shell_bell_floor.json` | `max(1, floor(raw_damage * 0.15 * multiplier))` below the old truncation boundary | DIVERGE | AGREE |
+| `shell_bell_heal_boost.json` | explicit 2x `heal_boost` multiplier | AGREE | AGREE |
+| `shell_bell_aspear.json` | positive healing calls `aspearOnHeal`, crossing the 50-HP stat/RNG threshold | DIVERGE | AGREE |
+| `shell_bell_no_heal_revive.json` | source `!BIB` / `no_heal_revive` guard | DIVERGE | AGREE |
+| `rand_nerf_mirror.json` | same selected debuff stat is mirrored to the active player member | DIVERGE | AGREE |
+| `rand_nerf_no_mirror.json` | target debuff remains, but player gains nothing without `debuff_mirror_buff` | AGREE | AGREE |
+
+Current result: **35/35 fixtures agree**. Full Python discovery passes
+**1042/1042 tests**; the focused battle-loop module passes **80/80**.
 
 ## P0.3 source behavior established
 

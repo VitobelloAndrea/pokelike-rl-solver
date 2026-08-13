@@ -745,7 +745,10 @@ def run_battle(
             if traits_config is not None:
                 traits_config.after_attack(mover, side, target, target_side, actual_damage, mover_team, target_team)
 
-            _apply_post_hit_traits(mover, target, side, target_side, result.crit, actual_damage, traits, no_heal_revive)
+            _apply_post_hit_traits(
+                mover, target, side, target_side, result.crit, actual_damage, traits,
+                no_heal_revive, traits_config, p_team,
+            )
 
             # `half_twice`/`dragon_first_double` extra attacks (bundle.
             # deobfuscated.js:56220-56364) -- sequential, not mutually
@@ -800,11 +803,35 @@ def run_battle(
                 battle_events.append(_effect_event(
                     side, mover_idx, -recoil, mover.current_hp, "life_orb",
                 ))
-            if mover.held_item is not None and mover.held_item.id == "shell_bell" and side == "player" and damage > 0:
-                heal_pct = 0.3 if has_passive(traits, "heal_boost") else 0.15
-                heal = min(int(damage * heal_pct), mover.max_hp - mover.current_hp)
+            # Shell Bell (bundle.deobfuscated.js:56420-56431). N28. Four
+            # source facts the earlier port missed:
+            #   1. the source's guard is `!BIB` -- `BIB` is
+            #      `hasPassive(BcV, "no_heal_revive")` (:55299), NOT a
+            #      `damage > 0` test. There is no damage gate here at all.
+            #   2. the amount is `max(1, floor(BEF * 0.15 * BXT))`: the
+            #      `max(1, ...)` floor means a hit too small to earn a whole
+            #      percent still heals exactly 1 HP, and -- because the
+            #      source has no damage gate -- so does a fully-absorbed
+            #      0-damage hit. The old `int(damage * heal_pct)` returned 0
+            #      for both.
+            #   3. `BXT` is a 2x/1x MULTIPLIER applied as a third factor. The
+            #      source-exact spelling is retained here; for the integer
+            #      damage values this engine produces, folding the boosted
+            #      case to `damage * 0.3` was not itself a behavioral defect.
+            #   4. a positive applied heal calls `aspearOnHeal`, which is the
+            #      `heal_boost_stat` accumulator -- it can consume RNG draws
+            #      and grant stat stages, so omitting it desynchronised the
+            #      RNG stream as well as the stats.
+            # `damage` here is the source's `BEF` (raw post-modifier damage,
+            # :55901), deliberately NOT the missing-HP-clamped `BEs`
+            # (`actual_damage`) that the Life Orb branch above uses.
+            if not no_heal_revive and mover.held_item is not None and mover.held_item.id == "shell_bell" and side == "player":
+                heal_mult = 2 if has_passive(traits, "heal_boost") else 1
+                heal = max(1, math.floor(damage * 0.15 * heal_mult))
+                heal = min(heal, mover.max_hp - mover.current_hp)
                 if heal > 0:
                     mover.current_hp += heal
+                    _aspear_on_heal(mover, "player", traits, heal)
                     battle_events.append(_effect_event(
                         side, mover_idx, heal, mover.current_hp, "shell_bell",
                     ))
@@ -975,6 +1002,8 @@ def _apply_post_hit_traits(
     actual_damage: int,
     traits,
     no_heal_revive: bool,
+    traits_config=None,
+    player_team: Optional[Sequence[Combatant]] = None,
 ) -> None:
     """Port of the inline post-hit trait chain in `runBattle`'s main attack
     branch (bundle.deobfuscated.js:56000-56218) -- ten trait effects that
@@ -1037,9 +1066,22 @@ def _apply_post_hit_traits(
             mover.current_hp += heal
             _aspear_on_heal(mover, side, traits, heal)
 
+    # `rand_nerf` (bundle.deobfuscated.js:56083-56095). P0.9. The source does
+    # NOT stop after debuffing the target: it then mirrors the SAME chosen
+    # stat onto the player's active member via the active config's
+    # `mirrorEnemyActiveDebuff(Bct, BEg, 1, BcM)` hook, where `B71` is
+    # `runBattle`'s merged battle config and `Bct` is the player team. Only
+    # one RNG draw is consumed -- the stat choice -- and the mirror reuses it
+    # rather than rolling again. The hook itself (stage caps, blockers, and
+    # first-alive active-member selection) is already ported as
+    # `TraitsConfig.mirror_enemy_active_debuff`; it is called here, not
+    # reimplemented, and is skipped entirely when the source's config is
+    # absent (`B71 != null && B71["mirrorEnemyActiveDebuff"]`).
     if side == "player" and target.current_hp > 0 and has_passive(traits, "rand_nerf"):
         stat = _STAGE_STATS[int(rng.rng() * len(_STAGE_STATS))]
         apply_stage_change(target, stat, -1)
+        if traits_config is not None and player_team is not None:
+            traits_config.mirror_enemy_active_debuff(player_team, stat, 1)
 
     if mover.current_hp > 0 and has_passive(traits, "rand_boost") and mover.flags.get("_randBoostCount", 0) < 6:
         stat = _STAGE_STATS[int(rng.rng() * len(_STAGE_STATS))]
