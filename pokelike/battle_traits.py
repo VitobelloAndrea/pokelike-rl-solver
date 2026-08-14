@@ -658,7 +658,21 @@ class TraitsConfig:
                 apply_stage_change(attacker, "spdef", rock_tier)
 
         water_tier = self._tier("Water", side)
-        if water_tier >= 1 and opposing:
+        # N54: the source's Water entry condition is
+        # `B2e("Water", BIY) && BIH !== BIY && BIz["currentHp"] > 0x0`
+        # (bundle.deobfuscated.js:61791), where `BIz` is the TARGET -- the
+        # `afterAttack(BIi, BIs, BIY, BIz, BIA, BIH, ...)` signature at line
+        # 61428 binds it to the 4th argument, and the call site at 61406-61417
+        # passes the defender there. The Rock block immediately above gates on
+        # `BIi["currentHp"]` (the ATTACKER, since Rock buffs itself), which is
+        # what makes the two objects distinguishable at this line. This port
+        # omitted the target-alive gate, so a fatal hit consumed one extra
+        # proc RNG draw and could debuff an already-fainted target and, via
+        # the mirror, raise the player active's stages. The check must precede
+        # the `rng.rng()` call below, and it gates only THIS block: the later
+        # Psychic splash (line 61873) carries no target-alive condition in the
+        # source and must still run after a fatal hit.
+        if water_tier >= 1 and opposing and target.current_hp > 0:
             if rng.rng() < min(1.0, water_tier / 3):
                 apply_stage_change(target, "speed", -water_tier)
                 apply_stage_change(target, "atk", -water_tier)

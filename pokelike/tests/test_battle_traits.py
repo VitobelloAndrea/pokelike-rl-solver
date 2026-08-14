@@ -786,5 +786,147 @@ class MirrorProducerCallSiteTests(unittest.TestCase):
         self.assertTrue(all(v == 0 for v in defender.stages.values()))
 
 
+class WaterAfterAttackTargetAliveGateTests(unittest.TestCase):
+    """M6.3/N54 -- the Water after-attack block's `target.currentHp > 0` gate.
+
+    Source entry condition (bundle.deobfuscated.js:61791):
+    `B2e("Water", BIY) && BIH !== BIY && BIz["currentHp"] > 0x0`. The
+    `afterAttack(BIi, BIs, BIY, BIz, BIA, BIH, ...)` signature at 61428
+    binds `BIz` to the 4th argument -- the TARGET -- which the Rock block
+    directly above disambiguates by gating on `BIi["currentHp"]` (the
+    ATTACKER) instead. The port omitted the gate, so a fatal hit still
+    drew the proc RNG and could debuff a corpse and mirror onto the player.
+
+    RNG is asserted through the real Mulberry32 state (`get_rng_seed()`),
+    not a stub: an unchanged state proves no draw was consumed at all,
+    which is what separates the real repair from one that rolls first and
+    merely suppresses the mutation afterwards.
+    """
+
+    def setUp(self):
+        self.bc = battle.BattleConfig()
+
+    def _cfg(self, traits=(), **kw):
+        return bt.TraitsConfig(traits=[battle.Trait(t) for t in traits], **kw)
+
+    def _run(self, cfg, attacker, side, target, target_side, own_team, opposing_team, seed=1234):
+        """Runs `after_attack` against the real seeded stream and reports how
+        far the stream advanced. Tier 3 makes `min(1, tier/3)` exactly 1.0,
+        so ANY draw the Water block takes must also fire its debuffs -- a
+        proc that silently 'fails' cannot mask a missing gate here."""
+        rng.seed_rng(seed)
+        before = rng.get_rng_seed()
+        cfg.after_attack(attacker, side, target, target_side, 10, own_team, opposing_team)
+        return before, rng.get_rng_seed()
+
+    # -- fatal hits: no draw, no debuff, no mirror ----------------------
+
+    def test_player_fatal_hit_takes_no_proc_draw_and_mutates_nothing(self):
+        attacker = _mon(1, types=("Water",))
+        target = _mon(2)
+        target.current_hp = 0          # the hit that just landed was fatal
+        cfg = self._cfg(["water_def_debuff", "debuff_mirror_buff"], player_tiers={"Water": 3})
+        before, after = self._run(cfg, attacker, "player", target, "enemy", [attacker], [target])
+        self.assertEqual(before, after)                       # zero RNG draws
+        for stat in ("speed", "atk", "special", "def", "spdef"):
+            self.assertEqual(target.stages[stat], 0, stat)    # no five-stat debuff
+            self.assertEqual(attacker.stages[stat], 0, stat)  # no mirror
+
+    def test_enemy_fatal_hit_takes_no_proc_draw_and_mutates_nothing(self):
+        # The source gate is on the target object, not on a side test, so it
+        # must hold with the enemy attacking too. A player-only repair passes
+        # the test above and fails here.
+        attacker = _mon(1, types=("Water",))
+        target = _mon(2)
+        target.current_hp = 0
+        cfg = self._cfg(["water_def_debuff", "debuff_mirror_buff"], enemy_tiers={"Water": 3})
+        before, after = self._run(cfg, attacker, "enemy", target, "player", [attacker], [target])
+        self.assertEqual(before, after)
+        for stat in ("speed", "atk", "special", "def", "spdef"):
+            self.assertEqual(target.stages[stat], 0, stat)
+
+    # -- nonfatal controls: the ordinary path is untouched --------------
+
+    def test_player_nonfatal_hit_still_procs_debuff_and_mirror(self):
+        attacker = _mon(1, types=("Water",))
+        target = _mon(2)
+        target.current_hp = 1          # survived by a single point
+        cfg = self._cfg(["water_def_debuff", "debuff_mirror_buff"], player_tiers={"Water": 3})
+        before, after = self._run(cfg, attacker, "player", target, "enemy", [attacker], [target])
+        self.assertNotEqual(before, after)                    # the one proc draw
+        for stat in ("speed", "atk", "special", "def", "spdef"):
+            self.assertEqual(target.stages[stat], -3, stat)
+            self.assertEqual(attacker.stages[stat], 3, stat)
+
+    def test_enemy_nonfatal_hit_still_procs_debuff_without_mirroring(self):
+        attacker = _mon(1, types=("Water",))
+        target = _mon(2)
+        target.current_hp = 1
+        cfg = self._cfg(["water_def_debuff", "debuff_mirror_buff"], enemy_tiers={"Water": 3})
+        before, after = self._run(cfg, attacker, "enemy", target, "player", [attacker], [target])
+        self.assertNotEqual(before, after)
+        for stat in ("speed", "atk", "special", "def", "spdef"):
+            self.assertEqual(target.stages[stat], -3, stat)
+        # Mirrors stay gated on `BIY === "player"` (61815) -- unchanged by M6.3.
+        self.assertTrue(all(v == 0 for v in attacker.stages.values()))
+
+    # -- gate placement: before the draw, not around the mutations ------
+
+    def test_fatal_hit_leaves_the_stream_byte_identical_to_never_running(self):
+        """Distinguishes 'no draw at all' from 'draw, then suppress'. A
+        late-gate repair still advances Mulberry32 by exactly one step, so
+        the post-run state would equal one draw's worth rather than the
+        untouched seed."""
+        attacker = _mon(1, types=("Water",))
+        target = _mon(2)
+        target.current_hp = 0
+        cfg = self._cfg(["debuff_mirror_buff"], player_tiers={"Water": 3})
+
+        rng.seed_rng(99)
+        untouched = rng.get_rng_seed()
+        rng.rng()
+        one_draw = rng.get_rng_seed()
+        self.assertNotEqual(untouched, one_draw)  # the two states are distinct
+
+        rng.seed_rng(99)
+        cfg.after_attack(attacker, "player", target, "enemy", 10, [attacker], [target])
+        self.assertEqual(rng.get_rng_seed(), untouched)
+        self.assertNotEqual(rng.get_rng_seed(), one_draw)
+
+    def test_attacker_hp_is_not_what_gates_the_water_block(self):
+        """A wrong-object repair copying the Rock block's `BIi["currentHp"]`
+        would invert both of these: skipping a valid proc when the attacker
+        is down, and running one on a dead target."""
+        attacker = _mon(1, types=("Water",))
+        attacker.current_hp = 0        # attacker down, target alive
+        target = _mon(2)
+        cfg = self._cfg(["debuff_mirror_buff"], player_tiers={"Water": 3})
+        before, after = self._run(cfg, attacker, "player", target, "enemy", [attacker], [target])
+        self.assertNotEqual(before, after)          # the proc still happens ...
+        self.assertEqual(target.stages["atk"], -3)  # ... and still debuffs
+
+    # -- scope/order control: later independent hooks still run ---------
+
+    def test_fatal_hit_still_runs_the_later_psychic_splash(self):
+        """The Psychic block (61873: `B2e("Psychic", BIY) && BIH !== BIY`)
+        carries NO target-alive condition and sits after the Water block, so
+        it must still splash the other enemy on a fatal hit. An overbroad
+        `return` for a dead target would wrongly silence it."""
+        attacker = _mon(1, types=("Water",))
+        target = _mon(2)
+        target.current_hp = 0
+        bystander = _mon(3)
+        cfg = self._cfg(
+            ["debuff_mirror_buff"],
+            player_tiers={"Water": 3, "Psychic": 1},
+        )
+        before, after = self._run(
+            cfg, attacker, "player", target, "enemy", [attacker], [target, bystander]
+        )
+        self.assertEqual(before, after)                 # Water still took no draw
+        self.assertEqual(target.stages["atk"], 0)       # ... and no Water debuff
+        self.assertLess(bystander.current_hp, 100)      # but Psychic still fired
+
+
 if __name__ == "__main__":
     unittest.main()
