@@ -202,6 +202,39 @@ repaired port both report `rng_draws=2`, `final_rng_seed=3663135897` and every
 stage 0. The extra draw, the corpse debuff and the mirror gain therefore each
 diverge independently rather than through one shared symptom.
 
+Two M6.4 fixtures close the remaining two gates of the same class in the same
+`afterAttack` closure. They are deliberately asymmetric, because the source is:
+Poison (`:61734`) gates on the TARGET and draws no RNG, while Rock (`:61770`)
+gates on the ATTACKER, before its proc draw, and carries no opposing-side term
+at all:
+
+| Fixture | Behavior isolated | Pre-fix | Current |
+|---|---|---:|---:|
+| `poison_fatal_target_alive_gate.json` | a fatal hit adds no Poison stacks to the corpse, with the RNG stream untouched (N55) | DIVERGE | AGREE |
+| `rock_recoil_attacker_alive_gate.json` | an attacker killed by Rough Skin recoil takes no Rock proc draw and gains no DEF/Sp.DEF (N56) | DIVERGE | AGREE |
+
+The two are evidentially different and should not be read as one result. The
+Poison fixture is **state-only**: pre-fix and post-fix both report
+`rng_draws=2` and `final_rng_seed=3663135897`, identical to real JS, and the
+sole divergence is `$.enemy_team[0].poison_stacks: JS=0 Python=3`. That is the
+point — N55 must not be credited with an RNG effect it does not have.
+
+The Rock fixture is **RNG-visible**, the N54 severity class. Real JS and the
+repaired port report `rng_draws=2`, `final_rng_seed=3663135027` and both
+attacker stages 0; the pre-fix port reports `rng_draws=3`,
+`final_rng_seed=1199733544` and `def=+3`/`spdef=+3` on a corpse. Its
+reachability is genuine rather than a direct hook call: `whenAttacked`
+(`:55998`) runs before trait `afterAttack` (`:56000-56004`), and Gen3
+`rough_skin` (`:57980-57992`, species 318 per the map at `:56888`) takes 20% of
+the attacker's max HP first. With `max_hp=100`/`current_hp=20` that recoil is
+exactly lethal, and the defender's 100000 HP guarantees it survives to deal it.
+
+Non-vacuity for the Rock fixture was checked with an uncommitted control that
+changes only `species_id` 318 → 143 (no Rough Skin): the attacker then survives,
+the battle runs 8 rounds, and the same Rock tier drives its DEF/Sp.DEF to the
+±10 cap. So the fixture's zero stages come from the alive gate, not from an
+inert trait or an unreached block.
+
 ### Fixture-declared trait tiers (M6.2 input-surface change)
 
 `buildTraitsConfig`'s first two parameters are the player/enemy trait-tier
@@ -225,9 +258,22 @@ the projection, or the comparison changed: no new compared field was added.
 Fixtures using these keys prove already-ported trait code against the real
 source; they are **not** a claim that Story/Nuzlocke can reach those traits.
 
-Current result: **42/42 fixtures agree**. Full Python discovery passes
-**1077/1077 tests**; the focused battle-traits module passes **69/69** and
+Current result: **44/44 fixtures agree**. Full Python discovery passes
+**1087/1087 tests**; the focused battle-traits module passes **79/79** and
 the focused battle-loop module **80/80**.
+
+### Corpus-integrity guard
+
+`fixtures/manifest.sha256` is the canonical inventory for `compare.py --all`.
+It pins every fixture by filename and SHA-256 over canonical JSON (UTF-8,
+objects key-sorted, compact separators), so checkout line endings and harmless
+formatting cannot produce platform-only failures. The command fails before
+running Node if the manifest is missing or empty, a listed fixture is absent or
+semantically changed, or an unlisted JSON fixture is present. This prevents a
+partial clone from reporting a misleading green count over whichever ignored
+files happen to remain on one workstation. Explicit one-off fixture paths
+intentionally do not require manifest membership, so mutation and audit
+controls can remain temporary.
 
 ## P0.3 source behavior established
 
@@ -368,6 +414,14 @@ No current fixture diverges.
 `water_fatal_target_alive_gate.json` (see the M6.3 row above). It was found
 while building the M6.2 Water fixtures and deliberately left unrepaired
 there, as it was out of that milestone's scope.
+
+**N55 and N56 were repaired in M6.4** and are now covered by
+`poison_fatal_target_alive_gate.json` and
+`rock_recoil_attacker_alive_gate.json` (see the M6.4 rows above). Both were
+found while tracing N54 in M6.3 and deliberately left unrepaired there for the
+same reason. With them, all three surviving missing-alive-gate defects in
+`afterAttack` are closed; the later Psychic splash (`:61876`) genuinely carries
+no such gate in the source and must not acquire one.
 
 Still not covered:
 

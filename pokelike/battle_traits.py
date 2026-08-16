@@ -645,14 +645,51 @@ class TraitsConfig:
                     target.status = "freeze"
 
         poison_tier = self._tier("Poison", side)
-        if poison_tier >= 1 and opposing:
+        # N55: the source's Poison entry condition is
+        # `B2e("Poison", BIY) && BIH !== BIY && BIz["currentHp"] > 0x0`
+        # (bundle.deobfuscated.js:61734), where `BIz` is the TARGET -- the
+        # `afterAttack(BIi, BIs, BIY, BIz, BIA, BIH, ...)` signature at line
+        # 61428 binds it to the 4th argument, and the main-hit call site at
+        # 56004 passes the defender there (55993-55994's `attackerHpAfter:
+        # BEX`/`targetHpAfter: BEf` fix the same two objects independently of
+        # their names). This port omitted the target-alive gate, so a killing
+        # blow added stacks to an already-fainted target. Unlike the Rock and
+        # Water blocks this one draws no RNG, so the defect is state-only: the
+        # stream stays aligned and only `_poisonStacks` on the corpse diverges.
+        # The gate belongs at this block's own entry, NOT as an early return --
+        # the Rock block below gates on the ATTACKER instead and must still run
+        # for a live attacker that has just killed its target. The
+        # `poison_double` amount logic stays inside the same gate, exactly as
+        # the source nests it at 61737-61741.
+        if poison_tier >= 1 and opposing and target.current_hp > 0:
             amount = poison_tier
             if self._has_trait("poison_double") and "Poison" in _types_of(attacker) and (target.poison_stacks or 0) > 0:
                 amount *= 2
             target.poison_stacks = (target.poison_stacks or 0) + amount
 
         rock_tier = self._tier("Rock", side)
-        if rock_tier >= 1:
+        # N56: the source's Rock entry condition is
+        # `B2e("Rock", BIY) && BIi["currentHp"] > 0x0`
+        # (bundle.deobfuscated.js:61770). Two things distinguish it from its
+        # Poison and Water neighbours. First, it gates on `BIi` -- the
+        # ATTACKER, the 1st argument, which is the object Rock buffs -- not on
+        # the target `BIz`. Second, it carries NO `BIH !== BIY` term: the
+        # source really does let this block run on a same-side hit, so no
+        # opposing-side condition may be copied over from Poison/Water.
+        # This port omitted the attacker-alive gate, so a dead attacker still
+        # consumed the proc `rng()` draw at 61775 and, at a chance of 1.0,
+        # buffed its own corpse -- the same RNG-desynchronising severity class
+        # as N54. The check must precede the draw below, since the source
+        # evaluates it in the enclosing `if` before reaching `rng() < BEa`.
+        # This is reachable on the real main-hit path: `whenAttacked` runs at
+        # 55998 BEFORE `afterAttack` at 56000-56004, and Gen3 `rough_skin`
+        # (57980-57992) subtracts 20% of the attacker's max HP on a physical
+        # contact hit, so an attacker can be dead by the time this block is
+        # entered while `afterAttack` still fires on positive dealt damage.
+        # Like N55 this gates only THIS block, not the function: the Water
+        # block below has its own independent target-alive gate and must still
+        # run when the attacker is the one that died.
+        if rock_tier >= 1 and attacker.current_hp > 0:
             if rng.rng() < min(1.0, rock_tier / 3):
                 apply_stage_change(attacker, "def", rock_tier)
                 apply_stage_change(attacker, "spdef", rock_tier)

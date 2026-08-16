@@ -1,7 +1,6 @@
 .claude*
 internal_docs
 docs/archive
-docs/archive
 docs/audits
 docs/prompts
 docs/reference
@@ -89,4 +88,17 @@ secrets.json
 .DS_Store
 Thumbs.db
 Desktop.ini
+
+# N57 / recurring N52 -- the active M6 control plane and complete battle
+# oracle are durable repository inputs. Keep unrelated historical records and
+# other tools ignored, but do not let normal `git status`/`git add` hide a new
+# M6 record, fixture, runner, pin or corpus manifest again.
+PLAN.md
+CODEX.md
+docs/
+docs/*
+docs/audits/
+docs/audits/*
+docs/prompts/
+docs/prompts/*
 

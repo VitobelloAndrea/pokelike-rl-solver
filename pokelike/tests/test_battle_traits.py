@@ -928,5 +928,235 @@ class WaterAfterAttackTargetAliveGateTests(unittest.TestCase):
         self.assertLess(bystander.current_hp, 100)      # but Psychic still fired
 
 
+class PoisonRockAfterAttackAliveGateTests(unittest.TestCase):
+    """M6.4/N55+N56 -- the Poison target-alive and Rock attacker-alive gates.
+
+    Two entry conditions in the same `afterAttack` closure, deliberately
+    asymmetric in the source:
+
+    * Poison, bundle.deobfuscated.js:61734 --
+      `B2e("Poison", BIY) && BIH !== BIY && BIz["currentHp"] > 0x0`
+    * Rock,   bundle.deobfuscated.js:61770 --
+      `B2e("Rock", BIY) && BIi["currentHp"] > 0x0`
+
+    `afterAttack(BIi, BIs, BIY, BIz, BIA, BIH, ...)` (61428) binds `BIi` to
+    the ATTACKER and `BIz` to the TARGET; the main-hit call site at 56004
+    passes them in that order, and 55993-55994's `attackerHpAfter: BEX` /
+    `targetHpAfter: BEf` fix the same two objects without relying on names.
+    So Poison checks the object it poisons and Rock checks the object it
+    buffs. Rock additionally has NO `BIH !== BIY` term, which Poison and
+    Water both do.
+
+    The port omitted both checks. Poison is state-only (the block draws no
+    RNG) and added stacks to a corpse; Rock consumed the proc `rng()` draw
+    at 61775 even for a dead attacker, which desynchronises the stream --
+    the same severity class as N54.
+
+    RNG is asserted through the real Mulberry32 state (`get_rng_seed()`)
+    rather than a stub, so an unchanged state proves no draw was taken at
+    all. That is what separates a true entry gate from one that rolls first
+    and merely suppresses the mutation afterwards.
+    """
+
+    def setUp(self):
+        self.bc = battle.BattleConfig()
+
+    def _cfg(self, traits=(), **kw):
+        return bt.TraitsConfig(traits=[battle.Trait(t) for t in traits], **kw)
+
+    def _run(self, cfg, attacker, side, target, target_side, seed=1234, own_team=None, opposing_team=None):
+        """Runs `after_attack` against the real seeded stream and reports how
+        far it advanced. Tier 3 puts the Rock proc chance `min(1, tier/3)` at
+        exactly 1.0, so any draw the block takes must also apply its stages --
+        a proc cannot 'roll badly' and mask a missing gate."""
+        rng.seed_rng(seed)
+        before = rng.get_rng_seed()
+        cfg.after_attack(
+            attacker, side, target, target_side, 10,
+            own_team if own_team is not None else [attacker],
+            opposing_team if opposing_team is not None else [target],
+        )
+        return before, rng.get_rng_seed()
+
+    # -- N55 Poison: gates on the TARGET, consumes no RNG ---------------
+    # Requirements 1, 2 and 7 (fatal half).
+
+    def test_poison_fatal_target_adds_no_stacks_on_either_side(self):
+        """Player and enemy attackers in one test: the source condition is a
+        property of the target object, not a side test, so a player-only
+        repair fails the second half."""
+        for side, target_side, tiers in (
+            ("player", "enemy", {"player_tiers": {"Poison": 3}}),
+            ("enemy", "player", {"enemy_tiers": {"Poison": 3}}),
+        ):
+            with self.subTest(side=side):
+                attacker = _mon(1, types=("Poison",))
+                target = _mon(2)
+                target.current_hp = 0        # the hit that just landed was fatal
+                cfg = self._cfg(**tiers)
+                before, after = self._run(cfg, attacker, side, target, target_side)
+                self.assertEqual(target.poison_stacks or 0, 0)
+                # The Poison block reads no `rng()` at 61735-61768, so the
+                # repair must not invent one in either direction.
+                self.assertEqual(before, after)
+
+    # Requirements 3, 4 and 7 (nonfatal half).
+
+    def test_poison_living_target_still_gains_tier_stacks_on_either_side(self):
+        """The live control. Without it, a gate inverted to `<= 0` -- or
+        simply hard-wired to False -- would pass every fatal assertion."""
+        for side, target_side, tiers in (
+            ("player", "enemy", {"player_tiers": {"Poison": 3}}),
+            ("enemy", "player", {"enemy_tiers": {"Poison": 3}}),
+        ):
+            with self.subTest(side=side):
+                attacker = _mon(1, types=("Poison",))
+                target = _mon(2)
+                target.current_hp = 1        # survived by a single point
+                cfg = self._cfg(**tiers)
+                before, after = self._run(cfg, attacker, side, target, target_side)
+                self.assertEqual(target.poison_stacks, 3)   # tier 3 -> +3
+                self.assertEqual(before, after)             # still no draw
+
+    # Requirement 5.
+
+    def test_poison_applies_when_the_attacker_is_dead_but_the_target_lives(self):
+        """Object identity. A wrong-object repair copying Rock's
+        `BIi["currentHp"]` would wrongly silence this valid application."""
+        attacker = _mon(1, types=("Poison",))
+        attacker.current_hp = 0            # e.g. killed by Rough Skin recoil
+        target = _mon(2)
+        cfg = self._cfg(player_tiers={"Poison": 3})
+        self._run(cfg, attacker, "player", target, "enemy")
+        self.assertEqual(target.poison_stacks, 3)
+
+    # Requirement 6.
+
+    def test_poison_remains_suppressed_on_a_same_side_hit(self):
+        """`BIH !== BIY` (61734) is untouched by M6.4: adding the target check
+        must not cost Poison its existing opposing-side condition."""
+        attacker = _mon(1, types=("Poison",))
+        target = _mon(2)                   # alive, so only `opposing` can block
+        cfg = self._cfg(player_tiers={"Poison": 3})
+        self._run(cfg, attacker, "player", target, "player")
+        self.assertEqual(target.poison_stacks or 0, 0)
+
+    # -- N56 Rock: gates on the ATTACKER, before the draw ---------------
+    # Requirements 8, 9 and 13.
+
+    def test_rock_dead_attacker_takes_no_draw_and_gains_no_stages(self):
+        """Requirement 13's detector is the `assertEqual(before, after)`: a
+        late gate that draws first and only suppresses the stage mutations
+        still advances Mulberry32 by exactly one step, so it fails here while
+        passing the stage assertions. `one_draw` pins that the two states are
+        genuinely distinguishable."""
+        rng.seed_rng(1234)
+        untouched = rng.get_rng_seed()
+        rng.rng()
+        one_draw = rng.get_rng_seed()
+        self.assertNotEqual(untouched, one_draw)
+
+        for side, target_side, tiers in (
+            ("player", "enemy", {"player_tiers": {"Rock": 3}}),
+            ("enemy", "player", {"enemy_tiers": {"Rock": 3}}),
+        ):
+            with self.subTest(side=side):
+                attacker = _mon(1)
+                attacker.current_hp = 0
+                target = _mon(2)
+                cfg = self._cfg(**tiers)
+                before, after = self._run(cfg, attacker, side, target, target_side)
+                self.assertEqual(before, after)          # zero draws, not one
+                self.assertNotEqual(after, one_draw)     # ... specifically not a late gate
+                self.assertEqual(attacker.stages["def"], 0)
+                self.assertEqual(attacker.stages["spdef"], 0)
+
+    # Requirement 10.
+
+    def test_rock_live_attacker_draws_once_and_applies_both_stages(self):
+        attacker = _mon(1)
+        target = _mon(2)
+        cfg = self._cfg(player_tiers={"Rock": 3})
+
+        rng.seed_rng(1234)
+        expected_after_one = (rng.rng(), rng.get_rng_seed())[1]
+
+        before, after = self._run(cfg, attacker, "player", target, "enemy")
+        self.assertNotEqual(before, after)
+        self.assertEqual(after, expected_after_one)     # exactly one draw, not two
+        self.assertEqual(attacker.stages["def"], 3)     # B2D(tier) at 61787
+        self.assertEqual(attacker.stages["spdef"], 3)   # ... and 61788
+
+    # Requirement 11.
+
+    def test_rock_procs_for_a_live_attacker_whose_target_is_dead(self):
+        """Object identity, mirrored. A wrong-object repair copying
+        Poison/Water's `BIz["currentHp"]` would wrongly silence this."""
+        attacker = _mon(1)
+        target = _mon(2)
+        target.current_hp = 0
+        cfg = self._cfg(player_tiers={"Rock": 3})
+        before, after = self._run(cfg, attacker, "player", target, "enemy")
+        self.assertNotEqual(before, after)
+        self.assertEqual(attacker.stages["def"], 3)
+        self.assertEqual(attacker.stages["spdef"], 3)
+
+    # Requirement 12.
+
+    def test_rock_still_procs_on_a_same_side_hit(self):
+        """Pins the HOOK CONTRACT, not a gameplay claim. Source 61770 has no
+        `BIH !== BIY` term, unlike Poison (61734) and Water (61791), so a
+        direct same-side invocation must still proc. This is not an assertion
+        that ordinary battles let a Pokemon attack its own ally -- it exists
+        so that a repair which copies the neighbouring side gate onto Rock is
+        detected here rather than silently shipping."""
+        attacker = _mon(1)
+        target = _mon(2)
+        cfg = self._cfg(player_tiers={"Rock": 3})
+        before, after = self._run(cfg, attacker, "player", target, "player")
+        self.assertNotEqual(before, after)
+        self.assertEqual(attacker.stages["def"], 3)
+        self.assertEqual(attacker.stages["spdef"], 3)
+
+    # -- scope/order: each gate wraps only its own block ----------------
+    # Requirement 14.
+
+    def test_dead_target_silences_poison_but_not_the_later_rock_block(self):
+        """Kills an overbroad `return` at the Poison gate. Rock sits after
+        Poison and gates on the still-living attacker, so it must draw and
+        buff even though the Poison block just declined to run."""
+        attacker = _mon(1, types=("Poison",))
+        target = _mon(2)
+        target.current_hp = 0
+        cfg = self._cfg(player_tiers={"Poison": 3, "Rock": 3})
+        before, after = self._run(cfg, attacker, "player", target, "enemy")
+        self.assertEqual(target.poison_stacks or 0, 0)   # N55 silent ...
+        self.assertNotEqual(before, after)               # ... Rock still drew
+        self.assertEqual(attacker.stages["def"], 3)
+        self.assertEqual(attacker.stages["spdef"], 3)
+
+    # Requirement 15.
+
+    def test_dead_attacker_silences_rock_but_not_the_later_water_block(self):
+        """Kills an overbroad `return` at the Rock gate and protects the
+        closed M6.3 ordering. Water sits after Rock and gates on the TARGET
+        (61791), which is alive here, so exactly one draw must be taken --
+        Water's, not Rock's."""
+        attacker = _mon(1, types=("Water",))
+        attacker.current_hp = 0
+        target = _mon(2)                   # alive, so Water is entitled to run
+        cfg = self._cfg(enemy_tiers={"Rock": 3, "Water": 3})
+
+        rng.seed_rng(1234)
+        after_one_draw = (rng.rng(), rng.get_rng_seed())[1]
+
+        before, after = self._run(cfg, attacker, "enemy", target, "player")
+        self.assertEqual(attacker.stages["def"], 0)      # N56 silent ...
+        self.assertEqual(attacker.stages["spdef"], 0)
+        self.assertEqual(after, after_one_draw)          # ... exactly one draw, Water's
+        for stat in ("speed", "atk", "special"):
+            self.assertEqual(target.stages[stat], -3, stat)
+
+
 if __name__ == "__main__":
     unittest.main()

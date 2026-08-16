@@ -37,3 +37,9 @@
 # the drift instead of the bytes, and the oracles stop comparing what the
 # source actually is.
 pokelike_forked/js/bundle.deobfuscated.js -text
+
+# N57 -- keep the audited fixture bytes stable too. The active manifest hashes
+# canonical JSON, but historical audits also carry byte-level baseline pins;
+# checkout conversion must not silently move those while Git reports clean.
+tools/battle-oracle/fixtures/*.json -text
+tools/battle-oracle/fixtures/manifest.sha256 -text

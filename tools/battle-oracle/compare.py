@@ -14,6 +14,10 @@ Usage:
     python compare.py --all          # every fixtures/*.json
 
 Exit code is nonzero if any fixture diverges (or errors).
+
+`--all` is deliberately manifest-backed. A truncated checkout must fail before
+running any battle rather than reporting a misleading green result over only
+the JSON files that happened to survive Git ignore rules.
 """
 from __future__ import annotations
 
@@ -32,6 +36,70 @@ sys.path.insert(0, str(_REPO_ROOT))
 from pokelike import battle_loop, engine, rng  # noqa: E402
 from pokelike.battle import BattleConfig, Combatant, HeldItem, Trait  # noqa: E402
 from pokelike.data import BaseStats  # noqa: E402
+
+
+def _canonical_fixture_sha256(path: Path) -> str:
+    """Hash JSON meaning, independent of checkout whitespace/line endings."""
+    data = json.loads(path.read_text(encoding="utf-8"))
+    canonical = json.dumps(
+        data,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(canonical).hexdigest()
+
+
+def _manifest_fixture_paths(
+    fixtures_dir: Path,
+    manifest_path: Path | None = None,
+) -> list[Path]:
+    """Validate and return the complete hash-pinned fixture inventory."""
+    manifest_path = manifest_path or fixtures_dir / "manifest.sha256"
+    if not manifest_path.is_file():
+        raise RuntimeError(f"missing battle-fixture manifest: {manifest_path}")
+
+    expected: dict[str, str] = {}
+    for line_number, line in enumerate(
+        manifest_path.read_text(encoding="utf-8").splitlines(), start=1
+    ):
+        if not line or "  " not in line:
+            raise RuntimeError(
+                f"{manifest_path}:{line_number}: expected '<sha256>  <filename>'"
+            )
+        digest, name = line.split("  ", 1)
+        if (
+            len(digest) != 64
+            or any(char not in "0123456789abcdef" for char in digest)
+            or Path(name).name != name
+            or not name.endswith(".json")
+        ):
+            raise RuntimeError(f"{manifest_path}:{line_number}: invalid entry {line!r}")
+        if name in expected:
+            raise RuntimeError(f"{manifest_path}:{line_number}: duplicate fixture {name}")
+        expected[name] = digest
+
+    discovered = {path.name: path for path in fixtures_dir.glob("*.json")}
+    missing = sorted(expected.keys() - discovered.keys())
+    unexpected = sorted(discovered.keys() - expected.keys())
+    changed = sorted(
+        name
+        for name in expected.keys() & discovered.keys()
+        if _canonical_fixture_sha256(discovered[name]) != expected[name]
+    )
+    if missing or unexpected or changed:
+        details = []
+        if missing:
+            details.append(f"missing={missing}")
+        if unexpected:
+            details.append(f"unexpected={unexpected}")
+        if changed:
+            details.append(f"hash_mismatch={changed}")
+        raise RuntimeError("battle-fixture manifest mismatch: " + "; ".join(details))
+
+    if not expected:
+        raise RuntimeError(f"battle-fixture manifest is empty: {manifest_path}")
+    return [discovered[name] for name in sorted(expected)]
 
 
 def _build_base_stats(raw: dict) -> BaseStats:
@@ -292,7 +360,7 @@ def main() -> int:
     args = parser.parse_args()
 
     if args.all:
-        paths = sorted((_HERE / "fixtures").glob("*.json"))
+        paths = _manifest_fixture_paths(_HERE / "fixtures")
     else:
         paths = [Path(p) for p in args.fixtures]
     if not paths:
