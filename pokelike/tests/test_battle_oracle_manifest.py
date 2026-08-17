@@ -29,13 +29,25 @@ class BattleFixtureManifestTests(unittest.TestCase):
         ).encode("utf-8")
         return hashlib.sha256(canonical).hexdigest()
 
-    def _corpus(self, entries: dict[str, bytes], manifest: list[tuple[str, bytes]]):
+    def _corpus(
+        self,
+        entries: dict[str, bytes],
+        manifest: list[tuple[str, bytes]],
+        raw_manifest: str | None = None,
+    ):
+        """`raw_manifest` writes the manifest bytes verbatim instead of building
+        them from `manifest`. Needed for the two structural invariants below: a
+        duplicate line cannot be expressed as a `{name: payload}` mapping, and an
+        empty manifest must be zero bytes rather than the single `"\\n"` the
+        normal join would emit (which is a malformed LINE, a different error)."""
         temporary = tempfile.TemporaryDirectory()
         root = Path(temporary.name)
         for name, payload in entries.items():
             (root / name).write_bytes(payload)
-        lines = [f"{self._digest(payload)}  {name}" for name, payload in manifest]
-        (root / "manifest.sha256").write_text("\n".join(lines) + "\n", encoding="utf-8")
+        if raw_manifest is None:
+            lines = [f"{self._digest(payload)}  {name}" for name, payload in manifest]
+            raw_manifest = "\n".join(lines) + "\n"
+        (root / "manifest.sha256").write_text(raw_manifest, encoding="utf-8")
         return temporary, root
 
     def test_repository_manifest_pins_all_44_fixtures(self):
@@ -65,6 +77,48 @@ class BattleFixtureManifestTests(unittest.TestCase):
         )
         self.addCleanup(temporary.cleanup)
         with self.assertRaisesRegex(RuntimeError, r"hash_mismatch=.*changed\.json"):
+            _MODULE._manifest_fixture_paths(root)
+
+    def test_duplicate_manifest_entry_fails(self):
+        """`compare.py:79`. Duplicate names collapse to a single dict key, so
+        neither the 44-count assertion above nor the missing/unexpected/changed
+        comparison can see them -- deleting this rejection leaves every other
+        check green. That is the N57.1 mutant-4 gap.
+
+        Both shapes are asserted. The verbatim repeat is the harmless-looking
+        one; the same name with a CONFLICTING digest is the dangerous one, since
+        without the rejection the later line silently overwrites the earlier and
+        the corpus ends up pinned to whichever order the manifest happens to be
+        written in."""
+        payload = b'{"listed": true}'
+        digest = self._digest(payload)
+        conflicting = self._digest(b'{"listed": false}')
+
+        for label, second in (("verbatim repeat", digest),
+                              ("conflicting digest", conflicting)):
+            with self.subTest(duplicate=label):
+                temporary, root = self._corpus(
+                    {"listed.json": payload},
+                    [],
+                    raw_manifest=f"{digest}  listed.json\n{second}  listed.json\n",
+                )
+                self.addCleanup(temporary.cleanup)
+                with self.assertRaisesRegex(
+                    RuntimeError, r"2: duplicate fixture listed\.json"
+                ):
+                    _MODULE._manifest_fixture_paths(root)
+
+    def test_empty_manifest_fails(self):
+        """`compare.py:101`. A manifest that pins nothing would let `--all`
+        report success having compared zero fixtures.
+
+        Reachable only when the fixtures directory is empty as well: with any
+        fixture present the unexpected-file branch raises first. So the empty
+        corpus is precisely the case that exercises this raise, and it is the
+        N57.1 mutant-5 detector."""
+        temporary, root = self._corpus({}, [], raw_manifest="")
+        self.addCleanup(temporary.cleanup)
+        with self.assertRaisesRegex(RuntimeError, r"battle-fixture manifest is empty"):
             _MODULE._manifest_fixture_paths(root)
 
 
