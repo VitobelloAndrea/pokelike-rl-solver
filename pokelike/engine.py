@@ -556,14 +556,26 @@ def legal_actions(state: RunState) -> dict:
     whatever concrete `Action`/action-mask representation it wants:
 
     - `{"choose_starter": {"species_ids": [...]}}` -- `Phase.CHOOSE_STARTER`.
-    - `{"select_option": {"indices": [...], "optional": bool}}` -- any
-      `PendingChoice` phase (catch/swap/evolution/move-tutor/item/trade/
-      escape-rope). `indices` is `range(len(pending.options))`; `None` is
-      also legal (skip/decline) iff `optional` is True -- for
-      `Phase.ESCAPE_ROPE_CHOICE` (CODEX.md P0.6) this is always True:
-      `index=0` accepts (consumes the rope), `None` declines (immediate
-      `GAME_OVER`), matching the source's two `btn-continue-battle` click
-      handlers.
+    - `{"select_option": {"indices": [...], "optional": bool,
+      "cancel": bool}}` -- any `PendingChoice` phase (catch/swap/evolution/
+      move-tutor/item/trade/escape-rope). `indices` is
+      `range(len(pending.options))`; `None` is also legal (skip/decline) iff
+      `optional` is True -- for `Phase.ESCAPE_ROPE_CHOICE` (CODEX.md P0.6)
+      this is always True: `index=0` accepts (consumes the rope), `None`
+      declines (immediate `GAME_OVER`), matching the source's two
+      `btn-continue-battle` click handlers.
+
+      `cancel` (M7) declares the THIRD exit `SelectOption(index=None,
+      cancel=True)`, which `_resolve_pending` has accepted since M5 for
+      `Phase.ITEM_EQUIP_CHOICE` and rejects for every other phase. It was
+      missing from this dict, so the one authoritative answer to "what can
+      `step` legally be called with" silently omitted a real, already
+      implemented affordance -- the source's `#btn-equip-cancel`
+      (bundle.deobfuscated.js:79563-79569), whose whole body is
+      `B2O.remove()` and which is therefore NOT the same exit as banking the
+      item with `index=None, cancel=False` (`#btn-equip-to-bag`,
+      79552-79562). This is a DECLARATION fix only: no resolver, no state
+      transition and no RNG draw changes.
     - `{"advance_map": True}` -- `Phase.NEXT_MAP_READY`.
     - On `Phase.ON_MAP`: `"visit_node"` (accessible node ids), and, if
       applicable, `"reorder_team"` (current team size, so a caller knows
@@ -591,6 +603,9 @@ def legal_actions(state: RunState) -> dict:
             "select_option": {
                 "indices": list(range(len(state.pending.options))),
                 "optional": state.pending.optional,
+                # M7: mirrors `_resolve_pending`'s own gate exactly, so the
+                # declaration cannot drift from the behaviour.
+                "cancel": state.phase == Phase.ITEM_EQUIP_CHOICE,
             }
         }
     if state.phase == Phase.NEXT_MAP_READY:

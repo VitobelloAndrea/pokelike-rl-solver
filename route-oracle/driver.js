@@ -961,6 +961,43 @@
     // card the source built.
     checkpoint('starter_offered', { screen: currentScreen });
 
+    // ================== M7: interactive cross-runtime sweep ==================
+    // Additive branch. Everything above is shared by both modes: the same
+    // `startNewRun`, the same real `showStarterSelect` offer, the same
+    // `run_init`/`starter_offered` checkpoints. Everything below the `else`
+    // is the pre-M7 fixed-scenario route loop, unchanged byte for byte apart
+    // from this guard and its closing brace (deliberately NOT re-indented, so
+    // the diff an auditor reads is exactly two inserted fragments).
+    //
+    // In sweep mode the driver stops replaying a pinned action list and
+    // instead serves one normalized request at a time from `sweep-adapter.js`,
+    // which is concatenated after this file. That is what lets M7 enumerate
+    // and COMPARE both runtimes' legal action sets *before* either side picks
+    // an action -- see docs/audits/M7-implementation.md section 2.
+    if (SC.sweep) {
+      await globalThis.__SWEEP_SERVE__({
+        checkpoint: checkpoint,
+        pendingState: pendingState,
+        resumeState: resumeState,
+        detectOverlay: detectOverlay,
+        clickEl: clickEl,
+        byDataValue: byDataValue,
+        nthChoice: nthChoice,
+        firstClickable: firstClickable,
+        normalizeMap: normalizeMap,
+        normalizeMon: normalizeMon,
+        monOption: monOption,
+        itemOption: itemOption,
+        drive: drive,
+        pump: pump,
+        out: OUT,
+        screen: function () { return currentScreen; },
+        battles: function () { return battles; },
+        rngDraws: function () { return rngDraws; },
+        gameOverSeen: function () { return gameOverSeen; },
+      });
+    } else {
+
     // ---- optional RNG alignment instrument (see SCHEMA.md) ----------------
     // NOT a behavior change and NOT a repair: both runners install the same
     // raw Stream-B state here, at the same point in the route, using the
@@ -1153,6 +1190,7 @@
       team_size: state.team.length,
       screen: currentScreen,
     });
+    }  // ---- M7: end of the pre-M7 fixed-scenario route branch ----
   } catch (e) {
     OUT.error = (e && e.stack) || String(e);
   }

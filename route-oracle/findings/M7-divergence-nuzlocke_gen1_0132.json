@@ -1,0 +1,1123 @@
+{
+  "actions": [
+    {
+      "kind": "choose_starter",
+      "species_id": 4
+    },
+    {
+      "kind": "visit_node",
+      "node_id": "n1_1"
+    },
+    {
+      "cancel": false,
+      "index": 0,
+      "kind": "select_option"
+    },
+    {
+      "kind": "visit_node",
+      "node_id": "n2_2"
+    },
+    {
+      "i": 0,
+      "j": 1,
+      "kind": "reorder_team"
+    },
+    {
+      "kind": "visit_node",
+      "node_id": "n3_2"
+    },
+    {
+      "cancel": false,
+      "index": null,
+      "kind": "select_option"
+    },
+    {
+      "kind": "visit_node",
+      "node_id": "n4_2"
+    },
+    {
+      "cancel": false,
+      "index": 0,
+      "kind": "select_option"
+    },
+    {
+      "cancel": true,
+      "index": null,
+      "kind": "select_option"
+    }
+  ],
+  "config": {
+    "mode": {
+      "gen2": false,
+      "gen3": false,
+      "gen4": false,
+      "nuzlocke": true
+    },
+    "seed": 320486343
+  },
+  "divergence": {
+    "action": {
+      "cancel": true,
+      "index": null,
+      "kind": "select_option"
+    },
+    "diffs": [
+      {
+        "js": {
+          "context": null,
+          "option_count": 3,
+          "optional": true,
+          "options": [
+            {
+              "form_id": null,
+              "instance": null,
+              "item_id": "rocky_helmet",
+              "kind": "item",
+              "name": "Rocky Helmet",
+              "role": "item",
+              "slot": null,
+              "species_id": null
+            },
+            {
+              "form_id": null,
+              "instance": null,
+              "item_id": "charcoal",
+              "kind": "item",
+              "name": "Charcoal",
+              "role": "item",
+              "slot": null,
+              "species_id": null
+            },
+            {
+              "form_id": null,
+              "instance": null,
+              "item_id": "assault_vest",
+              "kind": "item",
+              "name": "Assault Vest",
+              "role": "item",
+              "slot": null,
+              "species_id": null
+            }
+          ],
+          "phase": "item_choice"
+        },
+        "path": "checkpoint.pending",
+        "py": null
+      },
+      {
+        "js": "item-screen",
+        "path": "checkpoint.screen",
+        "py": "map-screen"
+      }
+    ],
+    "index": 9,
+    "js": {
+      "battle_stages": [],
+      "battles": [],
+      "checkpoint": {
+        "counters": {
+          "any_fainted": false,
+          "badges": 0,
+          "distortion_legendary_claimed": false,
+          "distortion_worlds_entered": 0,
+          "elite_index": 0,
+          "entered_sub_map": false,
+          "escaped_via_rope": false,
+          "fought_admin": false,
+          "got_via_question": false,
+          "max_team_size": 2,
+          "picked_up_item": true,
+          "silver_beaten": 0,
+          "starter_species_id": 4,
+          "used_ball_catch": true,
+          "used_pokecenter": false,
+          "used_tm": false
+        },
+        "current_map": 0,
+        "current_node": "n4_2",
+        "event": {
+          "action": {
+            "cancel": true,
+            "index": null,
+            "kind": "select_option"
+          },
+          "index": 9
+        },
+        "game_over": false,
+        "in_sub_map": null,
+        "items": [],
+        "kind": "sweep",
+        "map": {
+          "edges": [
+            [
+              "n0_0",
+              "n1_0"
+            ],
+            [
+              "n0_0",
+              "n1_1"
+            ],
+            [
+              "n1_0",
+              "n2_0"
+            ],
+            [
+              "n1_0",
+              "n2_1"
+            ],
+            [
+              "n1_1",
+              "n2_1"
+            ],
+            [
+              "n1_1",
+              "n2_2"
+            ],
+            [
+              "n2_0",
+              "n3_0"
+            ],
+            [
+              "n2_0",
+              "n3_1"
+            ],
+            [
+              "n2_1",
+              "n3_1"
+            ],
+            [
+              "n2_1",
+              "n3_2"
+            ],
+            [
+              "n2_2",
+              "n3_2"
+            ],
+            [
+              "n2_2",
+              "n3_3"
+            ],
+            [
+              "n3_0",
+              "n4_0"
+            ],
+            [
+              "n3_1",
+              "n4_0"
+            ],
+            [
+              "n3_1",
+              "n4_1"
+            ],
+            [
+              "n3_2",
+              "n4_1"
+            ],
+            [
+              "n3_2",
+              "n4_2"
+            ],
+            [
+              "n3_3",
+              "n4_2"
+            ],
+            [
+              "n4_0",
+              "n5_0"
+            ],
+            [
+              "n4_0",
+              "n5_1"
+            ],
+            [
+              "n4_1",
+              "n5_1"
+            ],
+            [
+              "n4_1",
+              "n5_2"
+            ],
+            [
+              "n4_2",
+              "n5_2"
+            ],
+            [
+              "n4_2",
+              "n5_3"
+            ],
+            [
+              "n5_0",
+              "n6_0"
+            ],
+            [
+              "n5_1",
+              "n6_0"
+            ],
+            [
+              "n5_1",
+              "n6_1"
+            ],
+            [
+              "n5_2",
+              "n6_1"
+            ],
+            [
+              "n5_2",
+              "n6_2"
+            ],
+            [
+              "n5_3",
+              "n6_2"
+            ],
+            [
+              "n6_0",
+              "n7_0"
+            ],
+            [
+              "n6_1",
+              "n7_0"
+            ],
+            [
+              "n6_1",
+              "n7_1"
+            ],
+            [
+              "n6_2",
+              "n7_1"
+            ],
+            [
+              "n7_0",
+              "n8_0"
+            ],
+            [
+              "n7_1",
+              "n8_0"
+            ]
+          ],
+          "index": 0,
+          "is_sub_map": null,
+          "nodes": [
+            {
+              "accessible": false,
+              "col": 0,
+              "id": "n0_0",
+              "layer": 0,
+              "revealed": true,
+              "type": "start",
+              "visited": true
+            },
+            {
+              "accessible": false,
+              "col": 0,
+              "id": "n1_0",
+              "layer": 1,
+              "revealed": true,
+              "type": "catch",
+              "visited": false
+            },
+            {
+              "accessible": false,
+              "col": 1,
+              "id": "n1_1",
+              "layer": 1,
+              "revealed": true,
+              "type": "catch",
+              "visited": true
+            },
+            {
+              "accessible": false,
+              "col": 0,
+              "id": "n2_0",
+              "layer": 2,
+              "revealed": true,
+              "type": "trainer",
+              "visited": false
+            },
+            {
+              "accessible": false,
+              "col": 1,
+              "id": "n2_1",
+              "layer": 2,
+              "revealed": true,
+              "type": "trainer",
+              "visited": false
+            },
+            {
+              "accessible": false,
+              "col": 2,
+              "id": "n2_2",
+              "layer": 2,
+              "revealed": true,
+              "type": "trainer",
+              "visited": true
+            },
+            {
+              "accessible": false,
+              "col": 0,
+              "id": "n3_0",
+              "layer": 3,
+              "revealed": true,
+              "type": "battle",
+              "visited": false
+            },
+            {
+              "accessible": false,
+              "col": 1,
+              "id": "n3_1",
+              "layer": 3,
+              "revealed": true,
+              "type": "question",
+              "visited": false
+            },
+            {
+              "accessible": false,
+              "col": 2,
+              "id": "n3_2",
+              "layer": 3,
+              "revealed": true,
+              "type": "question",
+              "visited": true
+            },
+            {
+              "accessible": false,
+              "col": 3,
+              "id": "n3_3",
+              "layer": 3,
+              "revealed": true,
+              "type": "trainer",
+              "visited": false
+            },
+            {
+              "accessible": false,
+              "col": 0,
+              "id": "n4_0",
+              "layer": 4,
+              "revealed": true,
+              "type": "trainer",
+              "visited": false
+            },
+            {
+              "accessible": false,
+              "col": 1,
+              "id": "n4_1",
+              "layer": 4,
+              "revealed": true,
+              "type": "question",
+              "visited": false
+            },
+            {
+              "accessible": true,
+              "col": 2,
+              "id": "n4_2",
+              "layer": 4,
+              "revealed": true,
+              "type": "item",
+              "visited": false
+            },
+            {
+              "accessible": false,
+              "col": 0,
+              "id": "n5_0",
+              "layer": 5,
+              "revealed": true,
+              "type": "trainer",
+              "visited": false
+            },
+            {
+              "accessible": false,
+              "col": 1,
+              "id": "n5_1",
+              "layer": 5,
+              "revealed": true,
+              "type": "question",
+              "visited": false
+            },
+            {
+              "accessible": false,
+              "col": 2,
+              "id": "n5_2",
+              "layer": 5,
+              "revealed": true,
+              "type": "move_tutor",
+              "visited": false
+            },
+            {
+              "accessible": false,
+              "col": 3,
+              "id": "n5_3",
+              "layer": 5,
+              "revealed": true,
+              "type": "item",
+              "visited": false
+            },
+            {
+              "accessible": false,
+              "col": 0,
+              "id": "n6_0",
+              "layer": 6,
+              "revealed": true,
+              "type": "battle",
+              "visited": false
+            },
+            {
+              "accessible": false,
+              "col": 1,
+              "id": "n6_1",
+              "layer": 6,
+              "revealed": true,
+              "type": "trainer",
+              "visited": false
+            },
+            {
+              "accessible": false,
+              "col": 2,
+              "id": "n6_2",
+              "layer": 6,
+              "revealed": true,
+              "type": "question",
+              "visited": false
+            },
+            {
+              "accessible": false,
+              "col": 0,
+              "id": "n7_0",
+              "layer": 7,
+              "revealed": true,
+              "type": "pokecenter",
+              "visited": false
+            },
+            {
+              "accessible": false,
+              "col": 1,
+              "id": "n7_1",
+              "layer": 7,
+              "revealed": true,
+              "type": "item",
+              "visited": false
+            },
+            {
+              "accessible": false,
+              "col": 0,
+              "id": "n8_0",
+              "layer": 8,
+              "map_index": 0,
+              "revealed": true,
+              "type": "boss",
+              "visited": false
+            }
+          ]
+        },
+        "mode": {
+          "gen2": false,
+          "gen3": false,
+          "gen4": false,
+          "nuzlocke": true
+        },
+        "pending": {
+          "context": null,
+          "option_count": 3,
+          "optional": true,
+          "options": [
+            {
+              "form_id": null,
+              "instance": null,
+              "item_id": "rocky_helmet",
+              "kind": "item",
+              "name": "Rocky Helmet",
+              "role": "item",
+              "slot": null,
+              "species_id": null
+            },
+            {
+              "form_id": null,
+              "instance": null,
+              "item_id": "charcoal",
+              "kind": "item",
+              "name": "Charcoal",
+              "role": "item",
+              "slot": null,
+              "species_id": null
+            },
+            {
+              "form_id": null,
+              "instance": null,
+              "item_id": "assault_vest",
+              "kind": "item",
+              "name": "Assault Vest",
+              "role": "item",
+              "slot": null,
+              "species_id": null
+            }
+          ],
+          "phase": "item_choice"
+        },
+        "resume_state": {
+          "saved_catch": null,
+          "saved_question_resolve": {
+            "key": "m0:n3_2",
+            "resolved_type": "mega"
+          },
+          "saved_shiny_node": null
+        },
+        "rng": {
+          "draws": 111,
+          "state": 1760828674
+        },
+        "schema_version": 2,
+        "screen": "item-screen",
+        "seed": 320486343,
+        "sub_map_return": null,
+        "team": [
+          {
+            "base_stats": {
+              "atk": 45,
+              "def": 55,
+              "hp": 30,
+              "spdef": 55,
+              "special": 70,
+              "speed": 85
+            },
+            "burned": false,
+            "current_hp": 19,
+            "form_id": null,
+            "held_item": null,
+            "is_shiny": false,
+            "level": 6,
+            "max_hp": 19,
+            "move_tier": 0,
+            "name": "Staryu",
+            "paralyzed": false,
+            "poison_stacks": 0,
+            "slot": 0,
+            "species_id": 120,
+            "stat_buffs": {},
+            "status": null,
+            "types": [
+              "Water"
+            ]
+          },
+          {
+            "base_stats": {
+              "atk": 52,
+              "def": 43,
+              "hp": 39,
+              "spdef": 50,
+              "special": 60,
+              "speed": 65
+            },
+            "burned": false,
+            "current_hp": 22,
+            "form_id": null,
+            "held_item": null,
+            "is_shiny": false,
+            "level": 7,
+            "max_hp": 22,
+            "move_tier": 0,
+            "name": "Charmander",
+            "paralyzed": false,
+            "poison_stacks": 0,
+            "slot": 1,
+            "species_id": 4,
+            "stat_buffs": {},
+            "status": null,
+            "types": [
+              "Fire"
+            ]
+          }
+        ]
+      },
+      "rng_draws_total": 111
+    },
+    "kind": "state",
+    "py": {
+      "battle_stages": [],
+      "battles": [],
+      "checkpoint": {
+        "counters": {
+          "any_fainted": false,
+          "badges": 0,
+          "distortion_legendary_claimed": false,
+          "distortion_worlds_entered": 0,
+          "elite_index": 0,
+          "entered_sub_map": false,
+          "escaped_via_rope": false,
+          "fought_admin": false,
+          "got_via_question": false,
+          "max_team_size": 2,
+          "picked_up_item": true,
+          "silver_beaten": 0,
+          "starter_species_id": 4,
+          "used_ball_catch": true,
+          "used_pokecenter": false,
+          "used_tm": false
+        },
+        "current_map": 0,
+        "current_node": "n4_2",
+        "event": {
+          "action": {
+            "cancel": true,
+            "index": null,
+            "kind": "select_option"
+          },
+          "index": 9
+        },
+        "game_over": false,
+        "in_sub_map": null,
+        "items": [],
+        "kind": "sweep",
+        "map": {
+          "edges": [
+            [
+              "n0_0",
+              "n1_0"
+            ],
+            [
+              "n0_0",
+              "n1_1"
+            ],
+            [
+              "n1_0",
+              "n2_0"
+            ],
+            [
+              "n1_0",
+              "n2_1"
+            ],
+            [
+              "n1_1",
+              "n2_1"
+            ],
+            [
+              "n1_1",
+              "n2_2"
+            ],
+            [
+              "n2_0",
+              "n3_0"
+            ],
+            [
+              "n2_0",
+              "n3_1"
+            ],
+            [
+              "n2_1",
+              "n3_1"
+            ],
+            [
+              "n2_1",
+              "n3_2"
+            ],
+            [
+              "n2_2",
+              "n3_2"
+            ],
+            [
+              "n2_2",
+              "n3_3"
+            ],
+            [
+              "n3_0",
+              "n4_0"
+            ],
+            [
+              "n3_1",
+              "n4_0"
+            ],
+            [
+              "n3_1",
+              "n4_1"
+            ],
+            [
+              "n3_2",
+              "n4_1"
+            ],
+            [
+              "n3_2",
+              "n4_2"
+            ],
+            [
+              "n3_3",
+              "n4_2"
+            ],
+            [
+              "n4_0",
+              "n5_0"
+            ],
+            [
+              "n4_0",
+              "n5_1"
+            ],
+            [
+              "n4_1",
+              "n5_1"
+            ],
+            [
+              "n4_1",
+              "n5_2"
+            ],
+            [
+              "n4_2",
+              "n5_2"
+            ],
+            [
+              "n4_2",
+              "n5_3"
+            ],
+            [
+              "n5_0",
+              "n6_0"
+            ],
+            [
+              "n5_1",
+              "n6_0"
+            ],
+            [
+              "n5_1",
+              "n6_1"
+            ],
+            [
+              "n5_2",
+              "n6_1"
+            ],
+            [
+              "n5_2",
+              "n6_2"
+            ],
+            [
+              "n5_3",
+              "n6_2"
+            ],
+            [
+              "n6_0",
+              "n7_0"
+            ],
+            [
+              "n6_1",
+              "n7_0"
+            ],
+            [
+              "n6_1",
+              "n7_1"
+            ],
+            [
+              "n6_2",
+              "n7_1"
+            ],
+            [
+              "n7_0",
+              "n8_0"
+            ],
+            [
+              "n7_1",
+              "n8_0"
+            ]
+          ],
+          "index": 0,
+          "is_sub_map": null,
+          "nodes": [
+            {
+              "accessible": false,
+              "col": 0,
+              "id": "n0_0",
+              "layer": 0,
+              "revealed": true,
+              "type": "start",
+              "visited": true
+            },
+            {
+              "accessible": false,
+              "col": 0,
+              "id": "n1_0",
+              "layer": 1,
+              "revealed": true,
+              "type": "catch",
+              "visited": false
+            },
+            {
+              "accessible": false,
+              "col": 1,
+              "id": "n1_1",
+              "layer": 1,
+              "revealed": true,
+              "type": "catch",
+              "visited": true
+            },
+            {
+              "accessible": false,
+              "col": 0,
+              "id": "n2_0",
+              "layer": 2,
+              "revealed": true,
+              "type": "trainer",
+              "visited": false
+            },
+            {
+              "accessible": false,
+              "col": 1,
+              "id": "n2_1",
+              "layer": 2,
+              "revealed": true,
+              "type": "trainer",
+              "visited": false
+            },
+            {
+              "accessible": false,
+              "col": 2,
+              "id": "n2_2",
+              "layer": 2,
+              "revealed": true,
+              "type": "trainer",
+              "visited": true
+            },
+            {
+              "accessible": false,
+              "col": 0,
+              "id": "n3_0",
+              "layer": 3,
+              "revealed": true,
+              "type": "battle",
+              "visited": false
+            },
+            {
+              "accessible": false,
+              "col": 1,
+              "id": "n3_1",
+              "layer": 3,
+              "revealed": true,
+              "type": "question",
+              "visited": false
+            },
+            {
+              "accessible": false,
+              "col": 2,
+              "id": "n3_2",
+              "layer": 3,
+              "revealed": true,
+              "type": "question",
+              "visited": true
+            },
+            {
+              "accessible": false,
+              "col": 3,
+              "id": "n3_3",
+              "layer": 3,
+              "revealed": true,
+              "type": "trainer",
+              "visited": false
+            },
+            {
+              "accessible": false,
+              "col": 0,
+              "id": "n4_0",
+              "layer": 4,
+              "revealed": true,
+              "type": "trainer",
+              "visited": false
+            },
+            {
+              "accessible": false,
+              "col": 1,
+              "id": "n4_1",
+              "layer": 4,
+              "revealed": true,
+              "type": "question",
+              "visited": false
+            },
+            {
+              "accessible": true,
+              "col": 2,
+              "id": "n4_2",
+              "layer": 4,
+              "revealed": true,
+              "type": "item",
+              "visited": false
+            },
+            {
+              "accessible": false,
+              "col": 0,
+              "id": "n5_0",
+              "layer": 5,
+              "revealed": true,
+              "type": "trainer",
+              "visited": false
+            },
+            {
+              "accessible": false,
+              "col": 1,
+              "id": "n5_1",
+              "layer": 5,
+              "revealed": true,
+              "type": "question",
+              "visited": false
+            },
+            {
+              "accessible": false,
+              "col": 2,
+              "id": "n5_2",
+              "layer": 5,
+              "revealed": true,
+              "type": "move_tutor",
+              "visited": false
+            },
+            {
+              "accessible": false,
+              "col": 3,
+              "id": "n5_3",
+              "layer": 5,
+              "revealed": true,
+              "type": "item",
+              "visited": false
+            },
+            {
+              "accessible": false,
+              "col": 0,
+              "id": "n6_0",
+              "layer": 6,
+              "revealed": true,
+              "type": "battle",
+              "visited": false
+            },
+            {
+              "accessible": false,
+              "col": 1,
+              "id": "n6_1",
+              "layer": 6,
+              "revealed": true,
+              "type": "trainer",
+              "visited": false
+            },
+            {
+              "accessible": false,
+              "col": 2,
+              "id": "n6_2",
+              "layer": 6,
+              "revealed": true,
+              "type": "question",
+              "visited": false
+            },
+            {
+              "accessible": false,
+              "col": 0,
+              "id": "n7_0",
+              "layer": 7,
+              "revealed": true,
+              "type": "pokecenter",
+              "visited": false
+            },
+            {
+              "accessible": false,
+              "col": 1,
+              "id": "n7_1",
+              "layer": 7,
+              "revealed": true,
+              "type": "item",
+              "visited": false
+            },
+            {
+              "accessible": false,
+              "col": 0,
+              "id": "n8_0",
+              "layer": 8,
+              "map_index": 0,
+              "revealed": true,
+              "type": "boss",
+              "visited": false
+            }
+          ]
+        },
+        "mode": {
+          "gen2": false,
+          "gen3": false,
+          "gen4": false,
+          "nuzlocke": true
+        },
+        "pending": null,
+        "resume_state": {
+          "saved_catch": null,
+          "saved_question_resolve": {
+            "key": "m0:n3_2",
+            "resolved_type": "mega"
+          },
+          "saved_shiny_node": null
+        },
+        "rng": {
+          "draws": 111,
+          "state": 1760828674
+        },
+        "schema_version": 2,
+        "screen": "map-screen",
+        "seed": 320486343,
+        "sub_map_return": null,
+        "team": [
+          {
+            "base_stats": {
+              "atk": 45,
+              "def": 55,
+              "hp": 30,
+              "spdef": 55,
+              "special": 70,
+              "speed": 85
+            },
+            "burned": false,
+            "current_hp": 19,
+            "form_id": null,
+            "held_item": null,
+            "is_shiny": false,
+            "level": 6,
+            "max_hp": 19,
+            "move_tier": 0,
+            "name": "Staryu",
+            "paralyzed": false,
+            "poison_stacks": 0,
+            "slot": 0,
+            "species_id": 120,
+            "stat_buffs": {},
+            "status": null,
+            "types": [
+              "Water"
+            ]
+          },
+          {
+            "base_stats": {
+              "atk": 52,
+              "def": 43,
+              "hp": 39,
+              "spdef": 50,
+              "special": 60,
+              "speed": 65
+            },
+            "burned": false,
+            "current_hp": 22,
+            "form_id": null,
+            "held_item": null,
+            "is_shiny": false,
+            "level": 7,
+            "max_hp": 22,
+            "move_tier": 0,
+            "name": "Charmander",
+            "paralyzed": false,
+            "poison_stacks": 0,
+            "slot": 1,
+            "species_id": 4,
+            "stat_buffs": {},
+            "status": null,
+            "types": [
+              "Fire"
+            ]
+          }
+        ]
+      },
+      "rng_draws_total": 111
+    }
+  },
+  "episode_id": "nuzlocke_gen1_0132",
+  "max_steps": 120,
+  "policy_seed": 1647046371,
+  "protected_hashes": {
+    "pokelike/battle_loop.py": "cf7b99f5ac5916e6fa3ca85497ff5469e7aa7e1bd535ba2ff0db1745f1fc06a4",
+    "pokelike/battle_traits.py": "8f7d14046b38196b299f46e8821d18bd9eae382ad4746936697a0fbd7fcaabe2",
+    "pokelike/engine.py": "8ada8f0f722e4fb64daa5562f2f81b5f52182a565c78bcaff5288867a5c7bb15",
+    "route-prefix": "92c82e6cdf4d36201d1143fa2802c3400af61e0e55268b45f236ba11465d102d"
+  },
+  "sweep_version": 1
+}

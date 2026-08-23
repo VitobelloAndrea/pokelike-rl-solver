@@ -1,0 +1,1425 @@
+{
+  "actions": [
+    {
+      "kind": "choose_starter",
+      "species_id": 387
+    },
+    {
+      "kind": "visit_node",
+      "node_id": "n1_0"
+    },
+    {
+      "cancel": false,
+      "index": 0,
+      "kind": "select_option"
+    },
+    {
+      "kind": "visit_node",
+      "node_id": "n2_1"
+    },
+    {
+      "cancel": false,
+      "index": 0,
+      "kind": "select_option"
+    },
+    {
+      "kind": "visit_node",
+      "node_id": "n3_2"
+    }
+  ],
+  "config": {
+    "mode": {
+      "gen2": false,
+      "gen3": false,
+      "gen4": true,
+      "nuzlocke": false
+    },
+    "seed": 1
+  },
+  "divergence": {
+    "action": {
+      "kind": "visit_node",
+      "node_id": "n3_2"
+    },
+    "diffs": [
+      {
+        "js": 1,
+        "path": "battle_stages[0].player[0].def",
+        "py": 0
+      },
+      {
+        "js": 0,
+        "path": "battle_stages[0].player[0].special",
+        "py": 1
+      }
+    ],
+    "index": 5,
+    "js": {
+      "battle_stages": [
+        {
+          "enemy": [
+            {
+              "atk": 0,
+              "def": 0,
+              "spdef": 0,
+              "special": 0,
+              "speed": 0
+            }
+          ],
+          "player": [
+            {
+              "atk": 0,
+              "def": 1,
+              "spdef": 0,
+              "special": 0,
+              "speed": 0
+            },
+            {
+              "atk": 0,
+              "def": 0,
+              "spdef": 0,
+              "special": 0,
+              "speed": 0
+            }
+          ]
+        }
+      ],
+      "battles": [
+        {
+          "__diagnostic_event_count": 13,
+          "enemy_team": [
+            {
+              "base_stats": {
+                "atk": 61,
+                "def": 40,
+                "hp": 48,
+                "spdef": 40,
+                "special": 61,
+                "speed": 50
+              },
+              "burned": false,
+              "current_hp": 0,
+              "form_id": null,
+              "held_item": null,
+              "is_shiny": false,
+              "level": 3,
+              "max_hp": 15,
+              "move_tier": 0,
+              "name": "Croagunk",
+              "paralyzed": false,
+              "poison_stacks": 0,
+              "species_id": 453,
+              "stat_buffs": {},
+              "status": null,
+              "types": [
+                "Poison",
+                "Fighting"
+              ]
+            }
+          ],
+          "player_participants": [
+            0
+          ],
+          "player_team": [
+            {
+              "base_stats": {
+                "atk": 55,
+                "def": 50,
+                "hp": 55,
+                "spdef": 65,
+                "special": 45,
+                "speed": 55
+              },
+              "burned": false,
+              "current_hp": 19,
+              "form_id": null,
+              "held_item": null,
+              "is_shiny": false,
+              "level": 8,
+              "max_hp": 26,
+              "move_tier": 0,
+              "name": "Eevee",
+              "paralyzed": false,
+              "poison_stacks": 2,
+              "species_id": 133,
+              "stat_buffs": {},
+              "status": null,
+              "types": [
+                "Normal"
+              ]
+            },
+            {
+              "base_stats": {
+                "atk": 63,
+                "def": 37,
+                "hp": 45,
+                "spdef": 55,
+                "special": 65,
+                "speed": 95
+              },
+              "burned": false,
+              "current_hp": 17,
+              "form_id": null,
+              "held_item": null,
+              "is_shiny": false,
+              "level": 4,
+              "max_hp": 17,
+              "move_tier": 0,
+              "name": "Elekid",
+              "paralyzed": false,
+              "poison_stacks": 0,
+              "species_id": 239,
+              "stat_buffs": {},
+              "status": null,
+              "types": [
+                "Electric"
+              ]
+            }
+          ],
+          "player_won": true,
+          "rng_draws": 6,
+          "rounds": 2,
+          "status_events": [
+            {
+              "hp_after": 21,
+              "hp_change": -2,
+              "idx": 0,
+              "side": "player",
+              "status": "poison",
+              "type": "status_tick"
+            },
+            {
+              "hp_after": 19,
+              "hp_change": -2,
+              "idx": 0,
+              "side": "player",
+              "status": "poison",
+              "type": "status_tick"
+            }
+          ],
+          "turns": [
+            {
+              "events": [
+                {
+                  "attacker_hp_after": 26,
+                  "attacker_idx": 0,
+                  "crit": false,
+                  "damage": 11,
+                  "extra_attack": false,
+                  "is_special": false,
+                  "move_name": "Tackle",
+                  "move_type": "Normal",
+                  "side": "player",
+                  "target_hp_after": 4,
+                  "target_idx": 0,
+                  "target_side": "enemy",
+                  "type": "attack",
+                  "type_eff": 1
+                },
+                {
+                  "attacker_hp_after": 4,
+                  "attacker_idx": 0,
+                  "crit": false,
+                  "damage": 3,
+                  "extra_attack": false,
+                  "is_special": true,
+                  "move_name": "Acid",
+                  "move_type": "Poison",
+                  "side": "enemy",
+                  "target_hp_after": 23,
+                  "target_idx": 0,
+                  "target_side": "player",
+                  "type": "attack",
+                  "type_eff": 1
+                }
+              ],
+              "turn": 1
+            },
+            {
+              "events": [
+                {
+                  "attacker_hp_after": 21,
+                  "attacker_idx": 0,
+                  "crit": false,
+                  "damage": 11,
+                  "extra_attack": false,
+                  "is_special": false,
+                  "move_name": "Tackle",
+                  "move_type": "Normal",
+                  "side": "player",
+                  "target_hp_after": 0,
+                  "target_idx": 0,
+                  "target_side": "enemy",
+                  "type": "attack",
+                  "type_eff": 1
+                }
+              ],
+              "turn": 2
+            }
+          ]
+        }
+      ],
+      "checkpoint": {
+        "counters": {
+          "any_fainted": false,
+          "badges": 0,
+          "distortion_legendary_claimed": false,
+          "distortion_worlds_entered": 0,
+          "elite_index": 0,
+          "entered_sub_map": false,
+          "escaped_via_rope": false,
+          "fought_admin": false,
+          "got_via_question": true,
+          "max_team_size": 2,
+          "picked_up_item": false,
+          "silver_beaten": 0,
+          "starter_species_id": 387,
+          "used_ball_catch": true,
+          "used_pokecenter": false,
+          "used_tm": false
+        },
+        "current_map": 0,
+        "current_node": "n3_2",
+        "event": {
+          "action": {
+            "kind": "visit_node",
+            "node_id": "n3_2"
+          },
+          "index": 5
+        },
+        "game_over": false,
+        "in_sub_map": null,
+        "items": [],
+        "kind": "sweep",
+        "map": {
+          "edges": [
+            [
+              "n0_0",
+              "n1_0"
+            ],
+            [
+              "n0_0",
+              "n1_1"
+            ],
+            [
+              "n1_0",
+              "n2_0"
+            ],
+            [
+              "n1_0",
+              "n2_1"
+            ],
+            [
+              "n1_1",
+              "n2_1"
+            ],
+            [
+              "n1_1",
+              "n2_2"
+            ],
+            [
+              "n2_0",
+              "n3_0"
+            ],
+            [
+              "n2_0",
+              "n3_1"
+            ],
+            [
+              "n2_1",
+              "n3_1"
+            ],
+            [
+              "n2_1",
+              "n3_2"
+            ],
+            [
+              "n2_2",
+              "n3_2"
+            ],
+            [
+              "n2_2",
+              "n3_3"
+            ],
+            [
+              "n3_0",
+              "n4_0"
+            ],
+            [
+              "n3_1",
+              "n4_0"
+            ],
+            [
+              "n3_1",
+              "n4_1"
+            ],
+            [
+              "n3_2",
+              "n4_1"
+            ],
+            [
+              "n3_2",
+              "n4_2"
+            ],
+            [
+              "n3_3",
+              "n4_2"
+            ],
+            [
+              "n4_0",
+              "n5_0"
+            ],
+            [
+              "n4_0",
+              "n5_1"
+            ],
+            [
+              "n4_1",
+              "n5_1"
+            ],
+            [
+              "n4_1",
+              "n5_2"
+            ],
+            [
+              "n4_2",
+              "n5_2"
+            ],
+            [
+              "n4_2",
+              "n5_3"
+            ],
+            [
+              "n5_0",
+              "n6_0"
+            ],
+            [
+              "n5_1",
+              "n6_0"
+            ],
+            [
+              "n5_1",
+              "n6_1"
+            ],
+            [
+              "n5_2",
+              "n6_1"
+            ],
+            [
+              "n5_2",
+              "n6_2"
+            ],
+            [
+              "n5_3",
+              "n6_2"
+            ],
+            [
+              "n6_0",
+              "n7_0"
+            ],
+            [
+              "n6_1",
+              "n7_0"
+            ],
+            [
+              "n6_1",
+              "n7_1"
+            ],
+            [
+              "n6_2",
+              "n7_1"
+            ],
+            [
+              "n7_0",
+              "n8_0"
+            ],
+            [
+              "n7_1",
+              "n8_0"
+            ]
+          ],
+          "index": 0,
+          "is_sub_map": null,
+          "nodes": [
+            {
+              "accessible": false,
+              "col": 0,
+              "id": "n0_0",
+              "layer": 0,
+              "revealed": true,
+              "type": "start",
+              "visited": true
+            },
+            {
+              "accessible": false,
+              "col": 0,
+              "id": "n1_0",
+              "layer": 1,
+              "revealed": true,
+              "type": "catch",
+              "visited": true
+            },
+            {
+              "accessible": false,
+              "col": 1,
+              "id": "n1_1",
+              "layer": 1,
+              "revealed": true,
+              "type": "battle",
+              "visited": false
+            },
+            {
+              "accessible": false,
+              "col": 0,
+              "id": "n2_0",
+              "layer": 2,
+              "revealed": true,
+              "type": "trade",
+              "visited": false
+            },
+            {
+              "accessible": false,
+              "col": 1,
+              "id": "n2_1",
+              "layer": 2,
+              "revealed": true,
+              "type": "trade",
+              "visited": true
+            },
+            {
+              "accessible": false,
+              "col": 2,
+              "id": "n2_2",
+              "layer": 2,
+              "revealed": true,
+              "type": "catch",
+              "visited": false
+            },
+            {
+              "accessible": false,
+              "col": 0,
+              "id": "n3_0",
+              "layer": 3,
+              "revealed": true,
+              "type": "trainer",
+              "visited": false
+            },
+            {
+              "accessible": false,
+              "col": 1,
+              "id": "n3_1",
+              "layer": 3,
+              "revealed": true,
+              "type": "trainer",
+              "visited": false
+            },
+            {
+              "accessible": false,
+              "col": 2,
+              "id": "n3_2",
+              "layer": 3,
+              "revealed": true,
+              "type": "trainer",
+              "visited": true
+            },
+            {
+              "accessible": false,
+              "col": 3,
+              "id": "n3_3",
+              "layer": 3,
+              "revealed": true,
+              "type": "trade",
+              "visited": false
+            },
+            {
+              "accessible": false,
+              "col": 0,
+              "id": "n4_0",
+              "layer": 4,
+              "revealed": true,
+              "type": "trainer",
+              "visited": false
+            },
+            {
+              "accessible": true,
+              "col": 1,
+              "id": "n4_1",
+              "layer": 4,
+              "revealed": true,
+              "type": "trainer",
+              "visited": false
+            },
+            {
+              "accessible": true,
+              "col": 2,
+              "id": "n4_2",
+              "layer": 4,
+              "revealed": true,
+              "type": "battle",
+              "visited": false
+            },
+            {
+              "accessible": false,
+              "col": 0,
+              "id": "n5_0",
+              "layer": 5,
+              "revealed": true,
+              "type": "trainer",
+              "visited": false
+            },
+            {
+              "accessible": false,
+              "col": 1,
+              "id": "n5_1",
+              "layer": 5,
+              "revealed": true,
+              "type": "battle",
+              "visited": false
+            },
+            {
+              "accessible": false,
+              "col": 2,
+              "id": "n5_2",
+              "layer": 5,
+              "revealed": true,
+              "type": "battle",
+              "visited": false
+            },
+            {
+              "accessible": false,
+              "col": 3,
+              "id": "n5_3",
+              "layer": 5,
+              "revealed": true,
+              "type": "trainer",
+              "visited": false
+            },
+            {
+              "accessible": false,
+              "col": 0,
+              "id": "n6_0",
+              "layer": 6,
+              "revealed": true,
+              "type": "battle",
+              "visited": false
+            },
+            {
+              "accessible": false,
+              "col": 1,
+              "id": "n6_1",
+              "layer": 6,
+              "revealed": true,
+              "type": "item",
+              "visited": false
+            },
+            {
+              "accessible": false,
+              "col": 2,
+              "id": "n6_2",
+              "layer": 6,
+              "revealed": true,
+              "type": "trainer",
+              "visited": false
+            },
+            {
+              "accessible": false,
+              "col": 0,
+              "id": "n7_0",
+              "layer": 7,
+              "revealed": true,
+              "type": "pokecenter",
+              "visited": false
+            },
+            {
+              "accessible": false,
+              "col": 1,
+              "id": "n7_1",
+              "layer": 7,
+              "revealed": true,
+              "type": "battle",
+              "visited": false
+            },
+            {
+              "accessible": false,
+              "col": 0,
+              "id": "n8_0",
+              "layer": 8,
+              "map_index": 0,
+              "revealed": true,
+              "type": "boss",
+              "visited": false
+            }
+          ]
+        },
+        "mode": {
+          "gen2": false,
+          "gen3": false,
+          "gen4": true,
+          "nuzlocke": false
+        },
+        "pending": null,
+        "resume_state": {
+          "saved_catch": null,
+          "saved_question_resolve": null,
+          "saved_shiny_node": null
+        },
+        "rng": {
+          "draws": 92,
+          "state": 1000330253
+        },
+        "schema_version": 2,
+        "screen": "map-screen",
+        "seed": 1,
+        "sub_map_return": null,
+        "team": [
+          {
+            "base_stats": {
+              "atk": 55,
+              "def": 50,
+              "hp": 55,
+              "spdef": 65,
+              "special": 45,
+              "speed": 55
+            },
+            "burned": false,
+            "current_hp": 24,
+            "form_id": null,
+            "held_item": null,
+            "is_shiny": false,
+            "level": 10,
+            "max_hp": 31,
+            "move_tier": 0,
+            "name": "Eevee",
+            "paralyzed": false,
+            "poison_stacks": 0,
+            "slot": 0,
+            "species_id": 133,
+            "stat_buffs": {},
+            "status": null,
+            "types": [
+              "Normal"
+            ]
+          },
+          {
+            "base_stats": {
+              "atk": 63,
+              "def": 37,
+              "hp": 45,
+              "spdef": 55,
+              "special": 65,
+              "speed": 95
+            },
+            "burned": false,
+            "current_hp": 21,
+            "form_id": null,
+            "held_item": null,
+            "is_shiny": false,
+            "level": 6,
+            "max_hp": 21,
+            "move_tier": 0,
+            "name": "Elekid",
+            "paralyzed": false,
+            "poison_stacks": 0,
+            "slot": 1,
+            "species_id": 239,
+            "stat_buffs": {},
+            "status": null,
+            "types": [
+              "Electric"
+            ]
+          }
+        ]
+      },
+      "rng_draws_total": 92
+    },
+    "kind": "state",
+    "py": {
+      "battle_stages": [
+        {
+          "enemy": [
+            {
+              "atk": 0,
+              "def": 0,
+              "spdef": 0,
+              "special": 0,
+              "speed": 0
+            }
+          ],
+          "player": [
+            {
+              "atk": 0,
+              "def": 0,
+              "spdef": 0,
+              "special": 1,
+              "speed": 0
+            },
+            {
+              "atk": 0,
+              "def": 0,
+              "spdef": 0,
+              "special": 0,
+              "speed": 0
+            }
+          ]
+        }
+      ],
+      "battles": [
+        {
+          "__diagnostic_event_count": null,
+          "enemy_team": [
+            {
+              "base_stats": {
+                "atk": 61,
+                "def": 40,
+                "hp": 48,
+                "spdef": 40,
+                "special": 61,
+                "speed": 50
+              },
+              "burned": false,
+              "current_hp": 0,
+              "form_id": null,
+              "held_item": null,
+              "is_shiny": false,
+              "level": 3,
+              "max_hp": 15,
+              "move_tier": 0,
+              "name": "Croagunk",
+              "paralyzed": false,
+              "poison_stacks": 0,
+              "species_id": 453,
+              "stat_buffs": {},
+              "status": null,
+              "types": [
+                "Poison",
+                "Fighting"
+              ]
+            }
+          ],
+          "player_participants": [
+            0
+          ],
+          "player_team": [
+            {
+              "base_stats": {
+                "atk": 55,
+                "def": 50,
+                "hp": 55,
+                "spdef": 65,
+                "special": 45,
+                "speed": 55
+              },
+              "burned": false,
+              "current_hp": 19,
+              "form_id": null,
+              "held_item": null,
+              "is_shiny": false,
+              "level": 8,
+              "max_hp": 26,
+              "move_tier": 0,
+              "name": "Eevee",
+              "paralyzed": false,
+              "poison_stacks": 2,
+              "species_id": 133,
+              "stat_buffs": {},
+              "status": null,
+              "types": [
+                "Normal"
+              ]
+            },
+            {
+              "base_stats": {
+                "atk": 63,
+                "def": 37,
+                "hp": 45,
+                "spdef": 55,
+                "special": 65,
+                "speed": 95
+              },
+              "burned": false,
+              "current_hp": 17,
+              "form_id": null,
+              "held_item": null,
+              "is_shiny": false,
+              "level": 4,
+              "max_hp": 17,
+              "move_tier": 0,
+              "name": "Elekid",
+              "paralyzed": false,
+              "poison_stacks": 0,
+              "species_id": 239,
+              "stat_buffs": {},
+              "status": null,
+              "types": [
+                "Electric"
+              ]
+            }
+          ],
+          "player_won": true,
+          "rng_draws": 6,
+          "rounds": 2,
+          "status_events": [
+            {
+              "hp_after": 21,
+              "hp_change": -2,
+              "idx": 0,
+              "side": "player",
+              "status": "poison",
+              "type": "status_tick"
+            },
+            {
+              "hp_after": 19,
+              "hp_change": -2,
+              "idx": 0,
+              "side": "player",
+              "status": "poison",
+              "type": "status_tick"
+            }
+          ],
+          "turns": [
+            {
+              "events": [
+                {
+                  "attacker_hp_after": 26,
+                  "attacker_idx": 0,
+                  "crit": false,
+                  "damage": 11,
+                  "extra_attack": false,
+                  "is_special": false,
+                  "move_name": "Tackle",
+                  "move_type": "Normal",
+                  "side": "player",
+                  "target_hp_after": 4,
+                  "target_idx": 0,
+                  "target_side": "enemy",
+                  "type": "attack",
+                  "type_eff": 1.0
+                },
+                {
+                  "attacker_hp_after": 4,
+                  "attacker_idx": 0,
+                  "crit": false,
+                  "damage": 3,
+                  "extra_attack": false,
+                  "is_special": true,
+                  "move_name": "Acid",
+                  "move_type": "Poison",
+                  "side": "enemy",
+                  "target_hp_after": 23,
+                  "target_idx": 0,
+                  "target_side": "player",
+                  "type": "attack",
+                  "type_eff": 1.0
+                }
+              ],
+              "turn": 1
+            },
+            {
+              "events": [
+                {
+                  "attacker_hp_after": 21,
+                  "attacker_idx": 0,
+                  "crit": false,
+                  "damage": 11,
+                  "extra_attack": false,
+                  "is_special": false,
+                  "move_name": "Tackle",
+                  "move_type": "Normal",
+                  "side": "player",
+                  "target_hp_after": 0,
+                  "target_idx": 0,
+                  "target_side": "enemy",
+                  "type": "attack",
+                  "type_eff": 1.0
+                }
+              ],
+              "turn": 2
+            }
+          ]
+        }
+      ],
+      "checkpoint": {
+        "counters": {
+          "any_fainted": false,
+          "badges": 0,
+          "distortion_legendary_claimed": false,
+          "distortion_worlds_entered": 0,
+          "elite_index": 0,
+          "entered_sub_map": false,
+          "escaped_via_rope": false,
+          "fought_admin": false,
+          "got_via_question": true,
+          "max_team_size": 2,
+          "picked_up_item": false,
+          "silver_beaten": 0,
+          "starter_species_id": 387,
+          "used_ball_catch": true,
+          "used_pokecenter": false,
+          "used_tm": false
+        },
+        "current_map": 0,
+        "current_node": "n3_2",
+        "event": {
+          "action": {
+            "kind": "visit_node",
+            "node_id": "n3_2"
+          },
+          "index": 5
+        },
+        "game_over": false,
+        "in_sub_map": null,
+        "items": [],
+        "kind": "sweep",
+        "map": {
+          "edges": [
+            [
+              "n0_0",
+              "n1_0"
+            ],
+            [
+              "n0_0",
+              "n1_1"
+            ],
+            [
+              "n1_0",
+              "n2_0"
+            ],
+            [
+              "n1_0",
+              "n2_1"
+            ],
+            [
+              "n1_1",
+              "n2_1"
+            ],
+            [
+              "n1_1",
+              "n2_2"
+            ],
+            [
+              "n2_0",
+              "n3_0"
+            ],
+            [
+              "n2_0",
+              "n3_1"
+            ],
+            [
+              "n2_1",
+              "n3_1"
+            ],
+            [
+              "n2_1",
+              "n3_2"
+            ],
+            [
+              "n2_2",
+              "n3_2"
+            ],
+            [
+              "n2_2",
+              "n3_3"
+            ],
+            [
+              "n3_0",
+              "n4_0"
+            ],
+            [
+              "n3_1",
+              "n4_0"
+            ],
+            [
+              "n3_1",
+              "n4_1"
+            ],
+            [
+              "n3_2",
+              "n4_1"
+            ],
+            [
+              "n3_2",
+              "n4_2"
+            ],
+            [
+              "n3_3",
+              "n4_2"
+            ],
+            [
+              "n4_0",
+              "n5_0"
+            ],
+            [
+              "n4_0",
+              "n5_1"
+            ],
+            [
+              "n4_1",
+              "n5_1"
+            ],
+            [
+              "n4_1",
+              "n5_2"
+            ],
+            [
+              "n4_2",
+              "n5_2"
+            ],
+            [
+              "n4_2",
+              "n5_3"
+            ],
+            [
+              "n5_0",
+              "n6_0"
+            ],
+            [
+              "n5_1",
+              "n6_0"
+            ],
+            [
+              "n5_1",
+              "n6_1"
+            ],
+            [
+              "n5_2",
+              "n6_1"
+            ],
+            [
+              "n5_2",
+              "n6_2"
+            ],
+            [
+              "n5_3",
+              "n6_2"
+            ],
+            [
+              "n6_0",
+              "n7_0"
+            ],
+            [
+              "n6_1",
+              "n7_0"
+            ],
+            [
+              "n6_1",
+              "n7_1"
+            ],
+            [
+              "n6_2",
+              "n7_1"
+            ],
+            [
+              "n7_0",
+              "n8_0"
+            ],
+            [
+              "n7_1",
+              "n8_0"
+            ]
+          ],
+          "index": 0,
+          "is_sub_map": null,
+          "nodes": [
+            {
+              "accessible": false,
+              "col": 0,
+              "id": "n0_0",
+              "layer": 0,
+              "revealed": true,
+              "type": "start",
+              "visited": true
+            },
+            {
+              "accessible": false,
+              "col": 0,
+              "id": "n1_0",
+              "layer": 1,
+              "revealed": true,
+              "type": "catch",
+              "visited": true
+            },
+            {
+              "accessible": false,
+              "col": 1,
+              "id": "n1_1",
+              "layer": 1,
+              "revealed": true,
+              "type": "battle",
+              "visited": false
+            },
+            {
+              "accessible": false,
+              "col": 0,
+              "id": "n2_0",
+              "layer": 2,
+              "revealed": true,
+              "type": "trade",
+              "visited": false
+            },
+            {
+              "accessible": false,
+              "col": 1,
+              "id": "n2_1",
+              "layer": 2,
+              "revealed": true,
+              "type": "trade",
+              "visited": true
+            },
+            {
+              "accessible": false,
+              "col": 2,
+              "id": "n2_2",
+              "layer": 2,
+              "revealed": true,
+              "type": "catch",
+              "visited": false
+            },
+            {
+              "accessible": false,
+              "col": 0,
+              "id": "n3_0",
+              "layer": 3,
+              "revealed": true,
+              "type": "trainer",
+              "visited": false
+            },
+            {
+              "accessible": false,
+              "col": 1,
+              "id": "n3_1",
+              "layer": 3,
+              "revealed": true,
+              "type": "trainer",
+              "visited": false
+            },
+            {
+              "accessible": false,
+              "col": 2,
+              "id": "n3_2",
+              "layer": 3,
+              "revealed": true,
+              "type": "trainer",
+              "visited": true
+            },
+            {
+              "accessible": false,
+              "col": 3,
+              "id": "n3_3",
+              "layer": 3,
+              "revealed": true,
+              "type": "trade",
+              "visited": false
+            },
+            {
+              "accessible": false,
+              "col": 0,
+              "id": "n4_0",
+              "layer": 4,
+              "revealed": true,
+              "type": "trainer",
+              "visited": false
+            },
+            {
+              "accessible": true,
+              "col": 1,
+              "id": "n4_1",
+              "layer": 4,
+              "revealed": true,
+              "type": "trainer",
+              "visited": false
+            },
+            {
+              "accessible": true,
+              "col": 2,
+              "id": "n4_2",
+              "layer": 4,
+              "revealed": true,
+              "type": "battle",
+              "visited": false
+            },
+            {
+              "accessible": false,
+              "col": 0,
+              "id": "n5_0",
+              "layer": 5,
+              "revealed": true,
+              "type": "trainer",
+              "visited": false
+            },
+            {
+              "accessible": false,
+              "col": 1,
+              "id": "n5_1",
+              "layer": 5,
+              "revealed": true,
+              "type": "battle",
+              "visited": false
+            },
+            {
+              "accessible": false,
+              "col": 2,
+              "id": "n5_2",
+              "layer": 5,
+              "revealed": true,
+              "type": "battle",
+              "visited": false
+            },
+            {
+              "accessible": false,
+              "col": 3,
+              "id": "n5_3",
+              "layer": 5,
+              "revealed": true,
+              "type": "trainer",
+              "visited": false
+            },
+            {
+              "accessible": false,
+              "col": 0,
+              "id": "n6_0",
+              "layer": 6,
+              "revealed": true,
+              "type": "battle",
+              "visited": false
+            },
+            {
+              "accessible": false,
+              "col": 1,
+              "id": "n6_1",
+              "layer": 6,
+              "revealed": true,
+              "type": "item",
+              "visited": false
+            },
+            {
+              "accessible": false,
+              "col": 2,
+              "id": "n6_2",
+              "layer": 6,
+              "revealed": true,
+              "type": "trainer",
+              "visited": false
+            },
+            {
+              "accessible": false,
+              "col": 0,
+              "id": "n7_0",
+              "layer": 7,
+              "revealed": true,
+              "type": "pokecenter",
+              "visited": false
+            },
+            {
+              "accessible": false,
+              "col": 1,
+              "id": "n7_1",
+              "layer": 7,
+              "revealed": true,
+              "type": "battle",
+              "visited": false
+            },
+            {
+              "accessible": false,
+              "col": 0,
+              "id": "n8_0",
+              "layer": 8,
+              "map_index": 0,
+              "revealed": true,
+              "type": "boss",
+              "visited": false
+            }
+          ]
+        },
+        "mode": {
+          "gen2": false,
+          "gen3": false,
+          "gen4": true,
+          "nuzlocke": false
+        },
+        "pending": null,
+        "resume_state": {
+          "saved_catch": null,
+          "saved_question_resolve": null,
+          "saved_shiny_node": null
+        },
+        "rng": {
+          "draws": 92,
+          "state": 1000330253
+        },
+        "schema_version": 2,
+        "screen": "map-screen",
+        "seed": 1,
+        "sub_map_return": null,
+        "team": [
+          {
+            "base_stats": {
+              "atk": 55,
+              "def": 50,
+              "hp": 55,
+              "spdef": 65,
+              "special": 45,
+              "speed": 55
+            },
+            "burned": false,
+            "current_hp": 24,
+            "form_id": null,
+            "held_item": null,
+            "is_shiny": false,
+            "level": 10,
+            "max_hp": 31,
+            "move_tier": 0,
+            "name": "Eevee",
+            "paralyzed": false,
+            "poison_stacks": 0,
+            "slot": 0,
+            "species_id": 133,
+            "stat_buffs": {},
+            "status": null,
+            "types": [
+              "Normal"
+            ]
+          },
+          {
+            "base_stats": {
+              "atk": 63,
+              "def": 37,
+              "hp": 45,
+              "spdef": 55,
+              "special": 65,
+              "speed": 95
+            },
+            "burned": false,
+            "current_hp": 21,
+            "form_id": null,
+            "held_item": null,
+            "is_shiny": false,
+            "level": 6,
+            "max_hp": 21,
+            "move_tier": 0,
+            "name": "Elekid",
+            "paralyzed": false,
+            "poison_stacks": 0,
+            "slot": 1,
+            "species_id": 239,
+            "stat_buffs": {},
+            "status": null,
+            "types": [
+              "Electric"
+            ]
+          }
+        ]
+      },
+      "rng_draws_total": 92
+    }
+  },
+  "episode_id": "corpus_story_gen4_sacrifice",
+  "max_steps": 20,
+  "policy_seed": 24300,
+  "protected_hashes": {
+    "pokelike/battle_loop.py": "cf7b99f5ac5916e6fa3ca85497ff5469e7aa7e1bd535ba2ff0db1745f1fc06a4",
+    "pokelike/battle_traits.py": "8f7d14046b38196b299f46e8821d18bd9eae382ad4746936697a0fbd7fcaabe2",
+    "pokelike/engine.py": "8ada8f0f722e4fb64daa5562f2f81b5f52182a565c78bcaff5288867a5c7bb15",
+    "route-prefix": "92c82e6cdf4d36201d1143fa2802c3400af61e0e55268b45f236ba11465d102d"
+  },
+  "sweep_version": 1
+}

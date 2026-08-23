@@ -1,0 +1,1021 @@
+{
+  "description": "M7 coverage TARGET manifest for the implemented Story/Nuzlocke Gen1-4 surface. Derived from engine.Phase, the normalized action vocabulary, map_gen's node-type constants, route-oracle/coverage.py's REQUIRED_TAGS and the post-M6.4 battle-oracle corpus -- never from a sweep run's own observed paths. `evidence` names WHICH evidence source is allowed to earn each target.",
+  "sweep_version": 1,
+  "targets": [
+    {
+      "action_kind": "advance_map",
+      "evidence": "sweep",
+      "id": "action.advance_map",
+      "rationale": "showBadgeScreen's #btn-next-map.",
+      "stratum": "action"
+    },
+    {
+      "action_kind": "choose_starter",
+      "evidence": "sweep",
+      "id": "action.choose_starter",
+      "rationale": "selectStarter via a showStarterSelect card (76176-76186).",
+      "stratum": "action"
+    },
+    {
+      "action_kind": "equip_item",
+      "evidence": "sweep",
+      "id": "action.equip_item",
+      "rationale": "equipItemFromBag via a team-slot drop (64950 -> 79653-79671).",
+      "stratum": "action"
+    },
+    {
+      "action_kind": "hand_off_item",
+      "evidence": "sweep",
+      "id": "action.hand_off_item",
+      "rationale": "openItemEquipModal [data-idx] hand-off (79541-79545).",
+      "stratum": "action"
+    },
+    {
+      "action_kind": "reorder_team",
+      "evidence": "sweep",
+      "id": "action.reorder_team",
+      "rationale": "The team-bar drag swap (64798-64806).",
+      "stratum": "action"
+    },
+    {
+      "action_kind": "select_option",
+      "evidence": "sweep",
+      "id": "action.select_option",
+      "rationale": "The generic pending resolution, every choice screen/overlay.",
+      "stratum": "action"
+    },
+    {
+      "action_kind": "unequip_item",
+      "evidence": "sweep",
+      "id": "action.unequip_item",
+      "rationale": "openItemEquipModal [data-unequip] (79521-79531).",
+      "stratum": "action"
+    },
+    {
+      "action_kind": "use_item",
+      "evidence": "sweep",
+      "id": "action.use_item",
+      "rationale": "applyUsableItemTo via a team-slot drop (64946-64948).",
+      "stratum": "action"
+    },
+    {
+      "action_kind": "visit_node",
+      "evidence": "sweep",
+      "id": "action.visit_node",
+      "rationale": "onNodeClick on an accessible node (77312+).",
+      "stratum": "action"
+    },
+    {
+      "evidence": "sweep",
+      "id": "battle.any",
+      "rationale": "At least one runBattle resolved cross-runtime.",
+      "stratum": "battle"
+    },
+    {
+      "evidence": "battle-oracle",
+      "fixture": "combined_ability_trait.json",
+      "id": "battle.combined_ability_trait",
+      "rationale": "Earned by tools/battle-oracle fixture combined_ability_trait.json, not by episode sampling: these are RNG-sensitive or configuration-specific hooks that a Story/Nuzlocke episode reaches only by luck, if at all. The M7 brief explicitly permits battle targets to be earned by the corpus.",
+      "stratum": "battle"
+    },
+    {
+      "evidence": "sweep",
+      "id": "battle.crit",
+      "rationale": "A critical hit in the compared attack projection.",
+      "stratum": "battle"
+    },
+    {
+      "evidence": "sweep",
+      "id": "battle.faint",
+      "rationale": "A combatant at 0 HP in a compared battle result.",
+      "stratum": "battle"
+    },
+    {
+      "evidence": "sweep",
+      "id": "battle.held_item_present",
+      "rationale": "A compared battle roster carrying a held item -- the HP-effect surface.",
+      "stratum": "battle"
+    },
+    {
+      "evidence": "sweep",
+      "id": "battle.immune",
+      "rationale": "typeEff == 0 in a compared attack event.",
+      "stratum": "battle"
+    },
+    {
+      "evidence": "sweep",
+      "id": "battle.loss",
+      "rationale": "A battle the player lost.",
+      "stratum": "battle"
+    },
+    {
+      "evidence": "battle-oracle",
+      "fixture": "mirror_water_both_traits.json",
+      "id": "battle.mirror_water_both_traits",
+      "rationale": "Earned by tools/battle-oracle fixture mirror_water_both_traits.json, not by episode sampling: these are RNG-sensitive or configuration-specific hooks that a Story/Nuzlocke episode reaches only by luck, if at all. The M7 brief explicitly permits battle targets to be earned by the corpus.",
+      "stratum": "battle"
+    },
+    {
+      "evidence": "battle-oracle",
+      "fixture": "own_tempo.json",
+      "id": "battle.own_tempo",
+      "rationale": "Earned by tools/battle-oracle fixture own_tempo.json, not by episode sampling: these are RNG-sensitive or configuration-specific hooks that a Story/Nuzlocke episode reaches only by luck, if at all. The M7 brief explicitly permits battle targets to be earned by the corpus.",
+      "stratum": "battle"
+    },
+    {
+      "evidence": "battle-oracle",
+      "fixture": "poison_fatal_target_alive_gate.json",
+      "id": "battle.poison_fatal_target_alive_gate",
+      "rationale": "Earned by tools/battle-oracle fixture poison_fatal_target_alive_gate.json, not by episode sampling: these are RNG-sensitive or configuration-specific hooks that a Story/Nuzlocke episode reaches only by luck, if at all. The M7 brief explicitly permits battle targets to be earned by the corpus.",
+      "stratum": "battle"
+    },
+    {
+      "evidence": "battle-oracle",
+      "fixture": "rand_nerf_mirror.json",
+      "id": "battle.rand_nerf_mirror",
+      "rationale": "Earned by tools/battle-oracle fixture rand_nerf_mirror.json, not by episode sampling: these are RNG-sensitive or configuration-specific hooks that a Story/Nuzlocke episode reaches only by luck, if at all. The M7 brief explicitly permits battle targets to be earned by the corpus.",
+      "stratum": "battle"
+    },
+    {
+      "evidence": "battle-oracle",
+      "fixture": "rand_nerf_no_mirror.json",
+      "id": "battle.rand_nerf_no_mirror",
+      "rationale": "Earned by tools/battle-oracle fixture rand_nerf_no_mirror.json, not by episode sampling: these are RNG-sensitive or configuration-specific hooks that a Story/Nuzlocke episode reaches only by luck, if at all. The M7 brief explicitly permits battle targets to be earned by the corpus.",
+      "stratum": "battle"
+    },
+    {
+      "evidence": "sweep",
+      "id": "battle.resisted",
+      "rationale": "0 < typeEff < 1 in a compared attack event.",
+      "stratum": "battle"
+    },
+    {
+      "evidence": "battle-oracle",
+      "fixture": "rock_recoil_attacker_alive_gate.json",
+      "id": "battle.rock_recoil_attacker_alive_gate",
+      "rationale": "Earned by tools/battle-oracle fixture rock_recoil_attacker_alive_gate.json, not by episode sampling: these are RNG-sensitive or configuration-specific hooks that a Story/Nuzlocke episode reaches only by luck, if at all. The M7 brief explicitly permits battle targets to be earned by the corpus.",
+      "stratum": "battle"
+    },
+    {
+      "evidence": "battle-oracle",
+      "fixture": "shell_bell_floor.json",
+      "id": "battle.shell_bell_floor",
+      "rationale": "Earned by tools/battle-oracle fixture shell_bell_floor.json, not by episode sampling: these are RNG-sensitive or configuration-specific hooks that a Story/Nuzlocke episode reaches only by luck, if at all. The M7 brief explicitly permits battle targets to be earned by the corpus.",
+      "stratum": "battle"
+    },
+    {
+      "evidence": "battle-oracle",
+      "fixture": "shell_bell_no_heal_revive.json",
+      "id": "battle.shell_bell_no_heal_revive",
+      "rationale": "Earned by tools/battle-oracle fixture shell_bell_no_heal_revive.json, not by episode sampling: these are RNG-sensitive or configuration-specific hooks that a Story/Nuzlocke episode reaches only by luck, if at all. The M7 brief explicitly permits battle targets to be earned by the corpus.",
+      "stratum": "battle"
+    },
+    {
+      "evidence": "sweep",
+      "id": "battle.status_faint",
+      "rationale": "A 'faint' entry in the normalized status-event family both oracles already treat as authoritative.",
+      "stratum": "battle"
+    },
+    {
+      "evidence": "sweep",
+      "id": "battle.status_poison_drain",
+      "rationale": "A 'poison_drain' entry in the normalized status-event family both oracles already treat as authoritative.",
+      "stratum": "battle"
+    },
+    {
+      "evidence": "sweep",
+      "id": "battle.status_status_tick",
+      "rationale": "A 'status_tick' entry in the normalized status-event family both oracles already treat as authoritative.",
+      "stratum": "battle"
+    },
+    {
+      "evidence": "sweep",
+      "id": "battle.super_effective",
+      "rationale": "typeEff > 1 in a compared attack event.",
+      "stratum": "battle"
+    },
+    {
+      "evidence": "battle-oracle",
+      "fixture": "trick_room.json",
+      "id": "battle.trick_room",
+      "rationale": "Earned by tools/battle-oracle fixture trick_room.json, not by episode sampling: these are RNG-sensitive or configuration-specific hooks that a Story/Nuzlocke episode reaches only by luck, if at all. The M7 brief explicitly permits battle targets to be earned by the corpus.",
+      "stratum": "battle"
+    },
+    {
+      "evidence": "battle-oracle",
+      "fixture": "truant.json",
+      "id": "battle.truant",
+      "rationale": "Earned by tools/battle-oracle fixture truant.json, not by episode sampling: these are RNG-sensitive or configuration-specific hooks that a Story/Nuzlocke episode reaches only by luck, if at all. The M7 brief explicitly permits battle targets to be earned by the corpus.",
+      "stratum": "battle"
+    },
+    {
+      "evidence": "battle-oracle",
+      "fixture": "water_fatal_target_alive_gate.json",
+      "id": "battle.water_fatal_target_alive_gate",
+      "rationale": "Earned by tools/battle-oracle fixture water_fatal_target_alive_gate.json, not by episode sampling: these are RNG-sensitive or configuration-specific hooks that a Story/Nuzlocke episode reaches only by luck, if at all. The M7 brief explicitly permits battle targets to be earned by the corpus.",
+      "stratum": "battle"
+    },
+    {
+      "evidence": "sweep",
+      "id": "battle.win",
+      "rationale": "A battle the player won.",
+      "stratum": "battle"
+    },
+    {
+      "evidence": "sweep",
+      "id": "episode.nuzlocke_gen1",
+      "rationale": "One of the 8 mode-by-generation buckets the M7 brief requires; the mode flags are startNewRun's own four arguments (bundle.deobfuscated.js:75455+).",
+      "stratum": "episode"
+    },
+    {
+      "evidence": "sweep",
+      "id": "episode.nuzlocke_gen2",
+      "rationale": "One of the 8 mode-by-generation buckets the M7 brief requires; the mode flags are startNewRun's own four arguments (bundle.deobfuscated.js:75455+).",
+      "stratum": "episode"
+    },
+    {
+      "evidence": "sweep",
+      "id": "episode.nuzlocke_gen3",
+      "rationale": "One of the 8 mode-by-generation buckets the M7 brief requires; the mode flags are startNewRun's own four arguments (bundle.deobfuscated.js:75455+).",
+      "stratum": "episode"
+    },
+    {
+      "evidence": "sweep",
+      "id": "episode.nuzlocke_gen4",
+      "rationale": "One of the 8 mode-by-generation buckets the M7 brief requires; the mode flags are startNewRun's own four arguments (bundle.deobfuscated.js:75455+).",
+      "stratum": "episode"
+    },
+    {
+      "evidence": "sweep",
+      "id": "episode.story_gen1",
+      "rationale": "One of the 8 mode-by-generation buckets the M7 brief requires; the mode flags are startNewRun's own four arguments (bundle.deobfuscated.js:75455+).",
+      "stratum": "episode"
+    },
+    {
+      "evidence": "sweep",
+      "id": "episode.story_gen2",
+      "rationale": "One of the 8 mode-by-generation buckets the M7 brief requires; the mode flags are startNewRun's own four arguments (bundle.deobfuscated.js:75455+).",
+      "stratum": "episode"
+    },
+    {
+      "evidence": "sweep",
+      "id": "episode.story_gen3",
+      "rationale": "One of the 8 mode-by-generation buckets the M7 brief requires; the mode flags are startNewRun's own four arguments (bundle.deobfuscated.js:75455+).",
+      "stratum": "episode"
+    },
+    {
+      "evidence": "sweep",
+      "id": "episode.story_gen4",
+      "rationale": "One of the 8 mode-by-generation buckets the M7 brief requires; the mode flags are startNewRun's own four arguments (bundle.deobfuscated.js:75455+).",
+      "stratum": "episode"
+    },
+    {
+      "evidence": "sweep",
+      "id": "exit.cancel",
+      "rationale": "SelectOption(index=None, cancel=True): #btn-equip-cancel (79563-79569), whose whole body is B2O.remove() -- no equip, no bank, no advance. The third exit M7's legality correction declares.",
+      "stratum": "action"
+    },
+    {
+      "evidence": "sweep",
+      "id": "exit.pick",
+      "rationale": "Resolving a pending by picking option N.",
+      "stratum": "action"
+    },
+    {
+      "evidence": "sweep",
+      "id": "exit.skip_or_bank",
+      "rationale": "SelectOption(index=None, cancel=False): the skip/decline/bank exit (#btn-skip-*, and #btn-equip-to-bag which BANKS the item, 79552-79562).",
+      "stratum": "action"
+    },
+    {
+      "evidence": "excluded",
+      "exclusion_reason": "Out of M7's declared Story/Nuzlocke scope; recorded as an open project gap so the denominator stays honest.",
+      "id": "feature.alternate_forms",
+      "rationale": "Mega/regional/Rotom form ACQUISITION has no proved reachable call site in Story/Nuzlocke (CLAUDE.md open point 2).",
+      "stratum": "project-gap"
+    },
+    {
+      "evidence": "excluded",
+      "exclusion_reason": "Out of M7's declared Story/Nuzlocke scope; recorded as an open project gap so the denominator stays honest.",
+      "id": "feature.live_drift",
+      "rationale": "Parity against the CURRENT live site is a separate authorized track (CLAUDE.md open point 1).",
+      "stratum": "project-gap"
+    },
+    {
+      "evidence": "excluded",
+      "exclusion_reason": "Out of M7's declared Story/Nuzlocke scope; recorded as an open project gap so the denominator stays honest.",
+      "id": "feature.save_load",
+      "rationale": "Save/load/resume is unbuilt (PLAN M12); the port has live-field parity only.",
+      "stratum": "project-gap"
+    },
+    {
+      "evidence": "sweep",
+      "id": "legality.item_equip_cancel_offered",
+      "rationale": "Both runtimes OFFER the cancel exit at the same step. This is what proves the engine.legal_actions declaration fix, independently of whether the scheduler ever chooses it.",
+      "stratum": "action"
+    },
+    {
+      "evidence": "sweep",
+      "id": "lifecycle.map_advance",
+      "rationale": "A real map transition through showBadgeScreen's next-map handler.",
+      "stratum": "lifecycle"
+    },
+    {
+      "evidence": "sweep",
+      "id": "lifecycle.submap_enter",
+      "rationale": "enterSubMap: state.inSubMap goes null -> set, with the parent saved.",
+      "stratum": "lifecycle"
+    },
+    {
+      "evidence": "sweep",
+      "id": "lifecycle.submap_exit",
+      "rationale": "returnFromSubMap: state.inSubMap goes set -> null, parent restored.",
+      "stratum": "lifecycle"
+    },
+    {
+      "evidence": "excluded",
+      "exclusion_reason": "Out of M7's declared Story/Nuzlocke scope; recorded as an open project gap so the denominator stays honest.",
+      "id": "mode.battle_tower",
+      "rationale": "Battle Tower is unbuilt in the port (PLAN M9).",
+      "stratum": "project-gap"
+    },
+    {
+      "evidence": "excluded",
+      "exclusion_reason": "Out of M7's declared Story/Nuzlocke scope; recorded as an open project gap so the denominator stays honest.",
+      "id": "mode.challenges",
+      "rationale": "Challenges are unbuilt in the port (PLAN M11).",
+      "stratum": "project-gap"
+    },
+    {
+      "evidence": "excluded",
+      "exclusion_reason": "Out of M7's declared Story/Nuzlocke scope; recorded as an open project gap so the denominator stays honest.",
+      "id": "mode.endless",
+      "rationale": "Endless/Endless2 are unbuilt in the port (PLAN M10).",
+      "stratum": "project-gap"
+    },
+    {
+      "evidence": "sweep",
+      "id": "node.aqua",
+      "rationale": "map_gen.AQUA -- Team Aqua admin (doAdminNode), Gen3.",
+      "stratum": "node"
+    },
+    {
+      "evidence": "sweep",
+      "id": "node.battle",
+      "rationale": "map_gen.BATTLE -- Wild battle node.",
+      "stratum": "node"
+    },
+    {
+      "evidence": "sweep",
+      "id": "node.boss",
+      "rationale": "map_gen.BOSS -- Gym leader / Elite / final boss node.",
+      "stratum": "node"
+    },
+    {
+      "evidence": "sweep",
+      "id": "node.catch",
+      "rationale": "map_gen.CATCH -- Catch-offer node (doCatchNode).",
+      "stratum": "node"
+    },
+    {
+      "evidence": "sweep",
+      "id": "node.distortion",
+      "rationale": "map_gen.DISTORTION -- Gen4 Distortion World submap entry (enterSubMap).",
+      "stratum": "node"
+    },
+    {
+      "evidence": "sweep",
+      "id": "node.item",
+      "rationale": "map_gen.ITEM -- Item-offer node (doItemNode).",
+      "stratum": "node"
+    },
+    {
+      "evidence": "sweep",
+      "id": "node.legendary",
+      "rationale": "map_gen.LEGENDARY -- Ordinary-map legendary node (doLegendaryNode).",
+      "stratum": "node"
+    },
+    {
+      "evidence": "sweep",
+      "id": "node.magma",
+      "rationale": "map_gen.MAGMA -- Team Magma admin (doAdminNode), Gen3.",
+      "stratum": "node"
+    },
+    {
+      "evidence": "sweep",
+      "id": "node.move_tutor",
+      "rationale": "map_gen.MOVE_TUTOR -- Move tutor node (doMoveTutorNode).",
+      "stratum": "node"
+    },
+    {
+      "evidence": "sweep",
+      "id": "node.pokecenter",
+      "rationale": "map_gen.POKECENTER -- Poke Center heal node.",
+      "stratum": "node"
+    },
+    {
+      "evidence": "sweep",
+      "id": "node.question",
+      "rationale": "map_gen.QUESTION -- Question-mark node, resolved by resolveQuestionMark.",
+      "stratum": "node"
+    },
+    {
+      "evidence": "sweep",
+      "id": "node.reward",
+      "rationale": "map_gen.REWARD -- In-submap reward node (doSubMapReward).",
+      "stratum": "node"
+    },
+    {
+      "evidence": "sweep",
+      "id": "node.silver",
+      "rationale": "map_gen.SILVER -- The Gen2 rival (doSilverNode).",
+      "stratum": "node"
+    },
+    {
+      "evidence": "sweep",
+      "id": "node.start",
+      "rationale": "map_gen.START -- The layer-0 entry node.",
+      "stratum": "node"
+    },
+    {
+      "evidence": "sweep",
+      "id": "node.subexit",
+      "rationale": "map_gen.SUBEXIT -- In-submap exit node (returnFromSubMap).",
+      "stratum": "node"
+    },
+    {
+      "evidence": "sweep",
+      "id": "node.trade",
+      "rationale": "map_gen.TRADE -- Trade node (doTradeNode).",
+      "stratum": "node"
+    },
+    {
+      "evidence": "sweep",
+      "id": "node.trainer",
+      "rationale": "map_gen.TRAINER -- Ordinary procedural trainer node.",
+      "stratum": "node"
+    },
+    {
+      "evidence": "sweep",
+      "id": "node.underground",
+      "rationale": "map_gen.UNDERGROUND -- Gen4 Underground submap entry (enterSubMap).",
+      "stratum": "node"
+    },
+    {
+      "evidence": "sweep",
+      "id": "optional.optional",
+      "rationale": "A pending with optional=true (every screen that builds a skip button).",
+      "stratum": "action"
+    },
+    {
+      "evidence": "sweep",
+      "id": "optional.required",
+      "rationale": "A pending with optional=false (branching evolution / team picker build no cancel affordance at all).",
+      "stratum": "action"
+    },
+    {
+      "evidence": "sweep",
+      "id": "outcome.loss",
+      "rationale": "A losing terminal path: showGameOver / state.gameOver.",
+      "stratum": "episode"
+    },
+    {
+      "evidence": "sweep",
+      "id": "outcome.win",
+      "rationale": "A winning terminal path: the source's win-screen.",
+      "stratum": "episode"
+    },
+    {
+      "evidence": "sweep",
+      "id": "pending.catch_choice",
+      "phase": "catch_choice",
+      "rationale": "engine.Phase.CATCH_CHOICE pending family.",
+      "stratum": "pending"
+    },
+    {
+      "evidence": "sweep",
+      "id": "pending.evolution_choice",
+      "phase": "evolution_choice",
+      "rationale": "engine.Phase.EVOLUTION_CHOICE -- a showScreen-less overlay, so it is observed through the pending projection both runtimes build, not through currentScreen.",
+      "stratum": "pending"
+    },
+    {
+      "evidence": "sweep",
+      "id": "pending.item_choice",
+      "phase": "item_choice",
+      "rationale": "engine.Phase.ITEM_CHOICE pending family.",
+      "stratum": "pending"
+    },
+    {
+      "evidence": "sweep",
+      "id": "pending.item_equip_choice",
+      "phase": "item_equip_choice",
+      "rationale": "engine.Phase.ITEM_EQUIP_CHOICE -- a showScreen-less overlay, so it is observed through the pending projection both runtimes build, not through currentScreen.",
+      "stratum": "pending"
+    },
+    {
+      "evidence": "sweep",
+      "id": "pending.move_tutor_choice",
+      "phase": "move_tutor_choice",
+      "rationale": "engine.Phase.MOVE_TUTOR_CHOICE -- a showScreen-less overlay, so it is observed through the pending projection both runtimes build, not through currentScreen.",
+      "stratum": "pending"
+    },
+    {
+      "evidence": "sweep",
+      "id": "pending.reward_team_pick",
+      "phase": "reward_team_pick",
+      "rationale": "engine.Phase.REWARD_TEAM_PICK -- a showScreen-less overlay, so it is observed through the pending projection both runtimes build, not through currentScreen.",
+      "stratum": "pending"
+    },
+    {
+      "evidence": "sweep",
+      "id": "pending.shiny_choice",
+      "rationale": "doShinyNode's pending family, projected as `shiny_choice` on both sides.",
+      "stratum": "pending"
+    },
+    {
+      "evidence": "sweep",
+      "id": "pending.swap_choice",
+      "phase": "swap_choice",
+      "rationale": "engine.Phase.SWAP_CHOICE pending family.",
+      "stratum": "pending"
+    },
+    {
+      "evidence": "sweep",
+      "id": "pending.trade_choice",
+      "phase": "trade_choice",
+      "rationale": "engine.Phase.TRADE_CHOICE pending family.",
+      "stratum": "pending"
+    },
+    {
+      "evidence": "sweep",
+      "id": "phase.badge-screen",
+      "phase": "next_map_ready",
+      "rationale": "engine.Phase.NEXT_MAP_READY <-> source screen badge-screen (run_scenario._PHASE_TO_SCREEN / driver.js pendingState).",
+      "stratum": "phase"
+    },
+    {
+      "evidence": "sweep",
+      "id": "phase.catch-screen",
+      "phase": "catch_choice",
+      "rationale": "engine.Phase.CATCH_CHOICE <-> source screen catch-screen (run_scenario._PHASE_TO_SCREEN / driver.js pendingState).",
+      "stratum": "phase"
+    },
+    {
+      "evidence": "excluded",
+      "exclusion_reason": "No source-side bridge exists; building one is out of M7 scope (the brief forbids new gameplay work). Recorded as an open gap.",
+      "id": "phase.escape-rope",
+      "phase": "escape_rope_choice",
+      "rationale": "engine.Phase.ESCAPE_ROPE_CHOICE exists in the port, but route-oracle has no `choice` bridge through it and no route reaches it -- a declared harness-coverage gap since M3, restated in route-oracle/README.md's 'Still open' section. M7 does not close it and does not fake it.",
+      "stratum": "phase"
+    },
+    {
+      "evidence": "sweep",
+      "id": "phase.gameover-screen",
+      "phase": "game_over",
+      "rationale": "engine.Phase.GAME_OVER <-> source screen gameover-screen (run_scenario._PHASE_TO_SCREEN / driver.js pendingState).",
+      "stratum": "phase"
+    },
+    {
+      "evidence": "sweep",
+      "id": "phase.item-screen",
+      "phase": "item_choice",
+      "rationale": "engine.Phase.ITEM_CHOICE <-> source screen item-screen (run_scenario._PHASE_TO_SCREEN / driver.js pendingState).",
+      "stratum": "phase"
+    },
+    {
+      "evidence": "sweep",
+      "id": "phase.map-screen",
+      "phase": "on_map",
+      "rationale": "engine.Phase.ON_MAP <-> source screen map-screen (run_scenario._PHASE_TO_SCREEN / driver.js pendingState).",
+      "stratum": "phase"
+    },
+    {
+      "evidence": "sweep",
+      "id": "phase.shiny-screen",
+      "rationale": "doShinyNode's own screen (80872-80990). It has no distinct engine.Phase: the port models the room as CATCH_CHOICE raised by a shiny node, disambiguated by run_scenario._is_shiny_origin.",
+      "stratum": "phase"
+    },
+    {
+      "evidence": "sweep",
+      "id": "phase.starter-screen",
+      "phase": "choose_starter",
+      "rationale": "engine.Phase.CHOOSE_STARTER <-> source screen starter-screen (run_scenario._PHASE_TO_SCREEN / driver.js pendingState).",
+      "stratum": "phase"
+    },
+    {
+      "evidence": "sweep",
+      "id": "phase.swap-screen",
+      "phase": "swap_choice",
+      "rationale": "engine.Phase.SWAP_CHOICE <-> source screen swap-screen (run_scenario._PHASE_TO_SCREEN / driver.js pendingState).",
+      "stratum": "phase"
+    },
+    {
+      "evidence": "sweep",
+      "id": "phase.trade-screen",
+      "phase": "trade_choice",
+      "rationale": "engine.Phase.TRADE_CHOICE <-> source screen trade-screen (run_scenario._PHASE_TO_SCREEN / driver.js pendingState).",
+      "stratum": "phase"
+    },
+    {
+      "evidence": "sweep",
+      "id": "phase.win-screen",
+      "phase": "victory",
+      "rationale": "engine.Phase.VICTORY <-> source screen win-screen (run_scenario._PHASE_TO_SCREEN / driver.js pendingState).",
+      "stratum": "phase"
+    },
+    {
+      "evidence": "sweep",
+      "id": "resume.catch",
+      "rationale": "The live resume guard state.savedCatch (written 78765, read 78441), compared as `resume_state` on both sides.",
+      "stratum": "pending"
+    },
+    {
+      "evidence": "sweep",
+      "id": "resume.question",
+      "rationale": "The live resume guard state.savedQuestionResolve (written 77332, read 77328), compared as `resume_state` on both sides.",
+      "stratum": "pending"
+    },
+    {
+      "evidence": "sweep",
+      "id": "resume.shiny",
+      "rationale": "The live resume guard state.savedShinyNode (written 80919, read 80887), compared as `resume_state` on both sides.",
+      "stratum": "pending"
+    },
+    {
+      "evidence": "sweep",
+      "id": "reward.fossil",
+      "rationale": "The 'fossil' submap-reward branch (node.reward, bundle.deobfuscated.js:53591-53611).",
+      "stratum": "node"
+    },
+    {
+      "evidence": "sweep",
+      "id": "reward.sacrifice",
+      "rationale": "The 'sacrifice' submap-reward branch (node.reward, bundle.deobfuscated.js:53591-53611).",
+      "stratum": "node"
+    },
+    {
+      "evidence": "sweep",
+      "id": "reward.skip",
+      "rationale": "The 'skip' submap-reward branch (node.reward, bundle.deobfuscated.js:53591-53611).",
+      "stratum": "node"
+    },
+    {
+      "evidence": "sweep",
+      "id": "reward.stat10",
+      "rationale": "The 'stat10' submap-reward branch (node.reward, bundle.deobfuscated.js:53591-53611).",
+      "stratum": "node"
+    },
+    {
+      "evidence": "route-corpus",
+      "id": "route.admin",
+      "rationale": "Earned by the frozen 29-scenario strict/coverage gate, which derives this tag independently on BOTH runtimes and pins its evidence indices in scenarios/manifest.json.",
+      "route_tag": "admin",
+      "stratum": "route"
+    },
+    {
+      "evidence": "route-corpus",
+      "id": "route.branching_evolution_resolved",
+      "rationale": "Earned by the frozen 29-scenario strict/coverage gate, which derives this tag independently on BOTH runtimes and pins its evidence indices in scenarios/manifest.json.",
+      "route_tag": "branching_evolution_resolved",
+      "stratum": "route"
+    },
+    {
+      "evidence": "route-corpus",
+      "id": "route.catch_room_accept_resume_cleared",
+      "rationale": "Earned by the frozen 29-scenario strict/coverage gate, which derives this tag independently on BOTH runtimes and pins its evidence indices in scenarios/manifest.json.",
+      "route_tag": "catch_room_accept_resume_cleared",
+      "stratum": "route"
+    },
+    {
+      "evidence": "route-corpus",
+      "id": "route.distortion_boss_loss",
+      "rationale": "Earned by the frozen 29-scenario strict/coverage gate, which derives this tag independently on BOTH runtimes and pins its evidence indices in scenarios/manifest.json.",
+      "route_tag": "distortion_boss_loss",
+      "stratum": "route"
+    },
+    {
+      "evidence": "route-corpus",
+      "id": "route.distortion_boss_win",
+      "rationale": "Earned by the frozen 29-scenario strict/coverage gate, which derives this tag independently on BOTH runtimes and pins its evidence indices in scenarios/manifest.json.",
+      "route_tag": "distortion_boss_win",
+      "stratum": "route"
+    },
+    {
+      "evidence": "route-corpus",
+      "id": "route.distortion_continued_progress",
+      "rationale": "Earned by the frozen 29-scenario strict/coverage gate, which derives this tag independently on BOTH runtimes and pins its evidence indices in scenarios/manifest.json.",
+      "route_tag": "distortion_continued_progress",
+      "stratum": "route"
+    },
+    {
+      "evidence": "route-corpus",
+      "id": "route.distortion_entry",
+      "rationale": "Earned by the frozen 29-scenario strict/coverage gate, which derives this tag independently on BOTH runtimes and pins its evidence indices in scenarios/manifest.json.",
+      "route_tag": "distortion_entry",
+      "stratum": "route"
+    },
+    {
+      "evidence": "route-corpus",
+      "id": "route.distortion_exact_parent_return",
+      "rationale": "Earned by the frozen 29-scenario strict/coverage gate, which derives this tag independently on BOTH runtimes and pins its evidence indices in scenarios/manifest.json.",
+      "route_tag": "distortion_exact_parent_return",
+      "stratum": "route"
+    },
+    {
+      "evidence": "route-corpus",
+      "id": "route.distortion_reward_resolved",
+      "rationale": "Earned by the frozen 29-scenario strict/coverage gate, which derives this tag independently on BOTH runtimes and pins its evidence indices in scenarios/manifest.json.",
+      "route_tag": "distortion_reward_resolved",
+      "stratum": "route"
+    },
+    {
+      "evidence": "route-corpus",
+      "id": "route.distortion_subexit",
+      "rationale": "Earned by the frozen 29-scenario strict/coverage gate, which derives this tag independently on BOTH runtimes and pins its evidence indices in scenarios/manifest.json.",
+      "route_tag": "distortion_subexit",
+      "stratum": "route"
+    },
+    {
+      "evidence": "route-corpus",
+      "id": "route.evolution_or_reward_transition",
+      "rationale": "Earned by the frozen 29-scenario strict/coverage gate, which derives this tag independently on BOTH runtimes and pins its evidence indices in scenarios/manifest.json.",
+      "route_tag": "evolution_or_reward_transition",
+      "stratum": "route"
+    },
+    {
+      "evidence": "route-corpus",
+      "id": "route.exact_parent_return",
+      "rationale": "Earned by the frozen 29-scenario strict/coverage gate, which derives this tag independently on BOTH runtimes and pins its evidence indices in scenarios/manifest.json.",
+      "route_tag": "exact_parent_return",
+      "stratum": "route"
+    },
+    {
+      "evidence": "route-corpus",
+      "id": "route.held_item_handoff_resolved",
+      "rationale": "Earned by the frozen 29-scenario strict/coverage gate, which derives this tag independently on BOTH runtimes and pins its evidence indices in scenarios/manifest.json.",
+      "route_tag": "held_item_handoff_resolved",
+      "stratum": "route"
+    },
+    {
+      "evidence": "route-corpus",
+      "id": "route.held_item_unequip_resolved",
+      "rationale": "Earned by the frozen 29-scenario strict/coverage gate, which derives this tag independently on BOTH runtimes and pins its evidence indices in scenarios/manifest.json.",
+      "route_tag": "held_item_unequip_resolved",
+      "stratum": "route"
+    },
+    {
+      "evidence": "route-corpus",
+      "id": "route.item_equip_resolved",
+      "rationale": "Earned by the frozen 29-scenario strict/coverage gate, which derives this tag independently on BOTH runtimes and pins its evidence indices in scenarios/manifest.json.",
+      "route_tag": "item_equip_resolved",
+      "stratum": "route"
+    },
+    {
+      "evidence": "route-corpus",
+      "id": "route.legendary_swap_accept",
+      "rationale": "Earned by the frozen 29-scenario strict/coverage gate, which derives this tag independently on BOTH runtimes and pins its evidence indices in scenarios/manifest.json.",
+      "route_tag": "legendary_swap_accept",
+      "stratum": "route"
+    },
+    {
+      "evidence": "route-corpus",
+      "id": "route.legendary_swap_decline",
+      "rationale": "Earned by the frozen 29-scenario strict/coverage gate, which derives this tag independently on BOTH runtimes and pins its evidence indices in scenarios/manifest.json.",
+      "route_tag": "legendary_swap_decline",
+      "stratum": "route"
+    },
+    {
+      "evidence": "route-corpus",
+      "id": "route.legendary_swap_full_decline",
+      "rationale": "Earned by the frozen 29-scenario strict/coverage gate, which derives this tag independently on BOTH runtimes and pins its evidence indices in scenarios/manifest.json.",
+      "route_tag": "legendary_swap_full_decline",
+      "stratum": "route"
+    },
+    {
+      "evidence": "route-corpus",
+      "id": "route.legendary_swap_full_replace",
+      "rationale": "Earned by the frozen 29-scenario strict/coverage gate, which derives this tag independently on BOTH runtimes and pins its evidence indices in scenarios/manifest.json.",
+      "route_tag": "legendary_swap_full_replace",
+      "stratum": "route"
+    },
+    {
+      "evidence": "route-corpus",
+      "id": "route.map_transition",
+      "rationale": "Earned by the frozen 29-scenario strict/coverage gate, which derives this tag independently on BOTH runtimes and pins its evidence indices in scenarios/manifest.json.",
+      "route_tag": "map_transition",
+      "stratum": "route"
+    },
+    {
+      "evidence": "route-corpus",
+      "id": "route.move_tutor_resolved",
+      "rationale": "Earned by the frozen 29-scenario strict/coverage gate, which derives this tag independently on BOTH runtimes and pins its evidence indices in scenarios/manifest.json.",
+      "route_tag": "move_tutor_resolved",
+      "stratum": "route"
+    },
+    {
+      "evidence": "route-corpus",
+      "id": "route.nuzlocke_permadeath",
+      "rationale": "Earned by the frozen 29-scenario strict/coverage gate, which derives this tag independently on BOTH runtimes and pins its evidence indices in scenarios/manifest.json.",
+      "route_tag": "nuzlocke_permadeath",
+      "stratum": "route"
+    },
+    {
+      "evidence": "route-corpus",
+      "id": "route.ordinary_trainer",
+      "rationale": "Earned by the frozen 29-scenario strict/coverage gate, which derives this tag independently on BOTH runtimes and pins its evidence indices in scenarios/manifest.json.",
+      "route_tag": "ordinary_trainer",
+      "stratum": "route"
+    },
+    {
+      "evidence": "route-corpus",
+      "id": "route.pending_submap_reward",
+      "rationale": "Earned by the frozen 29-scenario strict/coverage gate, which derives this tag independently on BOTH runtimes and pins its evidence indices in scenarios/manifest.json.",
+      "route_tag": "pending_submap_reward",
+      "stratum": "route"
+    },
+    {
+      "evidence": "route-corpus",
+      "id": "route.resolved_submap_reward",
+      "rationale": "Earned by the frozen 29-scenario strict/coverage gate, which derives this tag independently on BOTH runtimes and pins its evidence indices in scenarios/manifest.json.",
+      "route_tag": "resolved_submap_reward",
+      "stratum": "route"
+    },
+    {
+      "evidence": "route-corpus",
+      "id": "route.sacrifice_reward_resolved",
+      "rationale": "Earned by the frozen 29-scenario strict/coverage gate, which derives this tag independently on BOTH runtimes and pins its evidence indices in scenarios/manifest.json.",
+      "route_tag": "sacrifice_reward_resolved",
+      "stratum": "route"
+    },
+    {
+      "evidence": "route-corpus",
+      "id": "route.shiny_accept_resolved",
+      "rationale": "Earned by the frozen 29-scenario strict/coverage gate, which derives this tag independently on BOTH runtimes and pins its evidence indices in scenarios/manifest.json.",
+      "route_tag": "shiny_accept_resolved",
+      "stratum": "route"
+    },
+    {
+      "evidence": "route-corpus",
+      "id": "route.shiny_resolved",
+      "rationale": "Earned by the frozen 29-scenario strict/coverage gate, which derives this tag independently on BOTH runtimes and pins its evidence indices in scenarios/manifest.json.",
+      "route_tag": "shiny_resolved",
+      "stratum": "route"
+    },
+    {
+      "evidence": "route-corpus",
+      "id": "route.silver",
+      "rationale": "Earned by the frozen 29-scenario strict/coverage gate, which derives this tag independently on BOTH runtimes and pins its evidence indices in scenarios/manifest.json.",
+      "route_tag": "silver",
+      "stratum": "route"
+    },
+    {
+      "evidence": "route-corpus",
+      "id": "route.starter_selection",
+      "rationale": "Earned by the frozen 29-scenario strict/coverage gate, which derives this tag independently on BOTH runtimes and pins its evidence indices in scenarios/manifest.json.",
+      "route_tag": "starter_selection",
+      "stratum": "route"
+    },
+    {
+      "evidence": "route-corpus",
+      "id": "route.stat10_reward_resolved",
+      "rationale": "Earned by the frozen 29-scenario strict/coverage gate, which derives this tag independently on BOTH runtimes and pins its evidence indices in scenarios/manifest.json.",
+      "route_tag": "stat10_reward_resolved",
+      "stratum": "route"
+    },
+    {
+      "evidence": "route-corpus",
+      "id": "route.subexit",
+      "rationale": "Earned by the frozen 29-scenario strict/coverage gate, which derives this tag independently on BOTH runtimes and pins its evidence indices in scenarios/manifest.json.",
+      "route_tag": "subexit",
+      "stratum": "route"
+    },
+    {
+      "evidence": "route-corpus",
+      "id": "route.submap_boss_win",
+      "rationale": "Earned by the frozen 29-scenario strict/coverage gate, which derives this tag independently on BOTH runtimes and pins its evidence indices in scenarios/manifest.json.",
+      "route_tag": "submap_boss_win",
+      "stratum": "route"
+    },
+    {
+      "evidence": "route-corpus",
+      "id": "route.submap_entry",
+      "rationale": "Earned by the frozen 29-scenario strict/coverage gate, which derives this tag independently on BOTH runtimes and pins its evidence indices in scenarios/manifest.json.",
+      "route_tag": "submap_entry",
+      "stratum": "route"
+    },
+    {
+      "evidence": "route-corpus",
+      "id": "route.swap_release",
+      "rationale": "Earned by the frozen 29-scenario strict/coverage gate, which derives this tag independently on BOTH runtimes and pins its evidence indices in scenarios/manifest.json.",
+      "route_tag": "swap_release",
+      "stratum": "route"
+    },
+    {
+      "evidence": "route-corpus",
+      "id": "route.terminal_loss",
+      "rationale": "Earned by the frozen 29-scenario strict/coverage gate, which derives this tag independently on BOTH runtimes and pins its evidence indices in scenarios/manifest.json.",
+      "route_tag": "terminal_loss",
+      "stratum": "route"
+    },
+    {
+      "evidence": "route-corpus",
+      "id": "route.trade_resolved",
+      "rationale": "Earned by the frozen 29-scenario strict/coverage gate, which derives this tag independently on BOTH runtimes and pins its evidence indices in scenarios/manifest.json.",
+      "route_tag": "trade_resolved",
+      "stratum": "route"
+    },
+    {
+      "evidence": "route-corpus",
+      "id": "route.winning_progression",
+      "rationale": "Earned by the frozen 29-scenario strict/coverage gate, which derives this tag independently on BOTH runtimes and pins its evidence indices in scenarios/manifest.json.",
+      "route_tag": "winning_progression",
+      "stratum": "route"
+    },
+    {
+      "evidence": "sweep",
+      "id": "starter.gen1.0",
+      "rationale": "showStarterSelect offers three cards; position 0 in gen1. Source-valid in every generation (the offer is three regardless of mode flags).",
+      "stratum": "episode"
+    },
+    {
+      "evidence": "sweep",
+      "id": "starter.gen1.1",
+      "rationale": "showStarterSelect offers three cards; position 1 in gen1. Source-valid in every generation (the offer is three regardless of mode flags).",
+      "stratum": "episode"
+    },
+    {
+      "evidence": "sweep",
+      "id": "starter.gen1.2",
+      "rationale": "showStarterSelect offers three cards; position 2 in gen1. Source-valid in every generation (the offer is three regardless of mode flags).",
+      "stratum": "episode"
+    },
+    {
+      "evidence": "sweep",
+      "id": "starter.gen2.0",
+      "rationale": "showStarterSelect offers three cards; position 0 in gen2. Source-valid in every generation (the offer is three regardless of mode flags).",
+      "stratum": "episode"
+    },
+    {
+      "evidence": "sweep",
+      "id": "starter.gen2.1",
+      "rationale": "showStarterSelect offers three cards; position 1 in gen2. Source-valid in every generation (the offer is three regardless of mode flags).",
+      "stratum": "episode"
+    },
+    {
+      "evidence": "sweep",
+      "id": "starter.gen2.2",
+      "rationale": "showStarterSelect offers three cards; position 2 in gen2. Source-valid in every generation (the offer is three regardless of mode flags).",
+      "stratum": "episode"
+    },
+    {
+      "evidence": "sweep",
+      "id": "starter.gen3.0",
+      "rationale": "showStarterSelect offers three cards; position 0 in gen3. Source-valid in every generation (the offer is three regardless of mode flags).",
+      "stratum": "episode"
+    },
+    {
+      "evidence": "sweep",
+      "id": "starter.gen3.1",
+      "rationale": "showStarterSelect offers three cards; position 1 in gen3. Source-valid in every generation (the offer is three regardless of mode flags).",
+      "stratum": "episode"
+    },
+    {
+      "evidence": "sweep",
+      "id": "starter.gen3.2",
+      "rationale": "showStarterSelect offers three cards; position 2 in gen3. Source-valid in every generation (the offer is three regardless of mode flags).",
+      "stratum": "episode"
+    },
+    {
+      "evidence": "sweep",
+      "id": "starter.gen4.0",
+      "rationale": "showStarterSelect offers three cards; position 0 in gen4. Source-valid in every generation (the offer is three regardless of mode flags).",
+      "stratum": "episode"
+    },
+    {
+      "evidence": "sweep",
+      "id": "starter.gen4.1",
+      "rationale": "showStarterSelect offers three cards; position 1 in gen4. Source-valid in every generation (the offer is three regardless of mode flags).",
+      "stratum": "episode"
+    },
+    {
+      "evidence": "sweep",
+      "id": "starter.gen4.2",
+      "rationale": "showStarterSelect offers three cards; position 2 in gen4. Source-valid in every generation (the offer is three regardless of mode flags).",
+      "stratum": "episode"
+    },
+    {
+      "evidence": "sweep",
+      "id": "submap.distortion",
+      "rationale": "A node whose sub_kind is 'distortion' (generate_sub_map's own tag).",
+      "stratum": "node"
+    },
+    {
+      "evidence": "sweep",
+      "id": "submap.underground",
+      "rationale": "A node whose sub_kind is 'underground' (generate_sub_map's own tag).",
+      "stratum": "node"
+    }
+  ],
+  "version": 1
+}
