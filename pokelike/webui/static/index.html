@@ -483,9 +483,12 @@
        requested 720px-wide viewport, not a claimed mobile redesign. */
     @media (max-width: 899px) {
       #map-screen.screen.active {
-        height: auto;
+        /* This element, rather than the document, owns the narrow-layout
+           scroll. With `height:auto` it simply grew past the viewport, so
+           `overflow-y:auto` never had an overflow area to scroll. */
+        height: 100dvh;
         min-height: 100dvh;
-        max-height: none;
+        max-height: 100dvh;
         overflow-y: auto;
       }
       .map-panels--three-col {

@@ -1769,7 +1769,12 @@ class WebRendererWiringTests(unittest.TestCase):
         self.assertIn("grid-template-rows: minmax(360px, 70dvh) auto auto;", html)
         self.assertIn(".map-panels--three-col > #map-container", html)
         self.assertIn("grid-row: 1;", html)
-        self.assertIn("overflow-y: auto;", html)
+        narrow = html.split("@media (max-width: 899px)", 1)[1]
+        map_screen_rule = narrow.split("}", 1)[0]
+        self.assertIn("height: 100dvh;", map_screen_rule)
+        self.assertIn("max-height: 100dvh;", map_screen_rule)
+        self.assertIn("overflow-y: auto;", map_screen_rule)
+        self.assertNotIn("height: auto;", map_screen_rule)
 
     def test_the_transport_decodes_all_three_actions_and_cancel(self):
         """The wiring is only real if the server accepts it. `cancel` was
