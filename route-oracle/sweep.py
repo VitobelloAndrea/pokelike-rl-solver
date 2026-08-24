@@ -36,6 +36,7 @@ every include/exclude disposition.
 from __future__ import annotations
 
 import argparse
+import copy
 import hashlib
 import json
 import os
@@ -55,7 +56,7 @@ import checkpoints  # noqa: E402
 import coverage as route_coverage  # noqa: E402
 import run_scenario  # noqa: E402
 
-from pokelike import data, engine  # noqa: E402
+from pokelike import data, engine, map_gen  # noqa: E402
 
 # Bumped whenever the action vocabulary, the compared projection, or the
 # episode-record shape changes. Recorded in every result file, so a stale
@@ -116,6 +117,72 @@ def action_multiset_error(actions: Iterable[dict]) -> Optional[str]:
 # normalized concrete actions. Every expansion is deterministic and total.
 
 
+# ---------------------------------------------------------------------------
+# `reorder_team`: the canonical compared DOMAIN (M7-COMBINED A2, finding F1)
+# ---------------------------------------------------------------------------
+# The two runtimes do not describe team reordering with the same breadth, and
+# M7 recorded that mismatch as finding **F1** without resolving it. A2 resolves
+# it, in the direction the source dictates.
+#
+# THE SOURCE. Its only reorder affordance is the team-bar drag handler
+# (bundle.deobfuscated.js:64798-64806). The whole mutation is one statement:
+#
+#     [O[_dragIdx], O[Bcq]] = [O[Bcq], O[_dragIdx]]
+#
+# a SWAP of two slots, guarded by `Bcq !== _dragIdx`. There is no other write
+# to `state.team`'s ORDER anywhere in the bundle, and no callable function
+# behind this one -- it is written inline in the pointerup listener. The source
+# can therefore express exactly the transpositions, one drag at a time.
+#
+# THE PORT. `engine.legal_actions` reports `{"team_size": n}` and
+# `engine.ReorderTeam(order=...)` accepts any permutation of `n`, which is a
+# strictly wider action type: for n = 6 that is 720 permutations against 15
+# transpositions.
+#
+# THE DECISION. The canonical compared domain is the SOURCE's: the
+# transpositions `(i, j)`, `i < j`. That is the source's atomic action, it is
+# expressible on both runtimes, and every element of it is a real affordance a
+# player can actually perform. Enumerating all `n!` permutations instead was
+# rejected on the merits, not for cost: the port would be the only runtime that
+# could offer them, so every extra element would be a guaranteed legal-set
+# divergence reporting a fact about the Python API rather than about the game.
+#
+# WHAT MAKES THIS NOT A SILENT INTERSECTION. Three things, all checked:
+#
+#   1. the reduction is declared here, as `REORDER_DOMAIN`, and named in
+#      SWEEP.md's disposition table;
+#   2. `reorder_transpositions` ASSERTS the engine's declaration is still the
+#      wider permutation form it is reducing FROM. If `legal_actions` ever
+#      stops reporting `team_size` -- or starts reporting the domain some other
+#      way -- this raises instead of quietly enumerating something else;
+#   3. `SweepReorderDomainTests` pins that the wider capability is real (the
+#      engine really does execute a non-transposition permutation) and that no
+#      source affordance can produce one. The breadth difference is therefore
+#      recorded as a tested property, not discarded.
+#
+# The wider Python capability is unreachable through this harness by
+# construction, not by filtering: `py_reorder_action` only ever BUILDS a
+# permutation that is a single transposition, so there is no permutation to
+# intersect away in the first place.
+REORDER_DOMAIN = "transposition"
+
+
+def reorder_transpositions(declared: dict) -> list[dict]:
+    """Expand `legal_actions`'s `{"team_size": n}` into the compared domain."""
+    if "team_size" not in declared:
+        raise AssertionError(
+            "engine.legal_actions no longer declares reorder_team as "
+            f"{{'team_size': n}} (got {sorted(declared)!r}); the "
+            f"{REORDER_DOMAIN} reduction this tool applies is only valid "
+            "against the permutation declaration it was derived from")
+    n = int(declared["team_size"])
+    return [{"kind": "reorder_team", "i": i, "j": j,
+             PROV_KEY: f"legal_actions.reorder_team team_size={n} "
+                       f"reduced to the source's {REORDER_DOMAIN} domain "
+                       "(team-bar drag swap, 64798-64806)"}
+            for i in range(n) for j in range(i + 1, n)]
+
+
 def py_legal_actions(state) -> list[dict]:
     la = engine.legal_actions(state)
     out: list[dict] = []
@@ -151,20 +218,11 @@ def py_legal_actions(state) -> list[dict]:
                         PROV_KEY: "legal_actions.visit_node"})
 
         # ---- reorder: TRANSPOSITIONS, not permutations --------------------
-        # `legal_actions` reports `{"team_size": n}`, i.e. "any permutation of
-        # n". The SOURCE's only reorder affordance is the team-bar drag
-        # handler (bundle.deobfuscated.js:64798-64806), whose entire mutation
-        # is `[team[a], team[b]] = [team[b], team[a]]` -- a transposition. The
-        # canonical compared domain is therefore the transpositions, which is
-        # exactly the source's atomic action and a strict subset of what
-        # `ReorderTeam` accepts. The breadth difference is REPORTED as finding
-        # F1, not silently intersected away; see SWEEP.md.
+        # See `REORDER_DOMAIN` and `reorder_transpositions` -- the reduction is
+        # DECLARED there and checked against the engine's own declaration on
+        # every call, rather than being performed silently here.
         if "reorder_team" in la:
-            n = int(la["reorder_team"]["team_size"])
-            for i in range(n):
-                for j in range(i + 1, n):
-                    out.append({"kind": "reorder_team", "i": i, "j": j,
-                                PROV_KEY: "legal_actions.reorder_team (transposition)"})
+            out.extend(reorder_transpositions(la["reorder_team"]))
 
         for entry in la.get("use_item", []):
             for t in entry["target_indices"]:
@@ -224,9 +282,70 @@ def py_action_to_engine(a: dict):
 
 
 def py_reorder_action(a: dict, team_size: int) -> "engine.ReorderTeam":
+    """One compared transposition, expressed in `ReorderTeam`'s permutation
+    form. The identity order with exactly two positions exchanged is the same
+    mutation the source's drag handler performs (64798-64806), so the wider
+    permutation API is never used to express anything wider than the source
+    can do -- see `REORDER_DOMAIN`."""
     order = list(range(team_size))
     order[a["i"]], order[a["j"]] = order[a["j"]], order[a["i"]]
     return engine.ReorderTeam(order=tuple(order))
+
+
+# ===========================================================================
+# Bounded search over the Python engine: honest snapshot/restore
+# ===========================================================================
+#
+# A bounded search explores a tree of action prefixes: it steps the engine
+# forward, and when a branch dies it must return to an ANCESTOR and try a
+# different action from there. That backtrack is only sound if restoring a
+# snapshot restores EVERYTHING the next `step()` reads -- most of all the
+# RNG.
+#
+# `engine.Engine` owns a PRIVATE `rng.Mulberry32` (`_rng_stream`, engine.py:
+# 677) and swaps it in as `pokelike.rng`'s module-level "active" stream for
+# the exact duration of each `reset()`/`step()` call, restoring the previous
+# active stream on the way out (engine.py:718, 789). So OUTSIDE a step --
+# which is precisely when a search snapshots -- `rng.get_rng_seed()` does
+# NOT read the engine's stream at all; it reads whatever is active by
+# default, the module-level `_stream_b` singleton the engine never touches.
+#
+# A snapshotter written as `(deepcopy(engine.state), rng.get_rng_seed())`
+# therefore captures a CONSTANT (0, on a tree where nothing else uses the
+# default stream) and restores that constant into the wrong object, leaving
+# `engine._rng_stream` wherever the abandoned branch happened to advance it.
+# Re-running the same action from the same restored state then draws from a
+# different RNG position and produces a DIFFERENT outcome: the search gets
+# free re-rolls, and a route it "found" does not reproduce when replayed.
+# Such a route is not evidence of anything, and no route produced that way
+# is credited anywhere in this tool.
+#
+# The two functions below are the honest form: they snapshot and restore the
+# engine's OWN stream object by value. `Mulberry32` holds a single 32-bit
+# integer (`rng.py:92-115`) and `seed()` sets that raw state directly with no
+# golden-ratio mixing, so `stream.seed(stream.state)` is an exact identity
+# round-trip and the pair below is a complete, lossless checkpoint of
+# everything a subsequent `step()` can read.
+#
+# `SearchSnapshotHonestyTests` (pokelike/tests/test_sweep_search.py) pins
+# this executably, and fails against the broken form.
+
+
+def engine_snapshot(eng: "engine.Engine") -> tuple:
+    """A complete, restorable checkpoint of `eng`: its run state and its own
+    private RNG stream position. See this section's header for why the RNG
+    half must read `eng._rng_stream` and not `rng.get_rng_seed()`."""
+    return (copy.deepcopy(eng.state), eng._rng_stream.state)
+
+
+def engine_restore(eng: "engine.Engine", snap: tuple) -> None:
+    """Restore a checkpoint taken by `engine_snapshot`. Deep-copies the state
+    back so the SAME snapshot can be restored repeatedly -- a search tries
+    several actions from one node -- without later steps mutating the stored
+    copy."""
+    state, rng_state = snap
+    eng.state = copy.deepcopy(state)
+    eng._rng_stream.seed(rng_state)
 
 
 # ===========================================================================
@@ -331,6 +450,11 @@ class PyRuntime:
         # matching JS wrapper for why stages must be compared and why neither
         # pre-M7 gate carries them.
         self.stages: list[dict] = []
+        # M7-COMBINED (A1): the ability half of the same capture. Read off the
+        # `Combatant.gen3_ability` the engine's own `on_switch_in` assigned
+        # (battle_abilities.py:203) -- never recomputed here, so a table drift
+        # on one side cannot be cancelled out by the same drift on the other.
+        self.abilities: list[dict] = []
         inner = engine._run_battle
 
         def stage_capturing(state, enemy_team):
@@ -338,6 +462,10 @@ class PyRuntime:
             self.stages.append({
                 "player": [_stages_of(m) for m in result.player_team],
                 "enemy": [_stages_of(m) for m in result.enemy_team],
+            })
+            self.abilities.append({
+                "player": [_ability_of(m) for m in result.player_team],
+                "enemy": [_ability_of(m) for m in result.enemy_team],
             })
             return result
 
@@ -365,6 +493,8 @@ class PyRuntime:
             "checkpoint": cp,
             "battles": self.runner.battles[battles_seen:],
             "battle_stages": self.stages[battles_seen:],
+            "battle_abilities": self.abilities[battles_seen:],
+            "run_passives": _run_passives_of(self.state),
             "battles_total": len(self.runner.battles),
             "rng_draws_total": self.runner.counter.draws,
         }
@@ -410,6 +540,38 @@ def _stages_of(mon) -> dict:
     return {k: int(st.get(k) or 0) for k in ("atk", "def", "speed", "special", "spdef")}
 
 
+def _ability_of(mon) -> Optional[str]:
+    """M7-COMBINED (A1). The ability the battle ACTUALLY resolved onto this
+    combatant, read off the field `battle_abilities.on_switch_in` wrote
+    (`Combatant.gen3_ability`, battle.py:228, default `None`). The source
+    counterpart is `combatant._gen3Ability`, assigned by the same event
+    (bundle.deobfuscated.js:57696-57702) onto the very clone `runBattle`
+    returns as `res.pTeam`/`res.eTeam`. A combatant that never switched in
+    carries no ability on either side -- Python `None`, JS `undefined` -- and
+    both normalize to `null` rather than to a recomputed table lookup."""
+    value = getattr(mon, "gen3_ability", None)
+    return str(value) if value else None
+
+
+def _run_passives_of(state) -> list:
+    """M7-COMBINED (A1). The run-level passive ids.
+
+    This is the ONLY trait/passive input to a battle that varies across the
+    declared Story/Nuzlocke Gen1-4 surface: `runBattleScreen`'s non-Endless
+    config branch is literally `buildTraitsConfig({}, {}, state.passives || [])`
+    (bundle.deobfuscated.js:81076-81085), so both TIER maps are the constant
+    `{}` and `state.passives` carries the whole varying part. `engine.
+    _battle_configs` (engine.py:1247-1253) mirrors that exactly. Comparing the
+    passive list is therefore comparing the real trait/passive state, and the
+    tier maps are recorded as a limitation in SWEEP.md rather than compared as
+    an invented value."""
+    out = []
+    for t in (getattr(state, "passives", None) or ()):
+        tid = getattr(t, "id", None)
+        out.append(str(tid) if tid else None)
+    return out
+
+
 def project(side: dict) -> dict:
     cp = {k: v for k, v in side["checkpoint"].items() if k not in EXCLUDED_CHECKPOINT_FIELDS}
     return {
@@ -417,6 +579,9 @@ def project(side: dict) -> dict:
         "battles": side["battles"],
         # M7 enrichment over the frozen schema -- see SWEEP.md.
         "battle_stages": side["battle_stages"],
+        # M7-COMBINED (A1) enrichment -- see SWEEP.md's disposition table.
+        "battle_abilities": side["battle_abilities"],
+        "run_passives": side["run_passives"],
         "rng_draws_total": side["rng_draws_total"],
     }
 
@@ -452,6 +617,39 @@ def load_targets() -> dict:
         return json.load(fh)
 
 
+# The families the denominator is DERIVED from, read off the runtime rather
+# than restated here. `validate_targets` checks each of them in BOTH
+# directions: a manifest value the runtime does not have is rejected, and a
+# runtime value no target names is rejected. One-directional checking is what
+# let the audit delete `node.start` from the manifest and still pass.
+
+# `map_gen`'s node-type constants are its module-level UPPERCASE `str`
+# attributes -- the same 18 names the weight tables and the retype sites use
+# (map_gen.py:70-86). Derived dynamically ON PURPOSE: a node type added to
+# `map_gen` and not to the manifest must fail this gate rather than silently
+# shrink the denominator. Nothing is subtracted; the allow-list below exists
+# so that a future non-node uppercase `str` constant is an explicit decision
+# with a reason, never a quiet exclusion.
+NON_NODE_STRING_CONSTANTS: frozenset[str] = frozenset()
+
+
+def runtime_node_types() -> set[str]:
+    """Every `map_gen` node type the Story/Nuzlocke generator can emit."""
+    found = {v for n, v in vars(map_gen).items()
+             if n.isupper() and isinstance(v, str)}
+    return found - NON_NODE_STRING_CONSTANTS
+
+
+def runtime_reward_kinds() -> set[str]:
+    """Every `SUBMAP_REWARDS` id a REWARD node can be baked with
+
+    (`data.get_submap_rewards()`, bundle.deobfuscated.js:76303-76377). The
+    observed form is `node.reward.kind` -- a plain string id, which is what
+    `observe_coverage` credits `reward.<kind>` from.
+    """
+    return {r.id for r in data.get_submap_rewards()}
+
+
 def validate_targets(targets: dict) -> list[str]:
     """The manifest must be internally consistent AND consistent with the code
     it claims to be derived from. A manifest that names a phase, action kind
@@ -467,6 +665,8 @@ def validate_targets(targets: dict) -> list[str]:
     kinds = {"choose_starter", "advance_map", "visit_node", "select_option",
              "use_item", "equip_item", "unequip_item", "hand_off_item", "reorder_team"}
     tags = set(route_coverage.REQUIRED_TAGS)
+    node_types = runtime_node_types()
+    reward_kinds = runtime_reward_kinds()
 
     for t in targets["targets"]:
         for field in ("id", "stratum", "evidence", "rationale"):
@@ -481,6 +681,15 @@ def validate_targets(targets: dict) -> list[str]:
             problems.append(f"{t['id']}: action_kind {t['action_kind']!r} is not an action")
         if t.get("route_tag") and t["route_tag"] not in tags:
             problems.append(f"{t['id']}: route_tag {t['route_tag']!r} is not a REQUIRED_TAG")
+        if t.get("node_type") and t["node_type"] not in node_types:
+            problems.append(f"{t['id']}: node_type {t['node_type']!r} is not a map_gen node type")
+        if t.get("reward_kind") and t["reward_kind"] not in reward_kinds:
+            problems.append(f"{t['id']}: reward_kind {t['reward_kind']!r} is not a SUBMAP_REWARDS id")
+        # An id in a derived family that carries no derived key is the same
+        # silent hole from the other side: it would never be checked at all.
+        for prefix, key in (("node.", "node_type"), ("reward.", "reward_kind")):
+            if t["id"].startswith(prefix) and not t.get(key):
+                problems.append(f"{t['id']}: a {prefix}* target must declare {key}")
         if ev == "excluded" and not t.get("exclusion_reason"):
             problems.append(f"{t['id']}: excluded targets need an exclusion_reason")
 
@@ -492,6 +701,14 @@ def validate_targets(targets: dict) -> list[str]:
     covered_kinds = {t.get("action_kind") for t in targets["targets"] if t.get("action_kind")}
     for k in sorted(kinds - covered_kinds):
         problems.append(f"no target names action kind {k}")
+    # ...and the same completeness rule for the two families the M7-A audit
+    # found unenforced. Deleting `node.start` from the manifest used to pass.
+    covered_nodes = {t.get("node_type") for t in targets["targets"] if t.get("node_type")}
+    for n in sorted(node_types - covered_nodes):
+        problems.append(f"no target names map_gen node type {n}")
+    covered_rewards = {t.get("reward_kind") for t in targets["targets"] if t.get("reward_kind")}
+    for r in sorted(reward_kinds - covered_rewards):
+        problems.append(f"no target names submap reward kind {r}")
     return problems
 
 
@@ -551,9 +768,13 @@ def observe_coverage(ledger: CoverageLedger, step: dict, episode: dict) -> None:
     legal = step["legal"]
 
     # -- episode/configuration strata --
-    hit("episode." + bucket_name(episode["config"]["mode"]))
+    # From the checkpoint's OWN `mode`, which is a compared field, rather
+    # than from the plan entry that asked for the episode: the plan is
+    # intent, the checkpoint is what both runtimes actually reported.
+    observed_mode = cp.get("mode") or {}
+    hit("episode." + bucket_name(observed_mode))
     if action["kind"] == "choose_starter":
-        hit(f"starter.gen{generation_of(episode['config']['mode'])}."
+        hit(f"starter.gen{generation_of(observed_mode)}."
             f"{episode['starter_position']}")
 
     # -- phase strata: the screen both runtimes agreed on --
@@ -589,10 +810,53 @@ def observe_coverage(ledger: CoverageLedger, step: dict, episode: dict) -> None:
         node = nodes.get(action["node_id"])
         if node:
             hit("node." + str(node.get("type")))
-            if node.get("sub_kind"):
-                hit("submap." + str(node["sub_kind"]))
             if node.get("reward", {}) and node["reward"].get("kind"):
                 hit("reward." + str(node["reward"]["kind"]))
+
+    # -- which submap the run is standing IN -------------------------------
+    # M7-COMBINED (A4). `submap.underground` / `submap.distortion` used to be
+    # credited from a node's `sub_kind`, and were unearnable: BOTH normalizers
+    # carry that field only if the runtime sets it (`driver.js:427`
+    # `if (n.subKind !== undefined)`, `run_scenario.py:156`), and NEITHER
+    # runtime ever sets it -- `subKind` does not appear anywhere in the bundle
+    # or in `pokelike/`. So the two targets were keyed off a field that has
+    # never existed, which is why runs that demonstrably entered a submap and
+    # earned `node.reward`, `node.subexit`, `lifecycle.submap_enter/exit` and
+    # four `reward.*` kinds still left these two unearned.
+    #
+    # The submap's kind IS observed, on the compared checkpoint itself:
+    # `enterSubMap` sets `state.inSubMap` to the kind (`engine.py:3198`,
+    # `state.in_sub_map = kind`) and `exitSubMap` clears it (3226), and
+    # `checkpoint.in_sub_map` is a COMPARED field on both sides
+    # (`driver.js:827`). Crediting from it is the same rule `node.start` uses:
+    # state both runtimes produced and this step already proved identical --
+    # not the manifest, and not the scheduler's intent.
+    for checkpoint in (before, cp):
+        kind = checkpoint.get("in_sub_map")
+        if kind:
+            hit("submap." + str(kind))
+
+    # -- node occupancy: the node the AGREED state says the run stands on --
+    # `node.start` is real, required and observable, but NO `visit_node`
+    # action can ever earn it: the layer-0 entry node is where `startMap`
+    # puts the run, it is `visited` from that moment, and it is never
+    # offered as an accessible visit. Earning `node.*` only inside the
+    # `visit_node` branch therefore left one required target unearnable --
+    # and the M7-A audit deleted it from the manifest with nothing failing.
+    # It is earned here from the COMPARED checkpoint's own `current_node`
+    # and `map.nodes`: state both runtimes produced and this step already
+    # proved identical, never the manifest and never the scheduler's target.
+    def hit_occupied(checkpoint: dict) -> None:
+        nid = checkpoint.get("current_node")
+        if not nid:
+            return
+        for n in (checkpoint.get("map") or {}).get("nodes", []):
+            if n.get("id") == nid and n.get("type"):
+                hit("node." + str(n["type"]))
+                return
+
+    hit_occupied(before)
+    hit_occupied(cp)
 
     # -- map/submap lifecycle --
     if action["kind"] == "advance_map":
@@ -891,6 +1155,252 @@ def guided_policy(rng: random.Random, ledger: CoverageLedger):
 
 
 # ===========================================================================
+# The goal-directed bounded scheduler (M7-COMBINED A4)
+# ===========================================================================
+# `random_policy` and `guided_policy` are samplers. They reach shallow content
+# reliably and deep content never: after 258 episodes they left 30 required
+# targets unearned, every one of them behind either a map advance or a submap
+# entry. That is a DEPTH shortfall, and no amount of extra uniform episodes
+# fixes it, because the probability of a random walk surviving to map 3 and
+# then picking one specific layer-4 node is not small, it is negligible.
+#
+# The source says exactly where the missing content lives, and the placement is
+# deterministic rather than rolled:
+#
+#   * SILVER          gen2, layer 4, map indices 1/3/5/7   (map_gen.py:471-475)
+#   * MAGMA + AQUA    gen3, layer 4, map indices 2/5/7     (map_gen.py:477-484)
+#   * UNDERGROUND     gen4, layer 4, map indices 1/3/6     (map_gen.py:486-495)
+#   * DISTORTION      gen4, layer 4, map indices 3/5/7     (map_gen.py:486-495)
+#
+# So `node.magma` is not "rare", it is BEHIND TWO MAP ADVANCES in exactly one
+# generation. What is needed is a scheduler that survives that far and then
+# walks to the right node -- not a luckier sampler.
+#
+# WHAT THIS SCHEDULER MAY AND MAY NOT DO. It only ever chooses among actions
+# that `run_episode` has ALREADY enumerated on both runtimes and compared as
+# equal sets (`run_episode` step 2 runs before step 3, which is where the
+# policy is called). It re-orders that set; it cannot add to it, and it never
+# sees the source's answer. Coverage is still credited only by
+# `observe_coverage`, from the observed agreed step -- a target this policy
+# steered toward but did not actually reach earns nothing, which is pinned by
+# `SweepAccountingTests.test_the_guided_policy_wants_targets_but_never_credits_
+# them`. The steering itself reads the COMPARED checkpoint projection (the
+# state both runtimes already agreed on), never the Python engine directly.
+#
+# Determinism: the policy is a pure function of (the agreed projection, the
+# still-unearned target set, a seeded `random.Random`). No clock, no
+# filesystem, no batch position. The one input that is not per-episode is the
+# ledger's earned set, which is why `hunt` records its plan and its per-episode
+# digests -- see `hunt_plan`.
+
+
+def _hunt_node_wants(ledger: "CoverageLedger") -> set[str]:
+    """Node TYPES whose `node.<type>` target is still unearned."""
+    return {t["node_type"] for t in ledger.targets["targets"]
+            if t.get("node_type") and t["evidence"] != "excluded"
+            and t["id"] not in ledger.earned}
+
+
+def _hunt_submap_wants(ledger: "CoverageLedger") -> set[str]:
+    """Submap KINDS still unearned, from `submap.*` and `reward.*` alike --
+    every `reward.*` target lives inside a submap, so wanting any of them is
+    wanting to be in one."""
+    wants = set()
+    for t in ledger.targets["targets"]:
+        if t["evidence"] == "excluded" or t["id"] in ledger.earned:
+            continue
+        if t["id"].startswith("submap."):
+            wants.add(t["id"].split(".", 1)[1])
+        elif t["id"].startswith("reward.") or t["id"] in (
+                "node.reward", "node.subexit", "lifecycle.submap_exit",
+                "pending.reward_team_pick"):
+            wants.update(("underground", "distortion"))
+    return wants
+
+
+def _team_health(checkpoint: dict) -> float:
+    """Fraction of the team's total max HP currently standing, from the
+    COMPARED checkpoint's own team projection."""
+    team = checkpoint.get("team") or []
+    total = sum(int(m.get("max_hp") or 0) for m in team)
+    if not total:
+        return 1.0
+    have = sum(int(m.get("current_hp") or 0) for m in team)
+    return have / total
+
+
+def hunt_policy(rng: random.Random, ledger: "CoverageLedger"):
+    """Coverage-guided, source-informed, and still a chooser over the AGREED
+    legal set only.
+
+    The ladder below is ordered by how strongly the source says the choice
+    matters, not by taste:
+
+      1. an offer that is still open gets ACCEPTED rather than skipped --
+         declining is what keeps a team small and a run short, and several
+         missing targets (`pending.*`, `optional.required`) only exist while
+         an offer is live;
+      2. a node whose OBSERVED type is one of the still-unearned node types
+         gets visited, because that node type is the target;
+      3. a submap gets entered when anything inside one is still wanted, and
+         once inside, REWARD before SUBEXIT -- leaving early forfeits the
+         twelve `reward.*` targets;
+      4. a POKECENTER gets visited on a hurt team, because surviving to the
+         next map is the only way any of the deep content is reachable at all;
+      5. otherwise progress, so the run keeps moving toward the boss.
+    """
+    base = random_policy(rng, prefer_progress=0.9)
+
+    def policy(index: int, legal: list[dict], state: dict) -> dict:
+        options = _stable_sorted(legal)
+        cp = state.get("checkpoint") or {}
+        nodes = {n["id"]: n for n in (cp.get("map") or {}).get("nodes", [])}
+
+        picks = [a for a in options
+                 if a["kind"] == "select_option" and a["index"] is not None]
+        if picks:
+            return rng.choice(picks)
+
+        visits = [a for a in options if a["kind"] == "visit_node"]
+        if visits:
+            def typed(kinds) -> list[dict]:
+                return [a for a in visits
+                        if (nodes.get(a["node_id"]) or {}).get("type") in kinds]
+
+            if cp.get("in_sub_map"):
+                # Inside a submap: rewards first, the exit last.
+                inside = typed({map_gen.REWARD})
+                if inside:
+                    return rng.choice(inside)
+                rest = [a for a in visits
+                        if (nodes.get(a["node_id"]) or {}).get("type") != map_gen.SUBEXIT]
+                if rest:
+                    return rng.choice(rest)
+                exits = typed({map_gen.SUBEXIT})
+                if exits:
+                    return rng.choice(exits)
+            else:
+                # -- survival before ambition ---------------------------------
+                # The first version of this ladder put target-chasing at the
+                # top and lost all 300 episodes, none of them reaching even
+                # map 1 in Gen4. That is not bad luck: the deep content is
+                # gated on map advances, a map advance is gated on beating a
+                # gym leader, and a run that walks into every MAGMA/AQUA/
+                # LEGENDARY node it can see arrives at that leader
+                # under-levelled and dead. Everything below map 1 therefore
+                # optimizes for ARRIVING, and target-chasing only outranks it
+                # once the run can afford it.
+                health = _team_health(cp)
+                heal = typed({map_gen.POKECENTER})
+                if heal and health < 0.75:
+                    return rng.choice(heal)
+
+                wanted = _hunt_node_wants(ledger) | _hunt_submap_wants(ledger)
+                hot = typed(wanted)
+                # A submap entrance is worth taking whenever it appears: it is
+                # the gate in front of eighteen required targets, and its own
+                # boss is optional once inside.
+                gate = typed({map_gen.UNDERGROUND, map_gen.DISTORTION} & wanted)
+                if gate:
+                    return rng.choice(gate)
+                if hot and health >= 0.6:
+                    return rng.choice(hot)
+
+                # Levels are the whole survival budget: a TRAINER win grants
+                # +2 (customGain 0x2, 80327) against a wild win's +1 (0x1,
+                # 77724), so a run that prefers trainers arrives at the boss
+                # measurably stronger.
+                if health >= 0.5:
+                    for tier in ({map_gen.TRAINER}, {map_gen.BATTLE}):
+                        strong = typed(tier)
+                        if strong:
+                            return rng.choice(strong)
+                if heal:
+                    return rng.choice(heal)
+                # A bigger roster is more bodies between the run and a wipe.
+                if len(cp.get("team") or []) < 4:
+                    grow = typed({map_gen.CATCH})
+                    if grow:
+                        return rng.choice(grow)
+
+        advance = [a for a in options if a["kind"] == "advance_map"]
+        if advance:
+            return advance[0]
+
+        skips = [a for a in options
+                 if a["kind"] == "select_option" and a["index"] is None
+                 and not a.get("cancel")]
+        if skips and not visits:
+            return skips[0]
+        if visits:
+            return rng.choice(visits)
+        return base(index, legal, state)
+
+    return policy
+
+
+# The generations that can produce each still-missing family, read off
+# `map_gen`'s own placement rules rather than guessed. Used ONLY to spend the
+# episode budget where the content can exist; it credits nothing.
+HUNT_MODE_HINTS: dict[str, tuple[str, ...]] = {
+    "node.silver": ("nuzlocke_gen2", "story_gen2"),
+    "node.magma": ("story_gen3", "nuzlocke_gen3"),
+    "node.aqua": ("story_gen3", "nuzlocke_gen3"),
+    "node.underground": ("story_gen4", "nuzlocke_gen4"),
+    "node.distortion": ("story_gen4", "nuzlocke_gen4"),
+    "submap.underground": ("story_gen4", "nuzlocke_gen4"),
+    "submap.distortion": ("story_gen4", "nuzlocke_gen4"),
+    # The three DISTORTION legendary rewards are gen4-only for two
+    # independent source reasons, so hinting them is placement, not taste:
+    # `SUBMAP_REWARDS` gives each of them `kinds = ("distortion",)` alone
+    # (data.get_submap_rewards), and DISTORTION is placed only on gen4 layer 4
+    # of maps 3/5/7 (map_gen.py:465-495). They are also the only rewards that
+    # never come out of `_pick_sub_map_rewards`' random pool at all -- it
+    # excludes every id in `get_distortion_legend_rewards()`
+    # (map_gen.py:1016-1020) -- and instead ride on `n2_0` as the submap's
+    # `legendary_entry.reward` (map_gen.py:1126-1129).
+    "reward.dialga": ("story_gen4", "nuzlocke_gen4"),
+    "reward.giratina": ("story_gen4", "nuzlocke_gen4"),
+    "reward.palkia": ("story_gen4", "nuzlocke_gen4"),
+}
+
+
+def hunt_plan(missing: list[str], episodes: int, base_seed: int,
+              max_steps: int) -> dict:
+    """A deterministic plan that spends its budget on the modes that can
+    actually produce what is missing.
+
+    Every episode is still a pure `(seed, policy_seed, mode)` triple, and the
+    plan carries its own digest, so a hunt is replayable exactly like any other
+    run and is independent of the order its episodes happen to execute in.
+    """
+    buckets = [bucket_name(m) for m in MODE_BUCKETS]
+    wanted: list[str] = []
+    for tid in sorted(missing):
+        for bucket in HUNT_MODE_HINTS.get(tid, ()):
+            if bucket not in wanted:
+                wanted.append(bucket)
+    # Anything with no generation hint can come from any bucket, so the rest of
+    # the budget stays spread across all eight rather than narrowing blindly.
+    order = wanted + [b for b in buckets if b not in wanted]
+
+    rng = random.Random(base_seed)
+    by_name = {bucket_name(m): m for m in MODE_BUCKETS}
+    plan = {"sweep_version": SWEEP_VERSION, "base_seed": base_seed,
+            "max_steps": max_steps, "hunt_for": sorted(missing), "episodes": []}
+    for i in range(episodes):
+        bucket = order[i % len(order)]
+        plan["episodes"].append({
+            "episode_id": f"hunt_{bucket}_{i:04d}",
+            "seed": rng.getrandbits(32),
+            "policy_seed": rng.getrandbits(32),
+            "mode": dict(by_name[bucket]),
+        })
+    plan["plan_digest"] = digest(plan["episodes"])
+    return plan
+
+
+# ===========================================================================
 # Planning
 # ===========================================================================
 
@@ -960,7 +1470,8 @@ def protected_hashes() -> dict:
 
 
 def run_plan(plan: dict, ledger: CoverageLedger, guided: bool = False,
-             verbose: bool = True) -> dict:
+             verbose: bool = True, hunt: bool = False,
+             stop_when_covered: bool = False) -> dict:
     started = time.time()
     js = JsRuntime()
     py = PyRuntime()
@@ -968,7 +1479,12 @@ def run_plan(plan: dict, ledger: CoverageLedger, guided: bool = False,
     try:
         for spec in plan["episodes"]:
             rng = random.Random(spec["policy_seed"])
-            policy = guided_policy(rng, ledger) if guided else random_policy(rng)
+            if hunt:
+                policy = hunt_policy(rng, ledger)
+            elif guided:
+                policy = guided_policy(rng, ledger)
+            else:
+                policy = random_policy(rng)
             ep = run_episode(js, py, spec, policy, plan["max_steps"], ledger=ledger)
             results.append(ep)
             if verbose:
@@ -977,6 +1493,14 @@ def run_plan(plan: dict, ledger: CoverageLedger, guided: bool = False,
                       flush=True)
             if ep["divergence"]:
                 save_finding(ep, plan)
+            # A hunt is BOUNDED: once nothing it was launched for is still
+            # missing, the remaining budget is not spent. This shortens the
+            # run; it cannot change any episode, because every episode is a
+            # pure function of its own (seed, policy_seed) pair and the
+            # per-episode digests are unaffected by how many follow.
+            if stop_when_covered and not [t for t in plan.get("hunt_for", [])
+                                          if t not in ledger.earned]:
+                break
     finally:
         js.close()
         py.close()
@@ -985,6 +1509,7 @@ def run_plan(plan: dict, ledger: CoverageLedger, guided: bool = False,
         "sweep_version": SWEEP_VERSION,
         "plan_digest": plan["plan_digest"],
         "guided": guided,
+        "hunt": hunt,
         "protected_hashes": protected_hashes(),
         "wall_clock_s": round(time.time() - started, 1),
         "episodes": results,
@@ -1049,6 +1574,71 @@ def replay_record(record: dict, actions: Optional[list[dict]] = None) -> dict:
     finally:
         js.close()
         py.close()
+
+
+def replay_records(paths: list[str], ledger: CoverageLedger) -> dict:
+    """Replay saved reproducers with their OWN action lists and account for
+    what the replays actually observe.
+
+    M7-F-F. `replay` re-runs one record and reports whether it still
+    diverges, then throws away everything the replay observed. That was an
+    accounting gap rather than a safeguard: a checked-in reproducer is a
+    deterministic plan -- a pinned `(seed, mode)` plus an ordered action list
+    and a `max_steps` bound -- and replaying it drives both real runtimes
+    through `run_episode`, the same lockstep loop every other result file is
+    produced by. Its completed steps are observed, agreed evidence, and there
+    was no way to merge them into a coverage number.
+
+    Nothing about HOW coverage is credited changes. `run_episode` calls
+    `observe_coverage` itself, per step, only after that step's legal sets and
+    state projections have already compared equal; a record that diverges
+    contributes exactly the steps it completed BEFORE diverging and nothing
+    else, and a record whose action list stops short of a target earns
+    nothing for it. The record file is never itself evidence -- it only says
+    which episode to run.
+
+    Deterministic: records are replayed in sorted path order, each episode
+    stays a pure function of its own `(seed, mode)` plus its forced actions,
+    and no clock or batch position enters any episode digest.
+    """
+    started = time.time()
+    js = JsRuntime()
+    py = PyRuntime()
+    results: list[dict] = []
+    records: list[dict] = []
+    try:
+        for path in sorted(paths):
+            with open(path, encoding="utf-8") as fh:
+                record = json.load(fh)
+            spec = dict(record["config"])
+            spec["episode_id"] = record["episode_id"]
+            ep = run_episode(js, py, spec, None, record["max_steps"],
+                             ledger=ledger, forced_actions=record["actions"])
+            results.append(ep)
+            records.append({
+                "record": os.path.basename(path),
+                "episode_id": record["episode_id"],
+                "actions": len(record["actions"]),
+                "reproduced": ep["divergence"] is not None,
+                "episode_digest": ep["episode_digest"],
+                "outcome": ep["outcome"],
+            })
+    finally:
+        js.close()
+        py.close()
+
+    return {
+        "sweep_version": SWEEP_VERSION,
+        "replay_set": records,
+        # The set's own identity, so a merged coverage claim names exactly
+        # which reproducers produced it.
+        "plan_digest": digest([r["record"] for r in records]),
+        "protected_hashes": protected_hashes(),
+        "wall_clock_s": round(time.time() - started, 1),
+        "episodes": results,
+        "coverage": ledger.report(),
+        "summary": summarize(results),
+    }
 
 
 def divergence_signature(div: dict) -> list:
@@ -1213,6 +1803,381 @@ def _write(path: Optional[str], payload: dict) -> None:
         print(text)
 
 
+# ===========================================================================
+# `search`: bounded, backtracking, goal-directed route search
+# ===========================================================================
+#
+# `hunt` spends its budget on whole random episodes and keeps whichever ones
+# happen to touch a wanted target. That works while targets are common and
+# stops working once the remainder is deep and conjunctive -- the distortion
+# legendary rewards need a gen4 run to reach its SECOND distortion world and
+# then take one specific node, which a per-episode random policy essentially
+# never assembles by chance.
+#
+# `search` explores the action tree instead: it steps the Python engine
+# forward, and on a dead end BACKTRACKS to an ancestor and tries a different
+# action from there. Backtracking is exactly the operation the honest
+# snapshotter above exists for; see that section's header for what goes
+# wrong without it.
+#
+# Two properties this search deliberately does NOT have:
+#
+#   * it never touches the source runtime, so it is fast but PROVES NOTHING.
+#     Its output is a CANDIDATE -- a `(seed, mode, actions)` plan, the same
+#     shape a retained reproducer has. Nothing is credited until that plan is
+#     replayed through `run_episode`, the real lockstep loop, where the JS and
+#     Python runtimes are compared step by step and `observe_coverage` runs
+#     only on steps that already agreed. `search --verify` does that replay
+#     itself; without it the emitted candidates are inert.
+#   * it does not model the source's own legality. It proposes only actions
+#     the PORT reports legal, which is why a candidate can still turn out to
+#     diverge (or to be illegal) on replay -- and when it does, that replay is
+#     a finding, not a failure of the search.
+
+
+def _node_of(state, node_id):
+    mp = getattr(state, "map", None)
+    if mp is None:
+        return None
+    return (mp.nodes or {}).get(node_id)
+
+
+def _goal_reward(reward_id: str):
+    """Goal: the run TAKES a submap reward node carrying `reward_id`.
+
+    Matches `observe_coverage`'s own rule for `reward.<kind>` (see that
+    function): credit comes from the node the `visit_node` action resolved,
+    read off the map BEFORE the step. The predicate is evaluated on the same
+    pre-step state for the same reason."""
+
+    def goal(state, action) -> bool:
+        if action.get("kind") != "visit_node":
+            return False
+        node = _node_of(state, action.get("node_id"))
+        return node is not None and str(node.extra.get("reward")) == reward_id
+
+    return goal
+
+
+def _goal_team_size(n: int):
+    """Goal: the run reaches a submap reward node while holding >= `n` team
+    members -- the shape `reward.sacrifice` needs, since `_pick_sub_map_
+    rewards` filters that entry out below `min_team = 2`."""
+
+    def goal(state, action) -> bool:
+        if action.get("kind") != "visit_node":
+            return False
+        node = _node_of(state, action.get("node_id"))
+        return node is not None and node.type == "reward" and len(state.team or []) >= n
+
+    return goal
+
+
+GOALS = {"reward": _goal_reward, "team": lambda v: _goal_team_size(int(v))}
+
+
+# ---------------------------------------------------------------------------
+# Steering: exploration ORDER, and nothing else
+# ---------------------------------------------------------------------------
+#
+# The unsteered DFS shuffles each frame's legal set and tries it in that
+# order. That is fine while the goal is shallow and fatal once it is not:
+# `reward.fossil` lives on a REWARD node inside an UNDERGROUND submap, and
+# `map_gen` places UNDERGROUND only on gen4 LAYER 4 of maps 1/3/6
+# (map_gen.py:465-495). Reaching it therefore means clearing a gym leader,
+# advancing a map, walking four layers, entering the submap and beating its
+# boss -- and a uniformly random walk through gen4 dies to a battle long
+# before that. Measured: 4 runs x 4 000 expansions produced ZERO candidates.
+#
+# A priority function fixes the ORDER the DFS tries siblings in. What it
+# deliberately does NOT do, and what keeps a steered candidate exactly as
+# honest as an unsteered one:
+#
+#   * it cannot ADD an action. `frame["untried"]` is whatever
+#     `py_legal_actions` returned; the priority only sorts that list, so the
+#     tree being searched is byte-for-byte the tree the unsteered search
+#     explores;
+#   * it cannot SKIP an action. A low-priority sibling is tried last, not
+#     dropped, so the search stays complete within its expansion budget;
+#   * it credits nothing. `search` never touches the source runtime at all
+#     (see this section's header); a candidate is still inert until
+#     `--verify` replays it through `run_episode` and `observe_coverage`
+#     reads the steps both runtimes already agreed on.
+#
+# The ladder itself is `hunt_policy`'s -- survival before ambition, for the
+# reason recorded there -- restated over the PORT's own run state, which is
+# what a Python-only search has to read.
+
+
+def _reward_submap_kinds(reward_id: str) -> frozenset:
+    """Which submap kind(s) can carry `reward_id`.
+
+    Read off `SUBMAP_REWARDS` itself (`data.get_submap_rewards()[i].kinds`,
+    bundle.deobfuscated.js:76303-76377) rather than guessed: "fossil" is
+    `("underground",)`, the three distortion legendaries are
+    `("distortion",)`, everything else is both. An id the table does not
+    have steers toward both kinds, which is the same as not steering."""
+    entry = data.get_submap_reward_by_id().get(reward_id)
+    if entry is None:
+        return frozenset({map_gen.UNDERGROUND, map_gen.DISTORTION})
+    return frozenset(entry.kinds)
+
+
+def _py_team_health(state) -> float:
+    """`_team_health`'s rule (fraction of the team's max HP still standing)
+    read off the PORT's own team rather than a compared checkpoint -- the
+    search has no checkpoint, because it never runs the source."""
+    team = list(getattr(state, "team", None) or [])
+    total = sum(int(getattr(m, "max_hp", 0) or 0) for m in team)
+    if not total:
+        return 1.0
+    return sum(int(getattr(m, "current_hp", 0) or 0) for m in team) / total
+
+
+def _reward_priority(reward_id: str):
+    """Exploration order for a `reward:<id>` search. Higher is tried first."""
+    kinds = _reward_submap_kinds(reward_id)
+
+    def priority(state, action) -> int:
+        kind = action.get("kind")
+        if kind == "visit_node":
+            node = _node_of(state, action.get("node_id"))
+            ntype = getattr(node, "type", None)
+            if getattr(state, "in_sub_map", None):
+                if ntype == map_gen.REWARD:
+                    # The goal node itself; any OTHER reward node spends the
+                    # submap's single reward pick on something else.
+                    return 100 if str((node.extra or {}).get("reward")) == reward_id else 20
+                if ntype == map_gen.BOSS:
+                    # `generate_sub_map`'s bipartite topology gates every
+                    # reward node behind a boss node, so this is not
+                    # ambition -- it is the only way to reach layer 2.
+                    return 90
+                if ntype == map_gen.SUBEXIT:
+                    return 0
+                return 30
+            if ntype in kinds:
+                return 85
+            if ntype == map_gen.POKECENTER:
+                return 80 if _py_team_health(state) < 0.75 else 40
+            if ntype == map_gen.TRAINER:
+                return 60          # +2 levels on a win, against a wild's +1
+            if ntype == map_gen.BATTLE:
+                return 55
+            if ntype == map_gen.CATCH:
+                # Above TRAINER while the roster is short. Measured, not
+                # taste: over 80 greedy gen4 rollouts, ranking CATCH below
+                # TRAINER reached map 1 eighteen times and ranking it above
+                # reached map 1 twenty-seven times. More bodies is more
+                # budget between the run and a wipe.
+                return 62 if len(getattr(state, "team", None) or []) < 4 else 35
+            if ntype in (map_gen.LEGENDARY, map_gen.MAGMA, map_gen.AQUA,
+                         map_gen.SILVER):
+                return 10          # over-levelled fights this run cannot afford
+            return 30
+        if kind == "advance_map":
+            return 70
+        if kind == "select_option":
+            if action.get("cancel"):
+                return 5
+            return 65 if action.get("index") is not None else 35
+        if kind == "reorder_team":
+            return 1
+        return 25
+
+    return priority
+
+
+def _reward_prune(reward_id: str):
+    """A subtree the goal is not in: the run is standing inside a submap
+    whose generated reward nodes do not carry `reward_id`.
+
+    `generate_sub_map` bakes a submap's reward ids at ENTRY time
+    (`_pick_sub_map_rewards`, map_gen.py:1005-1024) and nothing afterwards
+    rewrites them, so a submap that came up without the wanted id will never
+    produce it however the run walks inside. Backtracking ABOVE the entry --
+    which is what returning True does -- re-rolls the submap from a different
+    RNG position, and re-rolling is the only way to get a different draw.
+    Measured: `fossil` is in an underground submap's two random reward slots
+    roughly 27% of the time (8-id pool, 2 kept), so without this the search
+    sinks its whole budget into the first submap it happens to enter.
+
+    This makes the search deliberately INCOMPLETE: a run really could leave a
+    fossil-less underground and reach a LATER one (map_gen places UNDERGROUND
+    on gen4 maps 1, 3 and 6), and this gives that route up. That is a budget
+    trade a PROPOSER is allowed to make -- `search` credits nothing on its
+    own, and every candidate is still replayed through the real lockstep loop
+    before anything is earned."""
+
+    def prune(state) -> bool:
+        if not getattr(state, "in_sub_map", None):
+            return False
+        mp = getattr(state, "map", None)
+        nodes = list((getattr(mp, "nodes", None) or {}).values())
+        return not any(str((n.extra or {}).get("reward")) == reward_id
+                       for n in nodes)
+
+    return prune
+
+
+SEARCH_PRIORITIES = {"reward": _reward_priority}
+SEARCH_PRUNES = {"reward": _reward_prune}
+
+
+def search_episode(seed: int, mode: dict, goal, *, max_steps: int,
+                   max_expansions: int, rnd: random.Random,
+                   priority=None, prune=None) -> Optional[dict]:
+    """Randomized bounded DFS with backtracking over one `(seed, mode)` run.
+
+    Returns a candidate record (never credited on its own -- see the section
+    header) or None when the budget is exhausted.
+
+    Every restore goes through `engine_restore`, so a sibling action is always
+    tried from the byte-identical engine state and RNG position its ancestor
+    had. That is what makes an emitted action list replay to the same outcome
+    in a fresh process.
+
+    `priority`, when given, only ORDERS each frame's already-enumerated legal
+    set -- it never adds an action, never drops one, and credits nothing.
+    `prune`, when given, declares a reached state's subtree not worth the
+    budget and is handled exactly like `game_over`: the frame is not pushed
+    and the search backtracks. See the "Steering" header above.
+    """
+    eng = engine.Engine()
+    eng.reset(nuzlocke_mode=bool(mode.get("nuzlocke")), gen2_mode=bool(mode.get("gen2")),
+              gen3_mode=bool(mode.get("gen3")), gen4_mode=bool(mode.get("gen4")),
+              seed=int(seed))
+
+    # Each frame: the snapshot to return to, and the actions still untried
+    # from it. `actions` mirrors the stack depth, so popping a frame pops the
+    # action that produced it.
+    stack: list[dict] = [{"snap": engine_snapshot(eng), "untried": None}]
+    actions: list[dict] = []
+    expansions = 0
+
+    while stack and expansions < max_expansions:
+        frame = stack[-1]
+        if frame["untried"] is None:
+            engine_restore(eng, frame["snap"])
+            try:
+                legal = py_legal_actions(eng.state)
+            except Exception:
+                legal = []
+            rnd.shuffle(legal)
+            if priority is not None:
+                # `pop()` takes from the END, so sorting ASCENDING puts the
+                # most promising action first in the try order. `sort` is
+                # stable, so the shuffle above survives as the tie-break
+                # WITHIN a priority class and the search stays randomized and
+                # `rnd`-deterministic.
+                frame_state = eng.state
+                legal.sort(key=lambda a: priority(frame_state, a))
+            frame["untried"] = legal
+        if not frame["untried"] or len(actions) >= max_steps:
+            stack.pop()
+            if actions:
+                actions.pop()
+            continue
+
+        engine_restore(eng, frame["snap"])
+        action = frame["untried"].pop()
+        bare = {k: v for k, v in action.items() if k != PROV_KEY}
+        expansions += 1
+
+        if goal(eng.state, bare):
+            return {"sweep_version": SWEEP_VERSION,
+                    "episode_id": "search_%s_%d" % (bucket_name(mode), seed),
+                    "config": {"seed": int(seed), "mode": dict(mode)},
+                    "max_steps": len(actions) + 16,
+                    "actions": actions + [bare],
+                    "search": {"expansions": expansions, "depth": len(actions) + 1}}
+
+        try:
+            eng.step(py_reorder_action(action, len(eng.state.team))
+                     if action["kind"] == "reorder_team" else py_action_to_engine(action))
+        except Exception:
+            continue
+        if getattr(eng.state, "game_over", False):
+            continue
+        if prune is not None and prune(eng.state):
+            continue
+
+        actions.append(bare)
+        stack.append({"snap": engine_snapshot(eng), "untried": None})
+
+    return None
+
+
+def run_search(goal_spec: str, buckets: list[str], *, episodes: int, base_seed: int,
+               max_steps: int, max_expansions: int, verify: bool,
+               targets: dict, steer: bool = True) -> dict:
+    """Search several `(seed, mode)` runs for `goal_spec`, then -- with
+    `verify` -- replay every candidate through the REAL lockstep loop and
+    report only what that replay observed."""
+    kind, _, value = goal_spec.partition(":")
+    if kind not in GOALS:
+        raise SystemExit("unknown goal %r; expected one of %s"
+                         % (goal_spec, sorted(k + ":<value>" for k in GOALS)))
+    goal = GOALS[kind](value)
+    maker = SEARCH_PRIORITIES.get(kind) if steer else None
+    priority = maker(value) if maker is not None else None
+    pruner = SEARCH_PRUNES.get(kind) if steer else None
+    prune = pruner(value) if pruner is not None else None
+
+    by_name = {bucket_name(m): m for m in MODE_BUCKETS}
+    for b in buckets:
+        if b not in by_name:
+            raise SystemExit("unknown mode bucket %r; expected %s" % (b, sorted(by_name)))
+
+    started = time.time()
+    rnd = random.Random(base_seed)
+    candidates: list[dict] = []
+    for i in range(episodes):
+        bucket = buckets[i % len(buckets)]
+        seed = rnd.getrandbits(32)
+        found = search_episode(seed, by_name[bucket], goal, max_steps=max_steps,
+                               max_expansions=max_expansions,
+                               rnd=random.Random(rnd.getrandbits(32)),
+                               priority=priority, prune=prune)
+        if found is not None:
+            found["goal"] = goal_spec
+            candidates.append(found)
+            print("  candidate %s depth=%d expansions=%d"
+                  % (found["episode_id"], found["search"]["depth"],
+                     found["search"]["expansions"]))
+
+    out = {"sweep_version": SWEEP_VERSION, "goal": goal_spec, "buckets": buckets,
+           "base_seed": base_seed, "searched": episodes,
+           "steered": priority is not None,
+           "max_steps": max_steps, "max_expansions": max_expansions,
+           "candidates": candidates, "verified": None,
+           "wall_clock_s": round(time.time() - started, 1)}
+
+    if verify and candidates:
+        # The only step that can credit anything: both real runtimes, in
+        # lockstep, through the same `run_episode` every other result file
+        # comes from.
+        ledger = CoverageLedger(targets)
+        js, py = JsRuntime(), PyRuntime()
+        try:
+            eps = []
+            for rec in candidates:
+                spec = dict(rec["config"])
+                spec["episode_id"] = rec["episode_id"]
+                eps.append(run_episode(js, py, spec, None, rec["max_steps"],
+                                       ledger=ledger, forced_actions=rec["actions"]))
+        finally:
+            js.close()
+            py.close()
+        out["verified"] = {
+            "episodes": eps,
+            "coverage": ledger.report(),
+            "summary": summarize(eps),
+            "diverged": [e["episode_id"] for e in eps if e["divergence"] is not None],
+        }
+    return out
+
+
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(prog="sweep.py", description=__doc__)
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -1225,6 +2190,20 @@ def main(argv: list[str]) -> int:
     p.add_argument("--max-steps", type=int, default=120)
     p.add_argument("--out")
 
+    h = sub.add_parser("hunt", help="goal-directed bounded search for the "
+                                    "still-missing required coverage targets")
+    h.add_argument("--missing", nargs="*",
+                   help="target ids to hunt (default: everything the merged "
+                        "--from results leave unearned)")
+    h.add_argument("--from", dest="from_results", nargs="*", default=[],
+                   help="existing result files whose coverage seeds the ledger")
+    h.add_argument("--external", action="store_true",
+                   help="also run the frozen route gate and the battle oracle")
+    h.add_argument("--episodes", type=int, default=400)
+    h.add_argument("--base-seed", type=int, default=20260823)
+    h.add_argument("--max-steps", type=int, default=400)
+    h.add_argument("--out")
+
     r = sub.add_parser("run", help="execute a plan and compare both runtimes")
     r.add_argument("--plan")
     r.add_argument("--corpus", action="store_true", help="use the pinned route corpus")
@@ -1233,10 +2212,33 @@ def main(argv: list[str]) -> int:
     r.add_argument("--order", choices=("manifest", "reverse", "sorted"), default="manifest")
     r.add_argument("--out")
 
+    se = sub.add_parser("search", help="bounded backtracking search for a goal, "
+                                       "then verify candidates in lockstep")
+    se.add_argument("--goal", required=True,
+                    help="reward:<id> or team:<n> -- see GOALS")
+    se.add_argument("--buckets", nargs="+", default=["story_gen4"],
+                    help="mode buckets to search")
+    se.add_argument("--episodes", type=int, default=40)
+    se.add_argument("--base-seed", type=int, default=0)
+    se.add_argument("--max-steps", type=int, default=140)
+    se.add_argument("--max-expansions", type=int, default=20000)
+    se.add_argument("--verify", action="store_true",
+                    help="replay every candidate through the real lockstep loop; "
+                         "without this the candidates are inert and credit nothing")
+    se.add_argument("--no-steer", action="store_true",
+                    help="explore each frame's legal set in shuffled order instead "
+                         "of the goal's priority order; ordering only -- steering "
+                         "adds no action and credits nothing either way")
+    se.add_argument("--out")
     rp = sub.add_parser("replay", help="re-run one saved reproducer alone")
     rp.add_argument("--record", required=True)
     rp.add_argument("--minimize", action="store_true")
     rp.add_argument("--out")
+
+    rs = sub.add_parser("replay-set", help="replay saved reproducers and "
+                                           "account for what they observe")
+    rs.add_argument("--records", nargs="+", required=True)
+    rs.add_argument("--out")
 
     cv = sub.add_parser("coverage", help="merge coverage across result files")
     cv.add_argument("results", nargs="*")
@@ -1264,6 +2266,36 @@ def main(argv: list[str]) -> int:
         _write(args.out, make_plan(args.episodes, args.base_seed, args.max_steps))
         return 0
 
+    if args.cmd == "hunt":
+        ledger = CoverageLedger(targets)
+        if args.external:
+            apply_external_evidence(ledger)
+        for path in args.from_results:
+            with open(path, encoding="utf-8") as fh:
+                res = json.load(fh)
+            for tid, rec in res["coverage"]["earned"].items():
+                ledger.earned.setdefault(tid, {"source": rec["source"], "count": 0,
+                                               "first": rec["first"]})
+                ledger.earned[tid]["count"] += rec["count"]
+        missing = args.missing if args.missing else ledger.missing()
+        if not missing:
+            print("nothing missing; no hunt needed")
+            return 0
+        print(f"hunting {len(missing)} target(s): {sorted(missing)}")
+        plan = hunt_plan(missing, args.episodes, args.base_seed, args.max_steps)
+        result = run_plan(plan, ledger, hunt=True, stop_when_covered=True)
+        result["hunt_for"] = sorted(missing)
+        result["still_missing"] = sorted(t for t in missing if t not in ledger.earned)
+        s_ = result["summary"]
+        print(f"\n{s_['episodes']} episodes, {s_['compared_action_steps']} compared "
+              f"action steps, {result['wall_clock_s']}s")
+        print(f"diverged: {s_['diverged']}")
+        print(f"still missing after the hunt: {result['still_missing']}")
+        _write(args.out, result)
+        if s_["diverged"]:
+            return 1
+        return 1 if result["still_missing"] else 0
+
     if args.cmd == "run":
         if args.corpus:
             plan = corpus_plan(args.max_steps)
@@ -1290,6 +2322,27 @@ def main(argv: list[str]) -> int:
         _write(args.out, result)
         return 1 if s["diverged"] else 0
 
+    if args.cmd == "search":
+        result = run_search(args.goal, list(args.buckets), episodes=args.episodes,
+                            base_seed=args.base_seed, max_steps=args.max_steps,
+                            max_expansions=args.max_expansions, verify=args.verify,
+                            targets=targets, steer=not args.no_steer)
+        print(f"\n{result['searched']} run(s) searched, "
+              f"{len(result['candidates'])} candidate(s), {result['wall_clock_s']}s")
+        v = result["verified"]
+        if v is None:
+            print("NOT VERIFIED: candidates credit nothing until replayed "
+                  "(pass --verify)")
+        else:
+            print(f"verified in lockstep: {v['summary']['compared_action_steps']} "
+                  f"compared action steps, diverged={v['diverged']}")
+            print(f"coverage observed by the verified replays: "
+                  f"{len(v['coverage']['earned'])}/{v['coverage']['required']}")
+        _write(args.out, result)
+        if v is not None and v["diverged"]:
+            return 1
+        return 0 if result["candidates"] else 1
+
     if args.cmd == "replay":
         with open(args.record, encoding="utf-8") as fh:
             record = json.load(fh)
@@ -1302,6 +2355,22 @@ def main(argv: list[str]) -> int:
                    "episode_digest": ep["episode_digest"]}
         _write(args.out, out)
         return 0
+
+    if args.cmd == "replay-set":
+        ledger = CoverageLedger(targets)
+        result = replay_records(args.records, ledger)
+        diverged = sum(1 for r in result["replay_set"] if r["reproduced"])
+        for r in result["replay_set"]:
+            print(f"  {r['record']:<48} {r['outcome']:<10} "
+                  f"{'REPRODUCED' if r['reproduced'] else 'clean'}")
+        print(f"\n{len(result['replay_set'])} record(s), "
+              f"{result['summary']['compared_action_steps']} compared action steps, "
+              f"{result['wall_clock_s']}s")
+        print(f"still reproducing: {diverged}")
+        print(f"coverage observed by these replays: "
+              f"{len(result['coverage']['earned'])}/{result['coverage']['required']}")
+        _write(args.out, result)
+        return 1 if diverged else 0
 
     if args.cmd == "coverage":
         ledger = CoverageLedger(targets)

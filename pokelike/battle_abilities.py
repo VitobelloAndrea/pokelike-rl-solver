@@ -248,8 +248,38 @@ class Gen3AbilityConfig:
                 apply_stage_change(pokemon, "special", 1)
             return
         if ability == "extreme_evoboost":
-            primary = "special" if uses_special_attack(pokemon.species_id, pokemon.base_stats) else "atk"
-            candidates = [s for s in _STATS if s != primary]
+            # bundle.deobfuscated.js:57410-57437.
+            #
+            #     const BI6 = usesSpecialAttack(speciesId, baseStats)
+            #                   ? "atk"
+            #                   : "special",
+            #           BI7 = BcM.filter((s) => s !== BI6);
+            #     let BI8 = BI7[0];
+            #     for (const s of BI7) if (base[s] < base[BI8]) BI8 = s;
+            #     applyStageChange(BcY, BI8, 1, ...);
+            #
+            # `BI6` is the stat the source EXCLUDES from the candidate list,
+            # and the ternary reads the way it does because the excluded stat
+            # is the offensive stat this species does NOT use: a special
+            # attacker excludes `atk`, a physical attacker excludes `special`.
+            # The boost then lands on the LOWEST remaining base stat, which
+            # for a physical attacker can be its own unused `special`.
+            #
+            # M7-COMBINED (F-B): the port had this ternary the other way round
+            # -- it excluded the offensive stat the species DOES use. On Eevee
+            # (atk 55, special 45, so `usesSpecialAttack` is false) the source
+            # excludes `special` and boosts `def` (50 -- the lowest of atk 55 /
+            # def 50 / speed 55 / spdef 65), while the port excluded `atk` and
+            # boosted `special` (45 -- the lowest of def 50 / speed 55 /
+            # special 45 / spdef 65). That is exactly the stage swap the M7
+            # sweep reported as finding F-B: js `enemy[0].def` +1 versus py
+            # `enemy[0].special` +1, with identical battle RNG and damage.
+            #
+            # `_STATS` is the source's own `BcM` order (57356), and the loop's
+            # strict `<` keeps the FIRST minimum -- which is what `min()` does
+            # over the same ordered sequence, so ties break identically.
+            excluded = "atk" if uses_special_attack(pokemon.species_id, pokemon.base_stats) else "special"
+            candidates = [s for s in _STATS if s != excluded]
             lowest = min(candidates, key=lambda s: _base_stat(pokemon.base_stats, s))
             apply_stage_change(pokemon, lowest, 1)
             return

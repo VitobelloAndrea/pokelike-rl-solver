@@ -1571,6 +1571,38 @@ def _run_battle(state: RunState, enemy_team: Sequence[Combatant]) -> BattleResul
     # the source (bundle.deobfuscated.js:81223-81245 precedes 81278-81318),
     # reading `state.team` pre-battle -- matched here for exact `rng()` draw
     # ordering even though this particular branch never reads `current_hp`.
+    return result
+
+
+def _run_battle_screen(state: RunState, enemy_team: Sequence[Combatant]) -> BattleResult:
+    """The source's `runBattleScreen` post-battle sequence, up to (but not
+    including) the level-gain step that `_after_battle` owns.
+
+    M7-COMBINED (F-C). This function exists because `runBattle` and
+    `runBattleScreen` are two different functions in the source, and the Gen3
+    Pickup roll lives in the OUTER one. `runBattleScreen` destructures
+    `runBattle`'s result at bundle.deobfuscated.js:81210-81220 and only THEN
+    evaluates its `... && rng() < 0.1` Pickup gate at 81223-81245, with the
+    ITEM_POOL index roll at 81237. Both draws are therefore consumed AFTER
+    `runBattle` has already returned.
+
+    `_run_battle` used to do all three -- battle, Pickup, copy-back -- in one
+    call, which put the Pickup draws INSIDE the window every battle observer
+    measures (`run_scenario.Runner._install_battle_recorder` and `driver.js`'s
+    own `runBattle` wrapper each count `rng` draws across the call they wrap).
+    The stream totals still matched, because it is the same draw from the same
+    stream either way; the ATTRIBUTION did not. That is exactly what the M7
+    sweep reported as finding F-C: a Gen3 Nuzlocke battle with a Zigzagoon on
+    the team scored `rng_draws` 2 on the source side and 3 on the Python side,
+    with an identical post-step RNG position on both (74 draws, state
+    295902055).
+
+    Splitting the two restores the source's own boundary, so the battle window
+    measures the battle. The ORDER is untouched: Pickup still precedes
+    copy-back, exactly as 81223-81245 precedes 81278-81318, and nothing runs
+    between them.
+    """
+    result: BattleResult = _run_battle(state, enemy_team)
     if result.player_won:
         _grant_gen3_zigzagoon_pickup(state)
     _copy_back_battle_result(state, result.player_team, result.player_won)
@@ -1745,7 +1777,8 @@ def _maybe_spawn_shedinja(state: RunState, evolved: Combatant) -> None:
     state.max_team_size = max(state.max_team_size, len(state.team))
 
 
-def _apply_evolution(state: RunState, mon: Combatant, into_species_id: int, *, force: bool = False) -> None:
+def _apply_evolution(state: RunState, mon: Combatant, into_species_id: int,
+                     evolved_name: str, *, force: bool = False) -> None:
     """Port of the per-mon stat update shared by `checkAndEvolveTeam`
     (`force=False`, docs/logic-notes-runlifecycle.md section 4,
     bundle.deobfuscated.js:70648-70669) and `applyEvolution` (`force=True`,
@@ -1769,7 +1802,24 @@ def _apply_evolution(state: RunState, mon: Combatant, into_species_id: int, *, f
     hp_fraction = (mon.current_hp / mon.max_hp) if mon.max_hp else 0.0
     new_species = data.get_pokedex()[into_species_id]
     mon.species_id = into_species_id
-    mon.name = new_species.name
+    # M7-COMBINED (F-E): the NAME comes from the evolution record, not from
+    # the dex entry of the species being evolved into. Both source paths write
+    # it that way and neither reads a name off the fetched species:
+    #
+    #   checkAndEvolveTeam  `iS["name"] = B2B["name"]`  (70651-70652)
+    #   applyEvolution      `B["name"]  = iS["name"]`   (79801-79802)
+    #
+    # where `B2B`/`iS` is the `EVOLUTIONS` (or `BRANCHING_EVOLUTIONS`) entry.
+    # `fetchPokemonById` IS consulted -- but only for `types` and `baseStats`
+    # (70658, 79812), which is why those two still come from the dex below.
+    #
+    # For almost every species the two names agree, which is why taking the
+    # dex name went unnoticed. They disagree for Porygon-Z: the dex entry is
+    # `"Porygon-z"` and `EVOLUTIONS[233].name` is `"Porygon-Z"` (49497). The
+    # M7-combined goal-directed sweep reached a Nuzlocke Gen1 run that evolved
+    # a Porygon2 at step 54 and reported exactly that one-character
+    # divergence on `checkpoint.team[2].name`.
+    mon.name = evolved_name
     mon.types = new_species.types
     mon.base_stats = new_species.base_stats
     max_hp = map_gen.calc_hp(mon.base_stats.hp, mon.level)
@@ -1816,7 +1866,7 @@ def _maybe_evolve_one(state: RunState, idx: int, *, source: str, force: bool = F
         return True
     evo = data.get_evolutions().get(mon.species_id)
     if evo is not None and (force or mon.level >= evo.level) and evo.into != mon.species_id:
-        _apply_evolution(state, mon, evo.into, force=force)
+        _apply_evolution(state, mon, evo.into, evo.name, force=force)
         _log(state, "evolve", team_index=idx, into=evo.into, name=evo.name)
     return False
 
@@ -2101,16 +2151,49 @@ def _elite4_fight_step(state: RunState, step: dict) -> None:
     idx = step["idx"]
     node_id = step["node_id"]
     if idx >= len(roster):
-        state.elite_index = 0
-        _advance(state, node_id)
+        # M7 (F-I): the two gauntlet tails are NOT the same, and neither of
+        # them advances the node.
+        #
+        # `doGen2Elite4` (bundle.deobfuscated.js:78390-78396) ends
+        # `state["eliteIndex"] = 0x0, showWinScreen()`. `doElite4`
+        # (77887-77893) ends `unlockAchievement("elite_four")`, the two gen3/
+        # gen4 achievement checks and `showWinScreen()` -- it never writes
+        # `eliteIndex` again, so the value the loop header left behind
+        # (`state["eliteIndex"] = iu` at 77855, hence `len(roster) - 1`)
+        # survives into the win screen.
+        #
+        # Neither tail calls `advanceFromNode` (53639). `doBossNode`'s map-8
+        # branches are `await doElite4(); return;` / `await doGen2Elite4();
+        # return;` (77747-77750, 77800-77802) and `onNodeClick` only locks
+        # the clicked node's SAME-LAYER SIBLINGS before dispatch
+        # (77312-77316) -- it never marks the node itself visited. So on the
+        # source the Elite Four node ends the run still `accessible` and
+        # still un-`visited`, which is what the compared map projection saw:
+        # js `accessible=true, visited=false` against the port's
+        # `accessible=false, visited=true`.
+        if state.gen2_mode:
+            state.elite_index = 0
         state.phase = Phase.VICTORY
         state.won = True
         _log(state, "victory")
         state._todo.pop(0)
         return
     trainer = roster[idx]
-    enemy = _build_fixed_team(trainer, state)
-    result = _run_battle(state, enemy)
+    # M7 (F-H): the Elite Four gauntlet does NOT use `doBossNode`'s
+    # `moveTier ?? 1` rule. Both gauntlet loops spread
+    # `createInstance(it, it.level, false, 0x2)` with the move tier
+    # HARDCODED to 2 -- `doElite4` at bundle.deobfuscated.js:77859-77862 and
+    # `doGen2Elite4` at 78361-78366 -- while `doBossNode`'s two gym branches
+    # read the roster's own field, `(B2e = it["moveTier"]) != null ? B2e :
+    # 0x1` (77758-77763 and 77812-77817). No ELITE_4/GEN2_ELITE_4/
+    # HOENN_ELITE_4/SINNOH_ELITE_4 entry carries a `moveTier` field at all,
+    # so `_build_fixed_team`'s `?? 1` fallback gave every Elite Four member
+    # tier-1 moves against the source's tier 2. That is a different move per
+    # combatant (e.g. Lorelei's Lapras opening `Surf` instead of `Hydro
+    # Pump`), hence different damage, HP and battle length from the very
+    # first turn of the gauntlet.
+    enemy = _build_roster_team(trainer.team, 2, state.gen4_mode)
+    result = _run_battle_screen(state, enemy)
     state.elite_index = idx
     level_gain = 1 if state.nuzlocke_mode else 2
     won = _after_battle(state, result, level_gain=level_gain)
@@ -2222,7 +2305,7 @@ def _visit_battle(state: RunState, node: MapNode) -> None:
     )
     move_tier = map_gen.get_move_tier_for_map(state.current_map)
     enemy = [_make_wild_combatant(species_id, level, move_tier=move_tier, gen2_mode=state.gen2_mode, gen4_mode=state.gen4_mode)]
-    result = _run_battle(state, enemy)
+    result = _run_battle_screen(state, enemy)
     # CODEX.md P0.6: `doBattleNode`'s own `runBattleScreen` call passes
     # isBoss=false (bundle.deobfuscated.js:77724-77732) -- Escape Rope
     # recovery is eligible on a loss here.
@@ -2370,7 +2453,7 @@ def _visit_trainer(state: RunState, node: MapNode) -> None:
         _make_wild_combatant(sid, level, move_tier=move_tier, gen2_mode=state.gen2_mode, gen4_mode=state.gen4_mode)
         for sid in species_ids
     ]
-    result = _run_battle(state, enemy)
+    result = _run_battle_screen(state, enemy)
     # CODEX.md P0.6: `doTrainerNode`'s own `runBattleScreen` call passes
     # isBoss=false (bundle.deobfuscated.js:80327-80336) -- distinct from
     # the gym-leader/boss node's own call, which passes isBoss=true.
@@ -2435,7 +2518,7 @@ def _visit_silver(state: RunState, node: MapNode) -> None:
             move_tier=move_tier,
         )
 
-    result = _run_battle(state, team)
+    result = _run_battle_screen(state, team)
     # CODEX.md P0.6: doSilverNode's runBattleScreen call passes isBoss=true
     # (bundle.deobfuscated.js:77938) -- no Escape Rope recovery offer, same
     # as every other boss-tier fight. Silver's Nuzlocke-permadeath exemption
@@ -2473,7 +2556,7 @@ def _visit_admin(state: RunState, node: MapNode, kind: str) -> None:
         return
     move_tier = map_gen.get_move_tier_for_map(state.current_map)
     team = _build_roster_team(encounter.team, move_tier, state.gen4_mode)
-    result = _run_battle(state, team)
+    result = _run_battle_screen(state, team)
     # CODEX.md P0.6: doAdminNode's runBattleScreen call passes isBoss=true
     # (bundle.deobfuscated.js:77985) -- no Escape Rope recovery offer.
     # Magma/Aqua's Nuzlocke-permadeath exemption is the source's own
@@ -2511,8 +2594,30 @@ def _visit_boss(state: RunState, node: MapNode) -> None:
         return
     trainer = _gym_leader(state)
     enemy = _build_fixed_team(trainer, state)
-    result = _run_battle(state, enemy)
-    level_gain = 1 if state.nuzlocke_mode else 2  # docs/logic-notes-runlifecycle.md section 5
+    result = _run_battle_screen(state, enemy)
+    # `applyLevelGain`'s gain is `it !== null ? it : (iS ? 1 : getLevelGain())`
+    # (bundle.deobfuscated.js:56803), where `it` is `runBattleScreen`'s 7th
+    # argument, `iS` is `state.nuzlockeMode` (threaded at 81325) and
+    # `getLevelGain` is the constant 2 (56788-56790). So an explicitly passed
+    # 7th argument OVERRIDES the Nuzlocke halving; only an omitted one falls
+    # through to it.
+    #
+    # M7-COMBINED (F-D): `doBossNode`'s two gym branches do not pass the same
+    # thing. The Gen2 branch calls `runBattleScreen(B2B, true, onWin, onLose,
+    # it.name, [], 0x2)` (bundle.deobfuscated.js:77780-77797) -- seven
+    # arguments, the last of them a literal `0x2`. The Gen1/Gen3/Gen4 branch
+    # calls `runBattleScreen(iS, true, onWin, onLose, ip.name)` (77829-77843)
+    # -- five arguments, so its 7th defaults to `null`. A Gen2 gym leader
+    # therefore grants +2 levels EVEN IN NUZLOCKE, while every other gym
+    # leader grants the usual `nuzlocke ? 1 : 2`. Applying the Nuzlocke rule
+    # to all four generations is what the M7 sweep reported as finding F-D: a
+    # Nuzlocke Gen2 run reached level 16 / 44 max HP / 37 HP on the source and
+    # level 15 / 42 / 35 on the port after the same gym win.
+    #
+    # `current_map == 8` is the Elite Four and never reaches here; both
+    # `doElite4` and `doGen2Elite4` omit the argument (77871, 78379), so the
+    # gauntlet keeps the Nuzlocke rule -- see `_elite_four_fight`.
+    level_gain = 2 if state.gen2_mode else (1 if state.nuzlocke_mode else 2)
     if not _after_battle(state, result, level_gain=level_gain):
         return
     state._todo = [{"kind": "evolve", "idx": 0}, {"kind": "grant_badge", "node_id": node.id}]
@@ -2840,7 +2945,7 @@ def _visit_legendary(state: RunState, node: MapNode) -> None:
     is_shiny = roll_shiny(state)
     caught = _make_wild_combatant(species_id, level, is_shiny=is_shiny, move_tier=2, gen2_mode=state.gen2_mode, gen4_mode=state.gen4_mode)
     enemy = [_make_wild_combatant(species_id, level, is_shiny=is_shiny, move_tier=2, gen2_mode=state.gen2_mode, gen4_mode=state.gen4_mode)]
-    result = _run_battle(state, enemy)
+    result = _run_battle_screen(state, enemy)
     if not _after_battle(
         state,
         result,
@@ -3221,7 +3326,7 @@ def _visit_sub_map_boss(state: RunState, node: MapNode) -> None:
         _advance(state, node.id)
         state.phase = Phase.ON_MAP
         return
-    result = _run_battle(state, enemy)
+    result = _run_battle_screen(state, enemy)
     if not _after_battle(state, result, level_gain=2):
         return
     state._todo = [{"kind": "evolve", "idx": 0}, {"kind": "advance", "node_id": node.id}]
@@ -3554,7 +3659,8 @@ def _resolve_evolution_choice(state: RunState, action: SelectOption) -> None:
     idx = extra["team_index"]
     branches = extra["branches"]
     chosen = branches[action.index]
-    _apply_evolution(state, state.team[idx], chosen.into, force=extra.get("force", False))
+    _apply_evolution(state, state.team[idx], chosen.into, chosen.name,
+                     force=extra.get("force", False))
     _log(state, "evolve", team_index=idx, into=chosen.into, name=chosen.name)
     state.pending = None
     if extra.get("source", "todo") == "item":
@@ -3602,11 +3708,20 @@ def _resolve_item_choice(state: RunState, action: SelectOption) -> None:
         _advance(state, node_id)
         state.phase = Phase.ON_MAP
         return
+    # M7-COMBINED (F-A): the item-screen offer this modal was opened FROM
+    # travels with the modal. `#btn-equip-cancel`'s entire handler body is
+    # `B2O.remove()` (bundle.deobfuscated.js:79563-79569) -- it removes the
+    # overlay and nothing else, so the `item-screen` underneath it, with its
+    # three still-live `.item-card` click handlers and its still-live
+    # `#btn-skip-item`, is exactly what the player is looking at afterwards.
+    # Carrying the parent `PendingChoice` OBJECT (rather than rebuilding one)
+    # is what makes the restored offer byte-identical to the one the source
+    # never tore down: same options, same order, same `extra`.
     state.pending = PendingChoice(
         phase=Phase.ITEM_EQUIP_CHOICE,
         options=[_mon_summary(m) for m in state.team],
         optional=True,
-        extra={"item_id": item.id, "node_id": node_id},
+        extra={"item_id": item.id, "node_id": node_id, "item_choice": state.pending},
     )
     state.phase = Phase.ITEM_EQUIP_CHOICE
 
@@ -3634,11 +3749,26 @@ def _resolve_item_equip_choice(state: RunState, action: SelectOption) -> None:
     extra = state.pending.extra
     node_id = extra["node_id"]
     if action.cancel:
-        # Back to the map with NOTHING consumed: no bag change, no held-item
-        # change, the node not advanced, and `item_offer` deliberately kept.
+        # NOTHING is consumed: no bag change, no held-item change, the node is
+        # not advanced, and `item_offer` is deliberately kept.
+        #
+        # M7-COMBINED (F-A) -- and the run does NOT return to the map. The
+        # whole `#btn-equip-cancel` handler is `B2O.remove()`
+        # (bundle.deobfuscated.js:79563-79569). It removes the OVERLAY. It
+        # never calls `onComplete`, so it never reaches that callback's
+        # `state.itemOffer = null; advanceFromNode(...); showMapScreen()`
+        # trio (79424-79429), and it never calls `showMapScreen` itself. The
+        # screen therefore stays `doItemNode`'s own `showScreen("item-screen")`
+        # (79263), and the three `.item-card` buttons plus `#btn-skip-item`
+        # that `doItemNode` built are still in the DOM with their listeners
+        # attached -- the offer is live and can be picked again. A prior
+        # version cleared `pending` and dropped to `Phase.ON_MAP`, which is
+        # what the M7 sweep reported as finding F-A: the source sat on
+        # `item-screen` with a live `item_choice` offer while the port sat on
+        # `map-screen` with none.
         _log(state, "item_equip_cancelled", name=extra["item_id"], node_id=node_id)
-        state.pending = None
-        state.phase = Phase.ON_MAP
+        state.pending = extra["item_choice"]
+        state.phase = Phase.ITEM_CHOICE
         return
     if action.index is None:
         state.items.append(extra["item_id"])

@@ -1,0 +1,80 @@
+{
+  "actions": [
+    {
+      "kind": "choose_starter",
+      "species_id": 255
+    },
+    {
+      "kind": "visit_node",
+      "node_id": "n1_0"
+    },
+    {
+      "cancel": false,
+      "index": 1,
+      "kind": "select_option"
+    },
+    {
+      "kind": "visit_node",
+      "node_id": "n2_1"
+    },
+    {
+      "kind": "visit_node",
+      "node_id": "n3_2"
+    },
+    {
+      "kind": "visit_node",
+      "node_id": "n4_1"
+    },
+    {
+      "cancel": false,
+      "index": 1,
+      "kind": "select_option"
+    },
+    {
+      "cancel": false,
+      "index": null,
+      "kind": "select_option"
+    }
+  ],
+  "config": {
+    "episode_id": "story_gen3_0010",
+    "mode": {
+      "gen2": false,
+      "gen3": true,
+      "gen4": false,
+      "nuzlocke": false
+    },
+    "seed": 2904426170
+  },
+  "derived_by": "route-oracle/find-sweep-fixtures.py",
+  "description": "A bag item the source's own `it.usable` flag routes to `equipItemFromBag` (64950) rather than `applyUsableItemTo` (64946).",
+  "goal": "nonusable_bag_item",
+  "protected_hashes": {
+    "pokelike/battle_loop.py": "cf7b99f5ac5916e6fa3ca85497ff5469e7aa7e1bd535ba2ff0db1745f1fc06a4",
+    "pokelike/battle_traits.py": "8f7d14046b38196b299f46e8821d18bd9eae382ad4746936697a0fbd7fcaabe2",
+    "pokelike/engine.py": "8ada8f0f722e4fb64daa5562f2f81b5f52182a565c78bcaff5288867a5c7bb15",
+    "route-prefix": "92c82e6cdf4d36201d1143fa2802c3400af61e0e55268b45f236ba11465d102d"
+  },
+  "sweep_version": 1,
+  "verification": {
+    "clean": true,
+    "divergence": null,
+    "goal_reached": true,
+    "outcome": "replay_exhausted"
+  },
+  "witness": {
+    "bag": [
+      "expert_belt"
+    ],
+    "held_item_slots": [],
+    "legal_count": 5,
+    "legal_kinds": [
+      "equip_item",
+      "reorder_team",
+      "visit_node"
+    ],
+    "pending_team_indices": null,
+    "phase": "on_map",
+    "team_size": 2
+  }
+}

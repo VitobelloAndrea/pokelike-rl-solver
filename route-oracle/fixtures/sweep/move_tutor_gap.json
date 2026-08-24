@@ -1,0 +1,144 @@
+{
+  "actions": [
+    {
+      "kind": "choose_starter",
+      "species_id": 4
+    },
+    {
+      "kind": "visit_node",
+      "node_id": "n1_1"
+    },
+    {
+      "cancel": false,
+      "index": 0,
+      "kind": "select_option"
+    },
+    {
+      "kind": "visit_node",
+      "node_id": "n2_2"
+    },
+    {
+      "kind": "visit_node",
+      "node_id": "n3_2"
+    },
+    {
+      "cancel": false,
+      "index": 2,
+      "kind": "select_option"
+    },
+    {
+      "cancel": false,
+      "index": 0,
+      "kind": "select_option"
+    },
+    {
+      "kind": "visit_node",
+      "node_id": "n4_2"
+    },
+    {
+      "cancel": false,
+      "index": 1,
+      "kind": "select_option"
+    },
+    {
+      "kind": "visit_node",
+      "node_id": "n5_2"
+    },
+    {
+      "kind": "visit_node",
+      "node_id": "n6_1"
+    },
+    {
+      "cancel": false,
+      "index": 1,
+      "kind": "select_option"
+    },
+    {
+      "kind": "unequip_item",
+      "team_index": 0
+    },
+    {
+      "kind": "visit_node",
+      "node_id": "n7_1"
+    },
+    {
+      "kind": "visit_node",
+      "node_id": "n8_0"
+    },
+    {
+      "kind": "advance_map"
+    },
+    {
+      "kind": "visit_node",
+      "node_id": "n1_1"
+    },
+    {
+      "cancel": false,
+      "index": 0,
+      "kind": "select_option"
+    },
+    {
+      "bag_index": 0,
+      "item_id": "wide_lens",
+      "kind": "equip_item",
+      "team_index": 1
+    },
+    {
+      "kind": "visit_node",
+      "node_id": "n2_1"
+    },
+    {
+      "kind": "visit_node",
+      "node_id": "n3_2"
+    },
+    {
+      "kind": "visit_node",
+      "node_id": "n4_2"
+    },
+    {
+      "kind": "visit_node",
+      "node_id": "n5_2"
+    }
+  ],
+  "config": {
+    "episode_id": "nuzlocke_gen1_0140",
+    "mode": {
+      "gen2": false,
+      "gen3": false,
+      "gen4": false,
+      "nuzlocke": true
+    },
+    "seed": 2145783665
+  },
+  "derived_by": "route-oracle/find-sweep-fixtures.py",
+  "description": "A move-tutor offer where a mastered member is filtered out, so `data-tutor` team identity != normalized option position (T2).",
+  "goal": "move_tutor_gap",
+  "protected_hashes": {
+    "pokelike/battle_loop.py": "cf7b99f5ac5916e6fa3ca85497ff5469e7aa7e1bd535ba2ff0db1745f1fc06a4",
+    "pokelike/battle_traits.py": "8f7d14046b38196b299f46e8821d18bd9eae382ad4746936697a0fbd7fcaabe2",
+    "pokelike/engine.py": "8ada8f0f722e4fb64daa5562f2f81b5f52182a565c78bcaff5288867a5c7bb15",
+    "route-prefix": "92c82e6cdf4d36201d1143fa2802c3400af61e0e55268b45f236ba11465d102d"
+  },
+  "sweep_version": 1,
+  "verification": {
+    "clean": true,
+    "divergence": null,
+    "goal_reached": true,
+    "outcome": "replay_exhausted"
+  },
+  "witness": {
+    "bag": [],
+    "held_item_slots": [
+      1
+    ],
+    "legal_count": 2,
+    "legal_kinds": [
+      "select_option"
+    ],
+    "pending_team_indices": [
+      1
+    ],
+    "phase": "move_tutor_choice",
+    "team_size": 2
+  }
+}

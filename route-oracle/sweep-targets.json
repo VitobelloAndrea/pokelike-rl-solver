@@ -1,5 +1,5 @@
 {
-  "description": "M7 coverage TARGET manifest for the implemented Story/Nuzlocke Gen1-4 surface. Derived from engine.Phase, the normalized action vocabulary, map_gen's node-type constants, route-oracle/coverage.py's REQUIRED_TAGS and the post-M6.4 battle-oracle corpus -- never from a sweep run's own observed paths. `evidence` names WHICH evidence source is allowed to earn each target.",
+  "description": "M7 coverage TARGET manifest for the implemented Story/Nuzlocke Gen1-4 surface. Derived from engine.Phase, the normalized action vocabulary, map_gen's node-type constants, data.get_submap_rewards()'s reward ids, route-oracle/coverage.py's REQUIRED_TAGS and the post-M6.4 battle-oracle corpus -- never from a sweep run's own observed paths. `evidence` names WHICH evidence source is allowed to earn each target. `phase`, `action_kind`, `route_tag`, `node_type` and `reward_kind` are the code-derived keys sweep.py's validate-targets checks BOTH ways: an unknown value is rejected, and a runtime value no target names is rejected.",
   "sweep_version": 1,
   "targets": [
     {
@@ -356,108 +356,126 @@
     {
       "evidence": "sweep",
       "id": "node.aqua",
+      "node_type": "aqua",
       "rationale": "map_gen.AQUA -- Team Aqua admin (doAdminNode), Gen3.",
       "stratum": "node"
     },
     {
       "evidence": "sweep",
       "id": "node.battle",
+      "node_type": "battle",
       "rationale": "map_gen.BATTLE -- Wild battle node.",
       "stratum": "node"
     },
     {
       "evidence": "sweep",
       "id": "node.boss",
+      "node_type": "boss",
       "rationale": "map_gen.BOSS -- Gym leader / Elite / final boss node.",
       "stratum": "node"
     },
     {
       "evidence": "sweep",
       "id": "node.catch",
+      "node_type": "catch",
       "rationale": "map_gen.CATCH -- Catch-offer node (doCatchNode).",
       "stratum": "node"
     },
     {
       "evidence": "sweep",
       "id": "node.distortion",
+      "node_type": "distortion",
       "rationale": "map_gen.DISTORTION -- Gen4 Distortion World submap entry (enterSubMap).",
       "stratum": "node"
     },
     {
       "evidence": "sweep",
       "id": "node.item",
+      "node_type": "item",
       "rationale": "map_gen.ITEM -- Item-offer node (doItemNode).",
       "stratum": "node"
     },
     {
       "evidence": "sweep",
       "id": "node.legendary",
+      "node_type": "legendary",
       "rationale": "map_gen.LEGENDARY -- Ordinary-map legendary node (doLegendaryNode).",
       "stratum": "node"
     },
     {
       "evidence": "sweep",
       "id": "node.magma",
+      "node_type": "magma",
       "rationale": "map_gen.MAGMA -- Team Magma admin (doAdminNode), Gen3.",
       "stratum": "node"
     },
     {
       "evidence": "sweep",
       "id": "node.move_tutor",
+      "node_type": "move_tutor",
       "rationale": "map_gen.MOVE_TUTOR -- Move tutor node (doMoveTutorNode).",
       "stratum": "node"
     },
     {
       "evidence": "sweep",
       "id": "node.pokecenter",
+      "node_type": "pokecenter",
       "rationale": "map_gen.POKECENTER -- Poke Center heal node.",
       "stratum": "node"
     },
     {
       "evidence": "sweep",
       "id": "node.question",
+      "node_type": "question",
       "rationale": "map_gen.QUESTION -- Question-mark node, resolved by resolveQuestionMark.",
       "stratum": "node"
     },
     {
       "evidence": "sweep",
       "id": "node.reward",
+      "node_type": "reward",
       "rationale": "map_gen.REWARD -- In-submap reward node (doSubMapReward).",
       "stratum": "node"
     },
     {
       "evidence": "sweep",
       "id": "node.silver",
+      "node_type": "silver",
       "rationale": "map_gen.SILVER -- The Gen2 rival (doSilverNode).",
       "stratum": "node"
     },
     {
       "evidence": "sweep",
       "id": "node.start",
+      "node_type": "start",
       "rationale": "map_gen.START -- The layer-0 entry node.",
       "stratum": "node"
     },
     {
       "evidence": "sweep",
       "id": "node.subexit",
+      "node_type": "subexit",
       "rationale": "map_gen.SUBEXIT -- In-submap exit node (returnFromSubMap).",
       "stratum": "node"
     },
     {
       "evidence": "sweep",
       "id": "node.trade",
+      "node_type": "trade",
       "rationale": "map_gen.TRADE -- Trade node (doTradeNode).",
       "stratum": "node"
     },
     {
       "evidence": "sweep",
       "id": "node.trainer",
+      "node_type": "trainer",
       "rationale": "map_gen.TRAINER -- Ordinary procedural trainer node.",
       "stratum": "node"
     },
     {
       "evidence": "sweep",
       "id": "node.underground",
+      "node_type": "underground",
       "rationale": "map_gen.UNDERGROUND -- Gen4 Underground submap entry (enterSubMap).",
       "stratum": "node"
     },
@@ -644,26 +662,86 @@
     },
     {
       "evidence": "sweep",
+      "id": "reward.attack_up",
+      "rationale": "SUBMAP_REWARDS 'attack_up' -- the permanent attack buff. Baked onto a REWARD node by map_gen.generate_sub_map; observed as node.reward.kind.",
+      "reward_kind": "attack_up",
+      "stratum": "node"
+    },
+    {
+      "evidence": "sweep",
+      "id": "reward.dialga",
+      "rationale": "SUBMAP_REWARDS 'dialga' -- distortion-only DISTORTION_LEGENDARY_POOL unlock. Baked onto a REWARD node by map_gen.generate_sub_map; observed as node.reward.kind.",
+      "reward_kind": "dialga",
+      "stratum": "node"
+    },
+    {
+      "evidence": "sweep",
       "id": "reward.fossil",
       "rationale": "The 'fossil' submap-reward branch (node.reward, bundle.deobfuscated.js:53591-53611).",
+      "reward_kind": "fossil",
+      "stratum": "node"
+    },
+    {
+      "evidence": "sweep",
+      "id": "reward.giratina",
+      "rationale": "SUBMAP_REWARDS 'giratina' -- distortion-only DISTORTION_LEGENDARY_POOL unlock. Baked onto a REWARD node by map_gen.generate_sub_map; observed as node.reward.kind.",
+      "reward_kind": "giratina",
+      "stratum": "node"
+    },
+    {
+      "evidence": "sweep",
+      "id": "reward.palkia",
+      "rationale": "SUBMAP_REWARDS 'palkia' -- distortion-only DISTORTION_LEGENDARY_POOL unlock. Baked onto a REWARD node by map_gen.generate_sub_map; observed as node.reward.kind.",
+      "reward_kind": "palkia",
+      "stratum": "node"
+    },
+    {
+      "evidence": "sweep",
+      "id": "reward.rare_candy",
+      "rationale": "SUBMAP_REWARDS 'rare_candy' -- the single-member level reward. Baked onto a REWARD node by map_gen.generate_sub_map; observed as node.reward.kind.",
+      "reward_kind": "rare_candy",
       "stratum": "node"
     },
     {
       "evidence": "sweep",
       "id": "reward.sacrifice",
       "rationale": "The 'sacrifice' submap-reward branch (node.reward, bundle.deobfuscated.js:53591-53611).",
+      "reward_kind": "sacrifice",
       "stratum": "node"
     },
     {
       "evidence": "sweep",
       "id": "reward.skip",
       "rationale": "The 'skip' submap-reward branch (node.reward, bundle.deobfuscated.js:53591-53611).",
+      "reward_kind": "skip",
       "stratum": "node"
     },
     {
       "evidence": "sweep",
       "id": "reward.stat10",
       "rationale": "The 'stat10' submap-reward branch (node.reward, bundle.deobfuscated.js:53591-53611).",
+      "reward_kind": "stat10",
+      "stratum": "node"
+    },
+    {
+      "evidence": "sweep",
+      "id": "reward.team_lvl2",
+      "rationale": "SUBMAP_REWARDS 'team_lvl2' -- whole-team +2 levels. Baked onto a REWARD node by map_gen.generate_sub_map; observed as node.reward.kind.",
+      "reward_kind": "team_lvl2",
+      "stratum": "node"
+    },
+    {
+      "evidence": "sweep",
+      "id": "reward.three_items",
+      "rationale": "SUBMAP_REWARDS 'three_items' -- the three-item bag reward. Baked onto a REWARD node by map_gen.generate_sub_map; observed as node.reward.kind.",
+      "reward_kind": "three_items",
+      "stratum": "node"
+    },
+    {
+      "evidence": "sweep",
+      "id": "reward.transform",
+      "rationale": "SUBMAP_REWARDS 'transform' -- the species-transform reward. Baked onto a REWARD node by map_gen.generate_sub_map; observed as node.reward.kind.",
+      "reward_kind": "transform",
       "stratum": "node"
     },
     {
@@ -1017,5 +1095,5 @@
       "stratum": "node"
     }
   ],
-  "version": 1
+  "version": 2
 }

@@ -5,28 +5,78 @@
 
   // ======================= deterministic timers =======================
   // Installed AFTER the prefix has loaded (the load-time no-op stubs are what
-  // keep the obfuscator's anti-tamper setTimeout/setInterval inert). Delays
-  // are ignored and callbacks run in FIFO order: nothing in a Story/Nuzlocke
-  // route depends on real elapsed time, and a virtual queue keeps repeated
-  // runs byte-identical.
+  // keep the obfuscator's anti-tamper setTimeout/setInterval inert).
+  //
+  // Callbacks run in FIFO order and a virtual queue keeps repeated runs
+  // byte-identical. What the queue must ALSO provide is a clock that moves:
+  // this shim used to discard the requested delay entirely and leave
+  // `performance.now()` pinned at the `sandbox.js` constant 0, which made the
+  // harness present a STOPPED clock to source code that polls one.
+  //
+  // That is finding F-F. `showWinScreen` (bundle.deobfuscated.js:81649) awards
+  // pokedollars -> `onPokedollarsGained` (75236) -> `animatePokedollarGain`
+  // (75242) -> `_spawnPokedollarBurst` (75281), whose coin-fly loop re-arms
+  // `requestAnimationFrame(B2Q)` (75399) for exactly as long as any coin has
+  // `(_pdNow() - start - delay) / dur < 1` (75343-75360). `_pdNow` (75189)
+  // prefers `performance.now()`. With that pinned at 0 the ratio is never 1,
+  // no coin ever completes, the loop re-arms forever and `pump()` cannot
+  // quiesce -- a finite, wall-clock-bounded presentation animation that the
+  // harness modelled as non-terminating. The source is not at fault and the
+  // Python runtime is not involved; the clock was.
+  //
+  // So: `setTimeout` now RECORDS its delay, `pump()` advances `virtualNow`
+  // monotonically to each callback's own due time before invoking it (the
+  // real `setTimeout` guarantee: at least `delay` has elapsed), and
+  // `performance.now()` reads that clock. `requestAnimationFrame` schedules a
+  // real frame interval and passes the DOMHighResTimeStamp the rAF contract
+  // requires and the old shim silently omitted.
+  //
+  // Deliberately UNCHANGED, because the frozen 29-scenario signature depends
+  // on both:
+  //   * FIFO order. Timers still run in scheduling order, NOT due-time order.
+  //     Delay affects the clock a callback observes, never when it runs.
+  //   * `Date.now`, still pinned to `SC.seed` below for `startNewRun`'s own
+  //     seed expression. `_pdNow` only falls back to it when `performance` is
+  //     absent, and `sandbox.js` always defines `performance`.
   var timerQueue = [];
   var timerSeq = 0;
-  setTimeout = function (fn) { timerQueue.push({ fn: fn, seq: timerSeq++ }); return timerSeq; };
+  var virtualNow = 0;
+  var FRAME_MS = 1000 / 60;
+  setTimeout = function (fn, delay) {
+    var d = Number(delay);
+    timerQueue.push({ fn: fn, seq: timerSeq++, at: virtualNow + (isFinite(d) && d > 0 ? d : 0) });
+    return timerSeq;
+  };
   setInterval = function () { return 0; };
   clearTimeout = function () {};
   clearInterval = function () {};
-  requestAnimationFrame = function (fn) { return setTimeout(fn, 0); };
+  requestAnimationFrame = function (fn) {
+    return setTimeout(function () { fn(virtualNow); }, FRAME_MS);
+  };
   cancelAnimationFrame = function () {};
+  performance.now = function () { return virtualNow; };
 
   // Turn the microtask queue and then run every queued timer, repeatedly,
   // until both are empty. Bounded so a runaway source loop fails loudly.
+  //
+  // The bound is NOT the fix for F-F and is deliberately left at 5000: a
+  // clock-driven source animation now retires in its own frame count (the
+  // pokedollar burst's worst case is (12*45 + 900) / (1000/60) ~= 87 frames),
+  // while a loop that re-arms without any termination condition still trips
+  // this and fails loudly. Raising or removing it would have hidden F-F
+  // rather than repaired it.
   async function pump() {
     for (var round = 0; round < 5000; round++) {
       for (var i = 0; i < 40; i++) await Promise.resolve();
       if (!timerQueue.length) return;
       var due = timerQueue;
       timerQueue = [];
-      for (var t of due) { try { t.fn(); } catch (e) { OUT.notes.push('timer threw: ' + (e && e.message)); } }
+      // Monotonic: the clock never rewinds, and each callback observes at
+      // least its own requested delay as elapsed.
+      for (var t of due) {
+        if (t.at > virtualNow) virtualNow = t.at;
+        try { t.fn(); } catch (e) { OUT.notes.push('timer threw: ' + (e && e.message)); }
+      }
     }
     throw new Error('pump did not quiesce after 5000 rounds');
   }

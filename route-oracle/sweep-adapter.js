@@ -40,7 +40,18 @@
   // it observes the same `res` object driver.js normalizes -- same battle,
   // same index, no extra call and no RNG draw. The legacy schema is untouched;
   // this rides alongside it as M7's own richer validation projection.
+  //
+  // M7-COMBINED (A1) adds the ABILITY half of the same blind spot. `onSwitchIn`
+  // assigns `combatant._gen3Ability = getGen3Ability(speciesId)` onto the
+  // battle clone (bundle.deobfuscated.js:57696-57702), which is the very
+  // object `res.pTeam` / `res.eTeam` hand back -- the same place the stages are
+  // read from. It is therefore observed, not recomputed: this adapter never
+  // calls `getGen3Ability` itself, so a source table change and a Python table
+  // change cannot cancel out. A combatant that never switched in has no
+  // `_gen3Ability` at all, which normalizes to `null` and matches the Python
+  // `Combatant.gen3_ability` default (battle.py:228) rather than being faked.
   var sweepStages = [];
+  var sweepAbilities = [];
   (function () {
     var wrapped = runBattle;
     runBattle = function () {
@@ -54,10 +65,40 @@
           };
         });
       }
+      function abilitiesOf(team) {
+        return (team || []).map(function (m) {
+          if (!m) return null;
+          // READ the field the source itself wrote. `undefined` (never
+          // switched in) and an explicit null both normalize to null.
+          return m._gen3Ability === undefined ? null : (m._gen3Ability || null);
+        });
+      }
       sweepStages.push({ player: stagesOf(res && res.pTeam), enemy: stagesOf(res && res.eTeam) });
+      sweepAbilities.push({
+        player: abilitiesOf(res && res.pTeam),
+        enemy: abilitiesOf(res && res.eTeam)
+      });
       return res;
     };
   })();
+
+  // ---------------------------------------------------------------------
+  // M7-COMBINED (A1): the run-level PASSIVE list
+  // ---------------------------------------------------------------------
+  // `state.passives` is the only trait/passive input to a battle that VARIES
+  // across the Story/Nuzlocke surface. `runBattleScreen`'s non-Endless config
+  // branch is literally
+  //   buildTraitsConfig({}, {}, state.passives || [])
+  // (bundle.deobfuscated.js:81076-81085), so both tier maps are the constant
+  // `{}` and the passive list is the whole varying input. Comparing it is
+  // therefore comparing the real trait/passive state, not a proxy for it.
+  // Read off the source's own `state`, never recomputed.
+  function runPassives() {
+    return (state.passives || []).map(function (t) {
+      if (t === null || t === undefined) return null;
+      return typeof t === 'object' ? (t.id === undefined ? null : t.id) : t;
+    });
+  }
 
   // ---------------------------------------------------------------------
   // Normalized action identity
@@ -146,6 +187,25 @@
   async function settle() {
     for (var g = 0; g < 32; g++) {
       await API.pump();
+      // A real OVERLAY is a decision, never a receipt, so quiesce here and let
+      // the enumerator offer it.
+      //
+      // M7-COMBINED: this was a live deadlock, not a hypothetical. The three
+      // showScreen-less overlays (`showBranchingChoice`'s
+      // `#eevee-choice-overlay` at 70560, `showTeamPickerModal`'s
+      // `#submap-pick-modal` at 76845, `openItemEquipModal`'s at 79442) leave
+      // `currentScreen` naming whatever was up BEFORE them -- and after a
+      // battle win that is `battle-screen`. So the loop below saw
+      // `battle-screen`, clicked `#btn-continue-battle` again, got a truthy
+      // click back, and span until the bound tripped. The goal-directed
+      // scheduler (A4) hit it the first time it reached a branching evolution:
+      // `checkAndEvolveTeam` runs in `runBattleScreen`'s win branch (81381)
+      // with the battle screen still up, so EVERY branching evolution reached
+      // this way was an `apply_error_asymmetry` rather than the choice it
+      // really is. `#btn-continue-battle` has already done its job by then --
+      // it resolves the battle promise, which is what let the evolve step run
+      // at all -- so pressing it again dismisses nothing.
+      if (API.detectOverlay()) return;
       if (API.screen() === 'battle-screen') {
         if (API.clickEl(document.getElementById('btn-continue-battle'))) continue;
         return;
@@ -616,6 +676,8 @@
         checkpoint: cp,
         battles: all.slice(before),
         battle_stages: sweepStages.slice(before),
+        battle_abilities: sweepAbilities.slice(before),
+        run_passives: runPassives(),
         battles_total: all.length,
         rng_draws_total: API.rngDraws()
       };

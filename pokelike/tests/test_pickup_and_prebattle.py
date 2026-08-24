@@ -11,6 +11,16 @@ because it never built the transform in the first place -- these tests
 would have passed vacuously against the old code for the wrong reason, so
 each one asserts the SPECIFIC transformed value, not just "no crash".
 
+M7-COMBINED (F-C) re-pointed every call below from `engine._run_battle` to
+`engine._run_battle_screen`. Nothing about what these tests ASSERT changed;
+the function that models `runBattleScreen`'s post-battle sequence -- the Gen3
+Pickup roll and the copy-back -- simply has that name now, because the source
+draws Pickup's `rng()` in `runBattleScreen` (bundle.deobfuscated.js:81223-
+81245) and not in `runBattle`, and the port had folded the two together. Left
+pointing at the inner `_run_battle`, the four "does not leak after a win"
+tests in `NoLeakThroughRealBattleTests` would have kept passing for the wrong
+reason: with no copy-back running at all, nothing can leak through it.
+
 Run with: python -m unittest pokelike.tests.test_pickup_and_prebattle -v
 """
 
@@ -398,7 +408,7 @@ class NoLeakThroughRealBattleTests(unittest.TestCase):
         team = [_mon(1, level=50), _mon(4, level=50), _mon(7, level=50)]
         state = _state(team=team, passives=[Trait(id="solo_blitz")], gen3_mode=False)
         with patch.object(engine.battle_loop, "run_battle", side_effect=_echo_run_battle):
-            engine._run_battle(state, [_mon(1, level=1)])
+            engine._run_battle_screen(state, [_mon(1, level=1)])
         self.assertEqual(len(state.team), 3)  # all 3 members still on the roster
         self.assertEqual([m.species_id for m in state.team], [1, 4, 7])
 
@@ -410,7 +420,7 @@ class NoLeakThroughRealBattleTests(unittest.TestCase):
         original_name = mon.name
         state = _state(team=[mon])
         with patch.object(engine.battle_loop, "run_battle", side_effect=_echo_run_battle):
-            engine._run_battle(state, [_mon(1, level=1)])
+            engine._run_battle_screen(state, [_mon(1, level=1)])
         self.assertEqual(state.team[0].base_stats, original_base_stats)
         self.assertEqual(state.team[0].types, original_types)
         self.assertEqual(state.team[0].name, original_name)
@@ -419,7 +429,7 @@ class NoLeakThroughRealBattleTests(unittest.TestCase):
         mon = _mon(1, level=50)
         state = _state(team=[mon], passives=[Trait(id="shiny_first")])
         with patch.object(engine.battle_loop, "run_battle", side_effect=_echo_run_battle):
-            engine._run_battle(state, [_mon(1, level=1)])
+            engine._run_battle_screen(state, [_mon(1, level=1)])
         self.assertFalse(state.team[0].is_shiny)
 
     def test_effort_ribbon_stat_buffs_and_maxhp_do_not_leak_after_a_win(self):
@@ -427,7 +437,7 @@ class NoLeakThroughRealBattleTests(unittest.TestCase):
         original_max_hp = mon.max_hp
         state = _state(team=[mon], passives=[Trait(id="effort_ribbon")])
         with patch.object(engine.battle_loop, "run_battle", side_effect=_echo_run_battle):
-            engine._run_battle(state, [_mon(1, level=1)])
+            engine._run_battle_screen(state, [_mon(1, level=1)])
         self.assertEqual(state.team[0].stat_buffs, {})
         self.assertEqual(state.team[0].max_hp, original_max_hp)
 
@@ -448,7 +458,7 @@ class NoLeakThroughRealBattleTests(unittest.TestCase):
             )
 
         with patch.object(engine.battle_loop, "run_battle", side_effect=short_win):
-            engine._run_battle(state, [_mon(1, level=1)])
+            engine._run_battle_screen(state, [_mon(1, level=1)])
         self.assertEqual(state.team[0].current_hp, 11)
         self.assertEqual([(m.species_id, m.current_hp) for m in state.team[1:]], original_tail)
 
@@ -466,7 +476,7 @@ class NoLeakThroughRealBattleTests(unittest.TestCase):
             nuzlocke_mode=True,
         )
         with patch.object(engine.battle_loop, "run_battle", side_effect=_echo_loss_run_battle):
-            result = engine._run_battle(state, [_mon(1, level=99)])
+            result = engine._run_battle_screen(state, [_mon(1, level=99)])
         self.assertEqual([m.species_id for m in state.team], [1, 4, 7])
         self.assertEqual(state.team[0].current_hp, 0)
         self.assertEqual(state.team[1].current_hp, state.team[1].max_hp)
@@ -488,7 +498,7 @@ class NoLeakThroughRealBattleTests(unittest.TestCase):
                 team[2].current_hp = 0
                 state = _state(team=team, passives=[Trait(id="solo_blitz")])
                 with patch.object(engine.battle_loop, "run_battle", side_effect=_echo_run_battle):
-                    result = engine._run_battle(state, [_mon(1, level=1)])
+                    result = engine._run_battle_screen(state, [_mon(1, level=1)])
                 engine._after_battle(state, result, level_gain=2, all_team_xp=all_team_xp)
                 self.assertEqual([m.level for m in state.team], expected_levels)
 
@@ -568,7 +578,7 @@ class Gen3ZigzagoonPickupTests(unittest.TestCase):
         state = _state(team=[_mon(263, level=10)], gen3_mode=True)
         with patch.object(engine.battle_loop, "run_battle", side_effect=_echo_loss_run_battle):
             with patch.object(engine.rng, "rng", return_value=0.0) as mock_rng:
-                engine._run_battle(state, [_mon(1, level=99)])
+                engine._run_battle_screen(state, [_mon(1, level=99)])
         mock_rng.assert_not_called()  # loss -- branch never even reaches its own rng draws
         self.assertEqual(state.items, [])
 
@@ -579,7 +589,7 @@ class Gen3ZigzagoonPickupTests(unittest.TestCase):
         state = _state(team=[_mon(263, level=10)], gen3_mode=True)
         with patch.object(engine.battle_loop, "run_battle", side_effect=_echo_run_battle):
             with patch.object(engine.rng, "rng", side_effect=[0.0, 0.0]):
-                engine._run_battle(state, [_mon(1, level=1)])
+                engine._run_battle_screen(state, [_mon(1, level=1)])
         self.assertEqual(len(state.items), 1)
 
 
@@ -714,7 +724,7 @@ class BothPickupPathsTests(unittest.TestCase):
         state = _state(team=[_mon(263, level=10)], gen3_mode=True)
         with patch.object(engine.battle_loop, "run_battle", side_effect=_echo_run_battle):
             with patch.object(engine.rng, "rng", side_effect=[0.0, 0.0, 0.0, 0.25]) as mock_rng:
-                result = engine._run_battle(state, [_mon(1, level=1)])
+                result = engine._run_battle_screen(state, [_mon(1, level=1)])
                 engine._after_battle(state, result, level_gain=2)
         self.assertEqual(mock_rng.call_count, 4)
         self.assertEqual(len(state.items), 2)
@@ -727,7 +737,7 @@ class BothPickupPathsTests(unittest.TestCase):
         state = _state(team=[_mon(263, level=10)], gen3_mode=True)
         with patch.object(engine.battle_loop, "run_battle", side_effect=_echo_run_battle):
             with patch.object(engine.rng, "rng", side_effect=[0.0, 0.0, 0.0, 0.0]) as mock_rng:
-                result = engine._run_battle(state, [_mon(1, level=1)])
+                result = engine._run_battle_screen(state, [_mon(1, level=1)])
                 engine._after_battle(state, result, level_gain=2)
         self.assertEqual(mock_rng.call_count, 4)
         self.assertEqual(state.items, [pool[0].id, pool[1].id])
@@ -750,7 +760,7 @@ class BothPickupPathsTests(unittest.TestCase):
 
         with patch.object(engine.battle_loop, "run_battle", side_effect=win_with_fainted_zigzagoon):
             with patch.object(engine.rng, "rng", side_effect=[0.0, 0.0]) as mock_rng:
-                result = engine._run_battle(state, [_mon(1, level=1)])
+                result = engine._run_battle_screen(state, [_mon(1, level=1)])
                 engine._after_battle(state, result, level_gain=2)
         self.assertEqual(mock_rng.call_count, 2)
         self.assertEqual(len(state.items), 1)

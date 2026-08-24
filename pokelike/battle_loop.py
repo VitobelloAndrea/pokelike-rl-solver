@@ -595,6 +595,46 @@ def run_battle(
             else:
                 aborted = False
             if aborted:
+                # M7 (F-K): the source has a THIRD "was sent out" site, and
+                # the port had only two. When `onBeforeAttack` aborts the turn
+                # AND the hook killed the mover in doing so, the source finds
+                # the first alive member on the mover's own side and, for the
+                # player, adds it to `playerParticipants`
+                # (bundle.deobfuscated.js:55723-55742):
+                #
+                #     if (BEX["currentHp"] <= 0x0) {
+                #       const BEA = (BEx === "player" ? Bct : Bcg)
+                #         .map((BEH, BEC) => ({ p: BEH, idx: BEC }))
+                #         .find((BEH) => BEH["p"]["currentHp"] > 0x0);
+                #       if (BEA) {
+                #         BEx === "player" && BcW["add"](BEA["idx"]);
+                #         ... push a `send_out` log entry ...
+                #       }
+                #     }
+                #
+                # `BcW` is the same set `runBattle` returns as
+                # `playerParticipants` (56784), and this is the only one of
+                # its three `add` sites (55729, 56456, 56493) the port did not
+                # carry -- `_handle_faint` implements the other two.
+                #
+                # The hook that reaches it is `own_tempo`: a 20% roll deals
+                # `max(1, floor(maxHp * 0.1))` self-damage and returns truthy
+                # (`battle_abilities.on_before_attack`), so a mover already
+                # under 10% HP faints without any combat faint ever occurring.
+                # Observed as `battles[0].player_participants[len]` js 2 / py 1
+                # on a Story Gen4 route, with winner, rounds and RNG draws all
+                # agreeing exactly -- participation bookkeeping only.
+                #
+                # The `send_out` log entry has no port counterpart: the port
+                # keeps no full battle event log, and the compared per-turn
+                # projection carries `type === "attack"` events only
+                # (driver.js's `normalizeAttackEvent`). Inventing one here
+                # would be comparing the adapters, so only the participant set
+                # -- which IS compared -- is reproduced.
+                if mover.current_hp <= 0:
+                    next_idx = _first_alive_index(p_team if side == "player" else e_team)
+                    if next_idx is not None and side == "player":
+                        player_participants.add(next_idx)
                 continue
 
             move = get_best_move(
@@ -605,9 +645,30 @@ def run_battle(
                 overridden = ability_config.override_move(mover)
                 if overridden is not None:
                     move = overridden
-            if _would_whiff(player_move, attacker_p, attacker_e) and _would_whiff(enemy_move, attacker_e, attacker_p):
+            if _struggle_stalemate(player_move, enemy_move, attacker_p, attacker_e):
                 move = MoveInstance(power=50, type="Normal", name="Struggle", is_special=False, typeless=True)
-            elif _is_immune(mover, move, target):
+            elif not move.no_damage and _is_immune(mover, move, target):
+                # M7-COMBINED (F-G): `!noDamage` is the FIRST conjunct of the
+                # source's immunity substitution, not an afterthought
+                # (bundle.deobfuscated.js:55768-55771):
+                #
+                #     !BEe["noDamage"] &&
+                #       !hasPassive(BcV, "neutralize") &&
+                #       _immuneTo(BEX, BEe, BEf) &&
+                #       (BEe = BEP)
+                #
+                # A no-damage move is never replaced by Struggle -- it falls
+                # through to the "But nothing happened!" branch at 55774-55801
+                # and is logged as a zero-damage attack under its OWN name.
+                #
+                # The port checked immunity first and swapped unconditionally,
+                # so Magikarp's hardcoded Splash (a Normal-type `no_damage`
+                # move) became Struggle whenever the target was a Ghost, which
+                # Normal is immune to. The M7-combined goal-directed sweep
+                # reached exactly that: a Nuzlocke Gen1 Magikarp against a
+                # Gastly, js `Splash` for 0 damage versus py `Struggle` for 5,
+                # which then diverged the whole rest of the battle (rounds 7 vs
+                # 6, rng_draws 22 vs 18).
                 if not (has_passive(traits, "neutralize")):
                     move = MoveInstance(power=50, type="Normal", name="Struggle", is_special=False, typeless=True)
 
@@ -740,10 +801,37 @@ def run_battle(
                 ability_config.when_attacked(target, mover, damage)
             if traits_config is not None:
                 traits_config.when_attacked(target, target_side, mover, damage)
-            if ability_config is not None:
-                ability_config.after_attack(mover, target, actual_damage, mover_team)
-            if traits_config is not None:
-                traits_config.after_attack(mover, side, target, target_side, actual_damage, mover_team, target_team)
+            # M7 (F-J): `afterAttack` is GATED on the hit having actually
+            # connected. The source's main-hit call is
+            # (bundle.deobfuscated.js:55998-56001):
+            #
+            #     const BEs = BEq - BEf["currentHp"];
+            #     if (BEs > 0x0 && B71 != null && B71["afterAttack"] &&
+            #         B71["afterAttack"](BEX, BEm, BEx, BEf, BEn, BEl, BEs, ...))
+            #
+            # `whenAttacked` immediately above it is deliberately NOT gated
+            # (55995-55998) and still is not, here or in the source. Both
+            # extra-attack sites already carried this gate on their own actual
+            # damage (56264-56282 / 56343-56362, mirrored below in
+            # `_apply_half_twice_extra_attack` and
+            # `_apply_dragon_first_double_extra_attack`), and
+            # `_apply_post_hit_traits` carries it too; the MAIN hit was the
+            # one place the port called the hook unconditionally.
+            #
+            # It matters whenever a hit computes damage but removes no HP.
+            # The observed case is `wonder_guard`: `calcDamage` zeroes the
+            # result for a non-super-effective, non-critical hit (55063), so
+            # a Seviper's Acid on a Shedinja deals 0. The source therefore
+            # never runs `afterAttack`, and Seviper's `venom_strike` never
+            # poisons it. The port ran the hook, applied 2 poison stacks to a
+            # 1-max-HP Shedinja, and lost the battle to the next status tick:
+            # js 13 rounds / 50 draws / player won, py 6 rounds / 22 draws /
+            # game over.
+            if actual_damage > 0:
+                if ability_config is not None:
+                    ability_config.after_attack(mover, target, actual_damage, mover_team)
+                if traits_config is not None:
+                    traits_config.after_attack(mover, side, target, target_side, actual_damage, mover_team, target_team)
 
             _apply_post_hit_traits(
                 mover, target, side, target_side, result.crit, actual_damage, traits,
@@ -944,16 +1032,89 @@ def _compute_speeds(player, enemy, player_items, enemy_items, traits, ability_co
     return player_speed, enemy_speed
 
 
-def _would_whiff(move: MoveInstance, attacker: Combatant, defender: Combatant) -> bool:
+def _can_damage(move: MoveInstance, attacker: Combatant, defender: Combatant,
+                *, mirror_coat_blocks: bool) -> bool:
+    """Port of the source's two "could this move actually hurt that target?"
+    predicates, which differ in exactly one clause.
+
+    `runBattle` builds both, back to back
+    (bundle.deobfuscated.js:55513-55538):
+
+        BIG = (move, defender, attacker) => {
+          if (move["noDamage"] || BIN(move)) return false;   // <-- BIN only here
+          const wg = defender["_gen3Ability"] === "wonder_guard";
+          if (_immuneTo(attacker, move, defender)) return !wg;
+          const eff = getTypeEffectiveness(move["type"], defender["types"] || ["Normal"]);
+          return !(wg && eff < 0x2);
+        }
+        BIu = (move, defender, attacker) => {           // identical but for BIN
+          if (move["noDamage"]) return false;
+          ... same three lines ...
+        }
+
+    with `BIN = (m) => m["name"] === "Mirror Coat"`. `mirror_coat_blocks`
+    selects between them: `BIG` (the Struggle stalemate, which treats Mirror
+    Coat as unable to damage on its own) and `BIu` (the Wonder Guard softlock,
+    which does not).
+
+    M7 (F-L) also corrected the immunity branch. It used to read
+    ``attacker.gen3_ability != "wonder_guard" and defender.gen3_ability !=
+    "wonder_guard"`` for the "whiffed" answer, where both source predicates
+    say the move can damage exactly when the DEFENDER lacks Wonder Guard --
+    the attacker's own ability is not consulted at all. Under the softlock
+    guard (which already requires at least one side to hold Wonder Guard) the
+    two agree except when the defender is the holder, where the old form
+    reported a hit the source calls a whiff.
+    """
     if move.no_damage:
-        return True
-    if _is_immune(attacker, move, defender):
-        return attacker.gen3_ability != "wonder_guard" and defender.gen3_ability != "wonder_guard"
+        return False
+    if mirror_coat_blocks and move.name == "Mirror Coat":
+        return False
     from pokelike import data
 
-    type_eff = data.get_type_effectiveness(move.type or "Normal", defender.types or ("Normal",))
     is_wonder_guard = defender.gen3_ability == "wonder_guard"
-    return is_wonder_guard and type_eff < 2
+    if _is_immune(attacker, move, defender):
+        return not is_wonder_guard
+    type_eff = data.get_type_effectiveness(move.type or "Normal", defender.types or ("Normal",))
+    return not (is_wonder_guard and type_eff < 2)
+
+
+def _would_whiff(move: MoveInstance, attacker: Combatant, defender: Combatant) -> bool:
+    """`!BIu` -- the Wonder Guard softlock's half of the pair above."""
+    return not _can_damage(move, attacker, defender, mirror_coat_blocks=False)
+
+
+def _struggle_stalemate(player_move: MoveInstance, enemy_move: MoveInstance,
+                        attacker_p: Combatant, attacker_e: Combatant) -> bool:
+    """The source's `BIw` -- "neither side can damage the other", which makes
+    BOTH movers use Struggle (`BIw && (BEe = BED)`, 55767).
+
+    M7 (F-L). The port drove this off `_would_whiff`, i.e. off `BIu`, and so
+    missed both of the things that make `BIw` different
+    (bundle.deobfuscated.js:55524-55528):
+
+        BIU = BIG(BIC, BIi, BIh),                 // player's move vs the enemy
+        BIb = BIG(BIr, BIh, BIi),                 // enemy's move vs the player
+        BIR = BIN(BIC) ? BIb : BIU,
+        BIZ = BIN(BIr) ? BIU : BIb,
+        BIw = !BIR && !BIZ,
+
+    1. `BIG` treats a **Mirror Coat** move as unable to damage on its own,
+       which `BIu` does not; and
+    2. when a side's move IS Mirror Coat, its entry is replaced by the OTHER
+       side's capability -- Mirror Coat only deals damage if something damaged
+       it first, so its reach is the opponent's reach.
+
+    Observed as js `Struggle` (Normal, typeless, 4 damage) against py `Mirror
+    Coat` (Psychic, 0.5 effective, 3 damage) on a Story Gen3 route, which then
+    diverged the rest of the battle: 4 rounds / 9 draws against 5 / 11.
+    Reproducer `findings/M7-divergence-hunt_story_gen3_0066.json`.
+    """
+    player_can = _can_damage(player_move, attacker_p, attacker_e, mirror_coat_blocks=True)
+    enemy_can = _can_damage(enemy_move, attacker_e, attacker_p, mirror_coat_blocks=True)
+    reach_p = enemy_can if player_move.name == "Mirror Coat" else player_can
+    reach_e = player_can if enemy_move.name == "Mirror Coat" else enemy_can
+    return not reach_p and not reach_e
 
 
 def _is_immune(attacker: Combatant, move: MoveInstance, defender: Combatant) -> bool:

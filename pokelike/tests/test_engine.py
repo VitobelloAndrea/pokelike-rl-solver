@@ -438,7 +438,36 @@ class EscapeRopeRecoveryTests(unittest.TestCase):
         self.assertEqual(state.phase, engine.Phase.ESCAPE_ROPE_CHOICE)
         self.assertFalse(state.game_over)
         actions = engine.legal_actions(state)
-        self.assertEqual(actions, {"select_option": {"indices": [0], "optional": True}})
+        # `cancel` is M7's corrected declaration of `_resolve_pending`'s THIRD
+        # exit (`#btn-equip-cancel`, 79563-79569). It mirrors that resolver's
+        # own gate, so it is FALSE here: the escape-rope offer has a skip
+        # (`optional`) but no cancel affordance.
+        self.assertEqual(
+            actions,
+            {"select_option": {"indices": [0], "optional": True, "cancel": False}},
+        )
+        self.assertFalse(actions["select_option"]["cancel"])
+
+    def test_cancel_is_declared_only_for_the_item_equip_phase(self):
+        """`legal_actions` may declare `cancel: True` on exactly the one
+        phase `_resolve_pending` accepts it on. The source has a single
+        `#btn-equip-cancel` (79563-79569), on `openItemEquipModal`'s
+        overlay, so every other pending phase must declare it False."""
+        eng, state = _start(seed=20)
+        for phase in engine.Phase:
+            if phase not in engine._PENDING_RESOLVERS:
+                continue
+            state.phase = phase
+            state.pending = engine.PendingChoice(
+                phase=phase, options=[{"slot": 0}], optional=True, extra={})
+            declared = engine.legal_actions(state)["select_option"]["cancel"]
+            self.assertEqual(
+                declared, phase == engine.Phase.ITEM_EQUIP_CHOICE,
+                f"{phase.value} declared cancel={declared}")
+            # ...and the declaration matches what the resolver accepts.
+            if not declared:
+                with self.assertRaises(ValueError):
+                    eng.step(engine.SelectOption(index=None, cancel=True))
 
     def test_accepting_consumes_one_rope_and_sets_only_last_member_to_1hp(self):
         eng, state = _start(seed=20)
@@ -870,7 +899,7 @@ class EvolutionTests(unittest.TestCase):
         mon = _mon(4, level=16)  # Charmander
         mon.current_hp = 0
         state.team = [mon]
-        engine._apply_evolution(state, mon, 5, force=True)  # Charmeleon
+        engine._apply_evolution(state, mon, 5, data.get_evolutions()[4].name, force=True)  # Charmeleon
         self.assertEqual(mon.species_id, 5)
         self.assertEqual(mon.current_hp, 1)
 
@@ -880,7 +909,7 @@ class EvolutionTests(unittest.TestCase):
         mon.augment_pct = 50.0
         state.team = [mon]
         expected_without_augment = map_gen.calc_hp(data.get_pokedex()[5].base_stats.hp, 16)
-        engine._apply_evolution(state, mon, 5, force=True)
+        engine._apply_evolution(state, mon, 5, data.get_evolutions()[4].name, force=True)
         self.assertEqual(mon.max_hp, math.floor(expected_without_augment * 1.5))
 
     def test_non_forced_evolution_keeps_a_fainted_mon_fainted(self):
@@ -891,7 +920,7 @@ class EvolutionTests(unittest.TestCase):
         mon = _mon(4, level=16)
         mon.current_hp = 0
         state.team = [mon]
-        engine._apply_evolution(state, mon, 5, force=False)
+        engine._apply_evolution(state, mon, 5, data.get_evolutions()[4].name, force=False)
         self.assertEqual(mon.species_id, 5)
         self.assertEqual(mon.current_hp, 0)
 
@@ -1196,30 +1225,105 @@ class MoveTutorAndItemTests(unittest.TestCase):
 
     def test_equip_cancel_consumes_nothing_and_keeps_the_offer(self):
         """`#btn-equip-cancel` (79563-79569) is `B2O.remove()` and nothing
-        else: no equip, no bank, no onComplete, so no advance and no clear."""
+        else: no equip, no bank, no onComplete, so no advance and no clear.
+
+        M7-COMBINED (F-A) updated the two SCREEN assertions here, and only
+        those. `B2O` is the equip OVERLAY; removing it uncovers the
+        `item-screen` that `doItemNode` put up at 79263 and never took down,
+        with its three `.item-card` listeners and `#btn-skip-item` still
+        attached. So the run does not go back to the map -- it goes back to
+        the very same item offer, which can be picked again. The earlier
+        expectation (`ON_MAP` / `pending is None`) is what the M7 sweep
+        reported as finding F-A. Everything this test says about what cancel
+        CONSUMES is unchanged, because that half was always right.
+        """
         eng, state, node = self._item_node_offer()
         pinned = dict(state.item_offer)
         bag_before = list(state.items)
+        offered = [o["id"] for o in state.pending.options]
         passive = next(i for i, o in enumerate(state.pending.options) if not o["usable"])
         state = eng.step(engine.SelectOption(index=passive))
         state = eng.step(engine.SelectOption(cancel=True))
 
-        self.assertEqual(state.phase, engine.Phase.ON_MAP)
-        self.assertIsNone(state.pending)
-        self.assertEqual(state.items, bag_before)          # nothing banked
+        # Back on the still-live item offer, not on the map.
+        self.assertEqual(state.phase, engine.Phase.ITEM_CHOICE)
+        self.assertIsNotNone(state.pending)
+        self.assertEqual(state.pending.phase, engine.Phase.ITEM_CHOICE)
+        self.assertEqual([o["id"] for o in state.pending.options], offered)
+        self.assertTrue(state.pending.optional)             # #btn-skip-item
+        self.assertEqual(state.items, bag_before)           # nothing banked
         self.assertIsNone(state.team[0].held_item)          # nothing equipped
         self.assertFalse(state.map.nodes[node.id].visited)  # not advanced
         self.assertTrue(state.map.nodes[node.id].accessible)
         self.assertEqual(state.item_offer, pinned)          # still pinned
 
-    def test_revisit_after_cancel_restores_the_same_offer_with_no_rng(self):
-        """The decisive transition: the restore branch draws NO RNG and
-        reproduces the offer exactly (79360-79364)."""
+    def test_the_offer_restored_by_cancel_can_be_picked_again(self):
+        """M7-COMBINED (F-A). The point of staying on `item-screen` is that
+        the cards still work: the same offer can be re-entered, and the second
+        pick behaves exactly like the first. Cancel is a loop, not an exit.
+        """
         eng, state, node = self._item_node_offer()
-        first = [o["id"] for o in state.pending.options]
+        offered = [o["id"] for o in state.pending.options]
         passive = next(i for i, o in enumerate(state.pending.options) if not o["usable"])
         eng.step(engine.SelectOption(index=passive))
         state = eng.step(engine.SelectOption(cancel=True))
+
+        # Re-enter the SAME card and complete the equip this time.
+        before = eng._rng_stream.state
+        state = eng.step(engine.SelectOption(index=passive))
+        self.assertEqual(state.phase, engine.Phase.ITEM_EQUIP_CHOICE)
+        state = eng.step(engine.SelectOption(index=0))
+        self.assertEqual(eng._rng_stream.state, before, "re-entry must draw no RNG")
+        self.assertEqual(state.team[0].held_item.id, offered[passive])
+        self.assertIsNone(state.item_offer)                 # onComplete cleared it
+        self.assertTrue(state.map.nodes[node.id].visited)   # and advanced
+        self.assertEqual(state.phase, engine.Phase.ON_MAP)
+
+    def test_cancel_then_skip_leaves_the_map_exactly_as_a_plain_skip_would(self):
+        """M7-COMBINED (F-A). The other exit from the restored offer is
+        `#btn-skip-item` (79433-79437), and taking it after a cancel must be
+        indistinguishable from taking it without one -- the cancel consumed
+        nothing, so it cannot have moved the run."""
+        eng, state, node = self._item_node_offer()
+        passive = next(i for i, o in enumerate(state.pending.options) if not o["usable"])
+        eng.step(engine.SelectOption(index=passive))
+        eng.step(engine.SelectOption(cancel=True))
+        state = eng.step(engine.SelectOption(index=None))
+
+        self.assertEqual(state.phase, engine.Phase.ON_MAP)
+        self.assertIsNone(state.pending)
+        self.assertIsNone(state.item_offer)
+        self.assertTrue(state.map.nodes[node.id].visited)
+
+    def test_a_pinned_offer_restores_with_no_rng_at_the_same_node_id(self):
+        """The decisive transition: the restore branch draws NO RNG and
+        reproduces the offer exactly (79360-79364).
+
+        M7-COMBINED (F-A) re-based this test's SETUP. It used to reach the map
+        by cancelling the equip modal, on the (wrong) premise that cancel
+        returns to `map-screen`; it does not, so that route to a revisit does
+        not exist. The restore branch is still exactly as reachable as it ever
+        was -- `startMap` (76228-76245) clears no offer and the pin's key is
+        the bare node id -- so the map transition is what this now uses, which
+        is the same real path `test_restore_keeps_an_item_a_fresh_roll_would_
+        now_reject` already exercises. The CONTRACT asserted is unchanged.
+        """
+        eng, state, node = self._item_node_offer()
+        first = [o["id"] for o in state.pending.options]
+        pinned = dict(state.item_offer)
+
+        # Cancel really does keep the pin alive across the screen it stays on.
+        passive = next(i for i, o in enumerate(state.pending.options) if not o["usable"])
+        eng.step(engine.SelectOption(index=passive))
+        state = eng.step(engine.SelectOption(cancel=True))
+        self.assertEqual(state.item_offer, pinned)
+        self.assertFalse(state.map.nodes[node.id].visited)
+
+        engine._start_map(state, 1)
+        same = state.map.nodes[node.id]
+        self.assertTrue(same.accessible)
+        self.assertFalse(same.visited)
+        same.type = map_gen.ITEM
 
         before = eng._rng_stream.state
         state = eng.step(engine.VisitNode(node_id=node.id))
@@ -2074,7 +2178,77 @@ class EliteFourAndVictoryTests(unittest.TestCase):
             state = eng.step(engine.VisitNode(node_id=boss.id))
         self.assertEqual(state.phase, engine.Phase.VICTORY)
         self.assertTrue(state.won)
-        self.assertEqual(state.elite_index, 0)  # reset after a clean sweep
+        # M7 (F-I): `doElite4` does NOT reset `eliteIndex`. Its tail is
+        # `unlockAchievement("elite_four")` + the gen3/gen4 achievement checks
+        # + `showWinScreen()` (bundle.deobfuscated.js:77887-77893), so the
+        # value its loop header last wrote (`state["eliteIndex"] = iu` at
+        # 77855) survives. Only `doGen2Elite4` clears it (78394) -- see
+        # `test_the_gen2_gauntlet_alone_resets_the_elite_index`. This
+        # assertion used to read `0`; the cross-runtime sweep observed the
+        # source reporting 4 against the port's 0 at the end of a Gen1
+        # gauntlet (reproducers `M7-divergence-hunt_story_gen1_0626` /
+        # `_0698`).
+        self.assertEqual(state.elite_index, len(roster) - 1)
+        # And neither gauntlet tail calls `advanceFromNode` (53639), so the
+        # Elite Four node ends the run un-visited and still accessible.
+        # `onNodeClick` (77312-77316) only locks its SAME-LAYER SIBLINGS.
+        self.assertFalse(boss.visited)
+        self.assertTrue(boss.accessible)
+
+    def test_the_gen2_gauntlet_alone_resets_the_elite_index(self):
+        """The control for the assertion above. `doGen2Elite4`'s tail is
+        `state["eliteIndex"] = 0x0, showWinScreen()` (78390-78396), so Gen2 --
+        and only Gen2 -- ends the gauntlet back at 0. Without this test,
+        "never reset" would pass just as well as the source's actual rule.
+        """
+        eng = engine.Engine()
+        state = eng.reset(seed=16, gen2_mode=True)
+        state = eng.step(engine.ChooseStarter(
+            species_id=state.pending.options[0]["species_id"]))
+        state.current_map = 8
+        boss = state.map.layers[-1][0]
+        boss.accessible = True
+        with patch.object(engine.battle_loop, "run_battle", return_value=_win(state.team)):
+            state = eng.step(engine.VisitNode(node_id=boss.id))
+        self.assertEqual(state.phase, engine.Phase.VICTORY)
+        self.assertTrue(state.won)
+        self.assertEqual(state.elite_index, 0)
+        self.assertFalse(boss.visited)
+        self.assertTrue(boss.accessible)
+
+    def test_the_elite_four_roster_fights_at_move_tier_two(self):
+        """M7 (F-H). Both gauntlet loops spread `createInstance(it, it.level,
+        false, 0x2)` -- `doElite4` at bundle.deobfuscated.js:77859-77862 and
+        `doGen2Elite4` at 78361-78366 -- with the move tier HARDCODED, unlike
+        `doBossNode`'s gym branches, which read `it["moveTier"] ?? 1`
+        (77758-77763, 77812-77817). No Elite Four table entry carries a
+        `moveTier` field, so the port's shared `?? 1` fallback fought the whole
+        gauntlet a tier low.
+        """
+        # The premise: the tables really do omit the field, so `?? 1` really
+        # would apply and the two rules really do differ.
+        for gen in (1, 2, 3, 4):
+            for trainer in data.get_elite_four(gen):
+                self.assertIsNone(trainer.move_tier,
+                                  "an Elite Four entry gained a moveTier field")
+
+        eng, state = _start(seed=16)
+        state.current_map = 8
+        boss = state.map.layers[-1][0]
+        boss.accessible = True
+
+        tiers = []
+
+        def capture(player_team, enemy_team, **kwargs):
+            tiers.append(sorted({m.move_tier for m in enemy_team}))
+            return _win(player_team)
+
+        with patch.object(engine.battle_loop, "run_battle", side_effect=capture):
+            eng.step(engine.VisitNode(node_id=boss.id))
+
+        self.assertEqual(len(tiers), len(data.get_elite_four(1)))
+        for observed in tiers:
+            self.assertEqual(observed, [2])
 
     def test_elite_four_loss_partway_ends_the_run_and_keeps_index(self):
         eng, state = _start(seed=16)

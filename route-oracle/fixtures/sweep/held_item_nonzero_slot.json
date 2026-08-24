@@ -1,0 +1,232 @@
+{
+  "actions": [
+    {
+      "kind": "choose_starter",
+      "species_id": 7
+    },
+    {
+      "kind": "visit_node",
+      "node_id": "n1_0"
+    },
+    {
+      "cancel": false,
+      "index": 1,
+      "kind": "select_option"
+    },
+    {
+      "kind": "visit_node",
+      "node_id": "n2_0"
+    },
+    {
+      "kind": "visit_node",
+      "node_id": "n3_0"
+    },
+    {
+      "kind": "visit_node",
+      "node_id": "n4_0"
+    },
+    {
+      "cancel": false,
+      "index": null,
+      "kind": "select_option"
+    },
+    {
+      "kind": "visit_node",
+      "node_id": "n5_0"
+    },
+    {
+      "kind": "visit_node",
+      "node_id": "n6_0"
+    },
+    {
+      "cancel": false,
+      "index": 0,
+      "kind": "select_option"
+    },
+    {
+      "kind": "visit_node",
+      "node_id": "n7_0"
+    },
+    {
+      "kind": "visit_node",
+      "node_id": "n8_0"
+    },
+    {
+      "kind": "advance_map"
+    },
+    {
+      "kind": "visit_node",
+      "node_id": "n1_0"
+    },
+    {
+      "cancel": false,
+      "index": 2,
+      "kind": "select_option"
+    },
+    {
+      "kind": "visit_node",
+      "node_id": "n2_0"
+    },
+    {
+      "kind": "visit_node",
+      "node_id": "n3_1"
+    },
+    {
+      "cancel": false,
+      "index": 0,
+      "kind": "select_option"
+    },
+    {
+      "cancel": false,
+      "index": 0,
+      "kind": "select_option"
+    },
+    {
+      "kind": "visit_node",
+      "node_id": "n4_1"
+    },
+    {
+      "kind": "visit_node",
+      "node_id": "n5_2"
+    },
+    {
+      "cancel": false,
+      "index": 1,
+      "kind": "select_option"
+    },
+    {
+      "cancel": false,
+      "index": 0,
+      "kind": "select_option"
+    },
+    {
+      "kind": "visit_node",
+      "node_id": "n6_2"
+    },
+    {
+      "bag_index": 0,
+      "item_id": "choice_specs",
+      "kind": "equip_item",
+      "team_index": 2
+    },
+    {
+      "kind": "visit_node",
+      "node_id": "n7_1"
+    },
+    {
+      "kind": "visit_node",
+      "node_id": "n8_0"
+    },
+    {
+      "kind": "advance_map"
+    },
+    {
+      "kind": "visit_node",
+      "node_id": "n1_0"
+    },
+    {
+      "cancel": false,
+      "index": null,
+      "kind": "select_option"
+    },
+    {
+      "kind": "visit_node",
+      "node_id": "n2_1"
+    },
+    {
+      "kind": "visit_node",
+      "node_id": "n3_1"
+    },
+    {
+      "i": 1,
+      "j": 2,
+      "kind": "reorder_team"
+    },
+    {
+      "kind": "visit_node",
+      "node_id": "n4_0"
+    },
+    {
+      "cancel": false,
+      "index": 0,
+      "kind": "select_option"
+    },
+    {
+      "kind": "visit_node",
+      "node_id": "n5_1"
+    },
+    {
+      "cancel": false,
+      "index": 1,
+      "kind": "select_option"
+    },
+    {
+      "i": 0,
+      "j": 3,
+      "kind": "reorder_team"
+    },
+    {
+      "kind": "visit_node",
+      "node_id": "n6_0"
+    },
+    {
+      "cancel": false,
+      "index": 1,
+      "kind": "select_option"
+    },
+    {
+      "bag_index": 0,
+      "item_id": "charcoal",
+      "kind": "equip_item",
+      "team_index": 0
+    }
+  ],
+  "config": {
+    "episode_id": "story_gen1_0080",
+    "mode": {
+      "gen2": false,
+      "gen3": false,
+      "gen4": false,
+      "nuzlocke": false
+    },
+    "seed": 849989310
+  },
+  "derived_by": "route-oracle/find-sweep-fixtures.py",
+  "description": "A held-item overlay opened from a NONZERO member slot while another member also holds, on a team of >= 4, with a hand-off target whose `[data-idx]` VALUE differs from its position among the overlay's buttons (the M6 lesson).",
+  "goal": "held_item_nonzero_slot",
+  "protected_hashes": {
+    "pokelike/battle_loop.py": "cf7b99f5ac5916e6fa3ca85497ff5469e7aa7e1bd535ba2ff0db1745f1fc06a4",
+    "pokelike/battle_traits.py": "8f7d14046b38196b299f46e8821d18bd9eae382ad4746936697a0fbd7fcaabe2",
+    "pokelike/engine.py": "8ada8f0f722e4fb64daa5562f2f81b5f52182a565c78bcaff5288867a5c7bb15",
+    "route-prefix": "92c82e6cdf4d36201d1143fa2802c3400af61e0e55268b45f236ba11465d102d"
+  },
+  "search": {
+    "base_seed": 20260823,
+    "episodes": 600,
+    "max_steps": 220
+  },
+  "sweep_version": 1,
+  "verification": {
+    "clean": true,
+    "divergence": null,
+    "goal_reached": true,
+    "outcome": "replay_exhausted"
+  },
+  "witness": {
+    "bag": [],
+    "held_item_slots": [
+      0,
+      1
+    ],
+    "legal_count": 21,
+    "legal_kinds": [
+      "hand_off_item",
+      "reorder_team",
+      "unequip_item",
+      "visit_node"
+    ],
+    "pending_team_indices": null,
+    "phase": "on_map",
+    "team_size": 5
+  }
+}

@@ -1,0 +1,49 @@
+{
+  "actions": [],
+  "config": {
+    "episode_id": "story_gen1_0000",
+    "mode": {
+      "gen2": false,
+      "gen3": false,
+      "gen4": false,
+      "nuzlocke": false
+    },
+    "seed": 2735697696
+  },
+  "derived_by": "route-oracle/find-sweep-fixtures.py",
+  "description": "The starter screen: `showStarterSelect`'s three cards (76176-76186), enumerated before any action has been taken. The only fixture whose action list is legitimately empty.",
+  "goal": "starter_select",
+  "protected_hashes": {
+    "pokelike/battle_loop.py": "cf7b99f5ac5916e6fa3ca85497ff5469e7aa7e1bd535ba2ff0db1745f1fc06a4",
+    "pokelike/battle_traits.py": "8f7d14046b38196b299f46e8821d18bd9eae382ad4746936697a0fbd7fcaabe2",
+    "pokelike/engine.py": "672ad7d410d172bbb0e90beb442fac1be84f0235fcefeb5a81459a07629959f6",
+    "route-prefix": "92c82e6cdf4d36201d1143fa2802c3400af61e0e55268b45f236ba11465d102d"
+  },
+  "search": {
+    "base_seed": 20260823,
+    "episodes": 40,
+    "max_steps": 140
+  },
+  "sweep_version": 1,
+  "verification": {
+    "clean": true,
+    "divergence": null,
+    "goal_reached": true,
+    "outcome": "replay_exhausted"
+  },
+  "witness": {
+    "bag": [],
+    "held_item_slots": [],
+    "legal_count": 3,
+    "legal_kinds": [
+      "choose_starter"
+    ],
+    "pending_team_indices": [
+      null,
+      null,
+      null
+    ],
+    "phase": "choose_starter",
+    "team_size": 0
+  }
+}
