@@ -371,6 +371,27 @@ class SweepDenominatorTests(unittest.TestCase):
     def test_the_checked_in_manifest_validates(self):
         self.assertEqual(sweep.validate_targets(_manifest()), [])
 
+    def test_the_retained_m7_coverage_snapshot_matches_the_manifest(self):
+        path = os.path.join(_ROUTE_ORACLE, "evidence",
+                            "M7-story-nuzlocke-coverage.json")
+        with open(path, encoding="utf-8") as fh:
+            snapshot = json.load(fh)
+
+        targets = _manifest()["targets"]
+        by_id = {t["id"]: t for t in targets}
+        required = {t["id"] for t in targets if t["evidence"] != "excluded"}
+        excluded = {t["id"] for t in targets if t["evidence"] == "excluded"}
+        self.assertEqual(snapshot["total"], len(targets))
+        self.assertEqual(snapshot["required"], len(required))
+        self.assertEqual(set(snapshot["earned"]), required)
+        self.assertEqual(set(snapshot["excluded"]), excluded)
+        self.assertEqual(snapshot["missing"], [])
+        for target_id, evidence in snapshot["earned"].items():
+            with self.subTest(target=target_id):
+                self.assertEqual(evidence["source"], by_id[target_id]["evidence"])
+                self.assertTrue(evidence["first"])
+                self.assertGreater(evidence["count"], 0)
+
     def test_node_types_are_derived_from_map_gen(self):
         derived = sweep.runtime_node_types()
         self.assertEqual(derived, {v for n, v in vars(map_gen).items()

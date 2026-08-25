@@ -66,6 +66,15 @@ SWEEP_VERSION = 1
 TARGETS_PATH = os.path.join(_HERE, "sweep-targets.json")
 FINDINGS_DIR = os.path.join(_HERE, "findings")
 
+# These are not suppressed divergences. They are the two retained records
+# whose source-side PokeAPI lookup is deliberately unavailable in the offline
+# oracle. replay-set still reports both actual reproductions; this allowlist
+# only distinguishes an adjudicated harness boundary from a new divergence.
+ACCEPTED_HARNESS_BOUNDARY_EPISODES = frozenset({
+    "legend_2779800549",
+    "legend_3187443927",
+})
+
 # The eight episode strata the manifest requires. Story/Nuzlocke x Gen1-4.
 MODE_BUCKETS = [
     {"nuzlocke": n, "gen2": g == 2, "gen3": g == 3, "gen4": g == 4}
@@ -1576,6 +1585,41 @@ def replay_record(record: dict, actions: Optional[list[dict]] = None) -> dict:
         py.close()
 
 
+def replay_disposition(record: dict, episode: dict) -> str:
+    """Classify a replay result without hiding its observed divergence."""
+    if episode.get("divergence") is None:
+        return "clean"
+
+    if record.get("episode_id") not in ACCEPTED_HARNESS_BOUNDARY_EPISODES:
+        return "unexpected-divergence"
+
+    divergence = episode["divergence"]
+    action = divergence.get("action", {})
+    paths = {diff.get("path") for diff in divergence.get("diffs", [])}
+    classification = record.get("classification", {})
+
+    js_checkpoint = (divergence.get("js") or {}).get("checkpoint") or {}
+    map_nodes = (js_checkpoint.get("map") or {}).get("nodes") or []
+    has_giratina_wild_boss = any(
+        node.get("id") == "n1_1"
+        and node.get("wild_boss") is True
+        and any(member.get("id") == "giratina-origin"
+                for member in node.get("boss_team", []))
+        for node in map_nodes
+    )
+
+    expected = (
+        record.get("kind") == "harness-boundary-divergence"
+        and action == {"kind": "visit_node", "node_id": "n1_1"}
+        and {"battles[len]", "checkpoint.rng.draws"} <= paths
+        and has_giratina_wild_boss
+        and classification.get("verdict")
+        == "NOT a port defect -- offline-harness boundary"
+        and "network disabled" in classification.get("js_runtime_evidence", "")
+    )
+    return "accepted-harness-boundary" if expected else "unexpected-divergence"
+
+
 def replay_records(paths: list[str], ledger: CoverageLedger) -> dict:
     """Replay saved reproducers with their OWN action lists and account for
     what the replays actually observe.
@@ -1620,12 +1664,19 @@ def replay_records(paths: list[str], ledger: CoverageLedger) -> dict:
                 "episode_id": record["episode_id"],
                 "actions": len(record["actions"]),
                 "reproduced": ep["divergence"] is not None,
+                "disposition": replay_disposition(record, ep),
                 "episode_digest": ep["episode_digest"],
                 "outcome": ep["outcome"],
             })
     finally:
         js.close()
         py.close()
+
+    summary = summarize(results)
+    summary["accepted_harness_boundary"] = sum(
+        r["disposition"] == "accepted-harness-boundary" for r in records)
+    summary["unexpected_divergence"] = sum(
+        r["disposition"] == "unexpected-divergence" for r in records)
 
     return {
         "sweep_version": SWEEP_VERSION,
@@ -1637,7 +1688,7 @@ def replay_records(paths: list[str], ledger: CoverageLedger) -> dict:
         "wall_clock_s": round(time.time() - started, 1),
         "episodes": results,
         "coverage": ledger.report(),
-        "summary": summarize(results),
+        "summary": summary,
     }
 
 
@@ -2361,16 +2412,22 @@ def main(argv: list[str]) -> int:
         result = replay_records(args.records, ledger)
         diverged = sum(1 for r in result["replay_set"] if r["reproduced"])
         for r in result["replay_set"]:
+            status = ("ACCEPTED BOUNDARY" if
+                      r["disposition"] == "accepted-harness-boundary"
+                      else "REPRODUCED" if r["reproduced"] else "clean")
             print(f"  {r['record']:<48} {r['outcome']:<10} "
-                  f"{'REPRODUCED' if r['reproduced'] else 'clean'}")
+                  f"{status}")
         print(f"\n{len(result['replay_set'])} record(s), "
               f"{result['summary']['compared_action_steps']} compared action steps, "
               f"{result['wall_clock_s']}s")
-        print(f"still reproducing: {diverged}")
+        print(f"still reproducing: {diverged} "
+              f"(accepted harness boundary: "
+              f"{result['summary']['accepted_harness_boundary']}; "
+              f"unexpected: {result['summary']['unexpected_divergence']})")
         print(f"coverage observed by these replays: "
               f"{len(result['coverage']['earned'])}/{result['coverage']['required']}")
         _write(args.out, result)
-        return 1 if diverged else 0
+        return 1 if result["summary"]["unexpected_divergence"] else 0
 
     if args.cmd == "coverage":
         ledger = CoverageLedger(targets)

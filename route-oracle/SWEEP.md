@@ -222,8 +222,40 @@ behaviour — except that here the harness cannot be repaired faithfully without
 inventing a PokeAPI response, which would put non-extracted data inside the
 *source* runtime and destroy the oracle's independence.
 
-Retained, classified `harness-boundary-divergence`, and left for independent
-adjudication.
+Retained and classified `harness-boundary-divergence`; the accepted boundary
+policy is recorded below and does not erase the observed differences.
+
+## M7 scope disposition: Story/Nuzlocke only
+
+M7's declared surface is Story/Nuzlocke Gen1-4. Endless and Challenge modes are
+future scope, not hidden gaps in this gate. Accordingly, the target manifest
+explicitly excludes these two targets for M7:
+
+| target | M7 disposition | reason |
+|---|---|---|
+| `battle.immune` | excluded for M7 | Story/Nuzlocke replaces an immune main move with typeless Struggle before a compared `typeEff == 0` attack event; the remaining zero-producing sites require passives unavailable on this surface. |
+| `battle.status_poison_drain` | excluded for M7 | the source requires the player's `poison_drain` passive, and Story/Nuzlocke has no live passive-acquisition path. |
+
+This is a **scope disposition**, not a claim that the game can never produce
+these events. Endless/Challenge work must restore both targets to the required
+denominator when those modes enter scope. The M7 denominator is now **163 total
+/ 154 required / 9 excluded**.
+
+The final 154/154 coverage snapshot is retained at
+`evidence/M7-story-nuzlocke-coverage.json` rather than only under the
+gitignored `out/` directory. `SweepDenominatorTests` pins that snapshot's
+earned and excluded ids to the live manifest, so either side changing makes
+the ordinary test suite fail.
+
+## Accepted harness boundary: Giratina wild boss
+
+The two retained Giratina `n1_1` records remain visible and reproducible. They
+are accepted as an oracle-contract boundary, not erased as zero differences:
+the offline source runtime rejects the PokeAPI lookup for the string
+`giratina-origin`, while the port uses its deliberate local canonical data. The
+numeric Dialga/Palkia controls are clean. The final replay report must separate
+these two accepted `harness-boundary-divergence` records from any unexpected
+port divergence; any new unexpected divergence remains a failure.
 
 ## The normalized action vocabulary
 

@@ -1103,6 +1103,54 @@ class ReplaySetAccountingTests(_CrossRuntimeFixtureTest):
             self.assertIn("count", rec)
 
 
+# ===========================================================================
+# 12. Accepted harness-boundary replay accounting
+# ===========================================================================
+
+
+class HarnessBoundaryDispositionTests(_CrossRuntimeFixtureTest):
+    """The offline Giratina lookup boundary is accepted narrowly, not hidden."""
+
+    RECORDS = (
+        "M7-divergence-distortion_wildboss_giratina_2779800549.json",
+        "M7-divergence-distortion_wildboss_giratina_3187443927.json",
+    )
+
+    def _paths(self) -> list[str]:
+        paths = [os.path.join(_ROUTE_ORACLE, "findings", n) for n in self.RECORDS]
+        for path in paths:
+            if not os.path.isfile(path):
+                self.skipTest("retained Giratina boundary records are absent")
+        return paths
+
+    def test_boundary_records_remain_visible_but_are_accepted(self):
+        result = sweep.replay_records(
+            self._paths(), sweep.CoverageLedger(sweep.load_targets()))
+
+        self.assertEqual(result["summary"]["diverged"], 2)
+        self.assertEqual(result["summary"]["accepted_harness_boundary"], 2)
+        self.assertEqual(result["summary"]["unexpected_divergence"], 0)
+        self.assertTrue(all(row["reproduced"] for row in result["replay_set"]))
+        self.assertTrue(all(row["disposition"] == "accepted-harness-boundary"
+                            for row in result["replay_set"]))
+
+    def test_a_changed_boundary_shape_is_not_accepted(self):
+        path = self._paths()[0]
+        with open(path, encoding="utf-8") as fh:
+            record = json.load(fh)
+
+        episode = {"divergence": json.loads(json.dumps(record["divergence"]))}
+        episode["divergence"]["action"]["node_id"] = "n1_0"
+        self.assertEqual(sweep.replay_disposition(record, episode),
+                         "unexpected-divergence")
+
+        episode["divergence"]["action"]["node_id"] = "n1_1"
+        record["classification"]["verdict"] = "wrong classification"
+        self.assertEqual(sweep.replay_disposition(record,
+                                                   {"divergence": episode["divergence"]}),
+                         "unexpected-divergence")
+
+
 
 if __name__ == "__main__":
     unittest.main()

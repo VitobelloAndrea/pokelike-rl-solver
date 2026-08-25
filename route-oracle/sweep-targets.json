@@ -97,9 +97,10 @@
       "stratum": "battle"
     },
     {
-      "evidence": "sweep",
+      "evidence": "excluded",
+      "exclusion_reason": "M7 covers Story/Nuzlocke only. The source replaces an immune main move with typeless Struggle before a typeEff == 0 attack event can be emitted; the remaining zero-effectiveness emission sites require passives, which are only populated by Endless/Challenge paths. Re-enter this target when those modes are brought into scope.",
       "id": "battle.immune",
-      "rationale": "typeEff == 0 in a compared attack event.",
+      "rationale": "Story/Nuzlocke source surface cannot emit a compared typeEff == 0 attack event; retained as a future Endless/Challenge target.",
       "stratum": "battle"
     },
     {
@@ -177,9 +178,10 @@
       "stratum": "battle"
     },
     {
-      "evidence": "sweep",
+      "evidence": "excluded",
+      "exclusion_reason": "M7 covers Story/Nuzlocke only. The source poison-drain event requires the player's poison_drain passive, but all state.passives writers are behind the Endless/Challenge paths and Story/Nuzlocke supplies an empty passive list. Re-enter this target when those modes are brought into scope.",
       "id": "battle.status_poison_drain",
-      "rationale": "A 'poison_drain' entry in the normalized status-event family both oracles already treat as authoritative.",
+      "rationale": "Story/Nuzlocke source surface cannot acquire poison_drain; retained as a future Endless/Challenge target.",
       "stratum": "battle"
     },
     {
